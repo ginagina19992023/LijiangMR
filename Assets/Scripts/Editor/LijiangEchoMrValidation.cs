@@ -12,6 +12,9 @@ public static class LijiangEchoMrValidation
 {
     private const string SessionKey = "LijiangEcho.MrValidationRunning";
     private const string MainScenePath = "Assets/Scenes/LijiangEchoMR_Main.unity";
+    private const string BootstrapScenePath = "Assets/Scenes/Bootstrap.unity";
+    private const string StageStartScenePath = "Assets/Scenes/Stages/Stage_Start.unity";
+    private const string StageSelectScenePath = "Assets/Scenes/Stages/Stage_Select.unity";
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     private static LijiangEchoGameController controller;
@@ -32,7 +35,12 @@ public static class LijiangEchoMrValidation
         SessionState.SetBool(SessionKey, true);
         phase = 0;
         waitFrames = 0;
-        EditorSceneManager.OpenScene(MainScenePath, OpenSceneMode.Single);
+        // Camera Rig / 透视 / 手部追踪现在常驻于 Bootstrap 场景；这里额外把它叠加到旧主场景上，
+        // 只为了让下面这套针对 LijiangEchoGameController 内部 Start/Select 逻辑的自动化验收
+        // 仍然能找到真实的 XR Rig。跳过 GameFlow 的自动阶段跳转，避免它抢着加载 Stage_Start。
+        LijiangEchoGameFlow.SkipAutoStageLoad = true;
+        EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Single);
+        EditorSceneManager.OpenScene(MainScenePath, OpenSceneMode.Additive);
         EditorApplication.update -= Tick;
         EditorApplication.update += Tick;
         EditorApplication.EnterPlaymode();
@@ -40,7 +48,9 @@ public static class LijiangEchoMrValidation
 
     public static void OpenMainScene()
     {
-        EditorSceneManager.OpenScene(MainScenePath, OpenSceneMode.Single);
+        LijiangEchoGameFlow.SkipAutoStageLoad = true;
+        EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Single);
+        EditorSceneManager.OpenScene(MainScenePath, OpenSceneMode.Additive);
     }
 
     public static void BuildAndroid()
@@ -55,7 +65,7 @@ public static class LijiangEchoMrValidation
 
         BuildPlayerOptions options = new BuildPlayerOptions
         {
-            scenes = new[] { MainScenePath },
+            scenes = new[] { BootstrapScenePath, StageStartScenePath, StageSelectScenePath, MainScenePath },
             locationPathName = outputPath,
             target = BuildTarget.Android,
             targetGroup = BuildTargetGroup.Android,

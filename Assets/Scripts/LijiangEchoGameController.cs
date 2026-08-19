@@ -119,6 +119,12 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private static LijiangEchoGameController instance;
 
+    /// <summary>
+    /// 由 LijiangEchoGameFlow 在桥接进入本场景前设置：跳过开始/选关（已迁移到独立场景），
+    /// 直接从过场动画开始。为 null 时保持旧行为，方便独立打开本场景做调试。
+    /// </summary>
+    public static int? ExternalSelectedLevel;
+
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
@@ -326,6 +332,13 @@ public class LijiangEchoGameController : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureController()
     {
+        if (!SceneManager.GetSceneByName("LijiangEchoMR_Main").isLoaded)
+        {
+            // 开始/选关已拆到独立场景（Stage_Start/Stage_Select），本控制器只在旧主场景
+            // 加载后才自动生成，避免在 Bootstrap/新阶段场景里重复搭建一套内容。
+            return;
+        }
+
         if (FindFirstObjectByType<LijiangEchoGameController>() != null)
         {
             return;
@@ -369,7 +382,16 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         PrepareStageRoot(true);
-        ShowStart();
+        if (ExternalSelectedLevel.HasValue)
+        {
+            selectedLevel = ExternalSelectedLevel.Value;
+            ShowIntro();
+        }
+        else
+        {
+            ShowStart();
+        }
+
         experienceReady = true;
     }
 

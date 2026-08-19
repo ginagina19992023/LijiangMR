@@ -6,8 +6,17 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/1.unity
-    guid: 85416292b864bd3478e30947a3593385
+    path: Assets/Scenes/Bootstrap.unity
+    guid: 98fd423dfa2ce0da5c1bbea5b23fde28
+  - enabled: 1
+    path: Assets/Scenes/Stages/Stage_Start.unity
+    guid: bbd8c1ca547268c7093a08e43db9179e
+  - enabled: 1
+    path: Assets/Scenes/Stages/Stage_Select.unity
+    guid: 32b5f368b3349859df310af7969ada99
+  - enabled: 1
+    path: Assets/Scenes/LijiangEchoMR_Main.unity
+    guid: 4600cf25042fdc24796580487869a0cb
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 9f5da06f177b3d140ac5156d3d6a3330, type: 2}
