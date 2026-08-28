@@ -1794,6 +1794,58 @@ public class LijiangEchoGameController : MonoBehaviour
         nextSpawnIndex = 0;
         nextNoteIndex = 0;
 
+        BuildBattleBackground();
+
+        AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.38f), 0.24f, 70, 0.9f);
+        GameObject centerRingObject = AddIcon(
+            "battle/hit_ring_center",
+            "中央节奏判定双圆环",
+            new Vector3(0f, 0f, -0.82f),
+            HitRingVisibleHeight,
+            190,
+            1f);
+        ringRenderer = centerRingObject.GetComponent<SpriteRenderer>();
+        ringTransform = centerRingObject.transform;
+        ringBaseScale = ringTransform.localScale;
+
+        RectInt[] traceCrops =
+        {
+            new RectInt(273, 2314, 1951, 2547),
+            new RectInt(1822, 2125, 2973, 2185),
+            new RectInt(995, 836, 1335, 1359)
+        };
+        GameObject patternObject = AddCroppedSprite(
+            tracePaths[selectedLevel],
+            "待描绘纹样",
+            traceCrops[selectedLevel],
+            new Vector3(1.84f, -0.82f, -0.42f),
+            0.34f,
+            62,
+            0.72f,
+            false);
+        patternRenderer = patternObject.GetComponent<SpriteRenderer>();
+
+        AddSolidRect("顶部进度底线", new Vector3(0f, 1.04f, -0.44f), 2.94f, 0.026f, new Color(1f, 1f, 1f, 0.42f), 64);
+        GameObject progressFill = AddSolidRect("战斗进度填充", new Vector3(-1.47f, 1.04f, -0.45f), 0.02f, 0.034f, new Color(1f, 0.86f, 0.35f, 0.82f), 65);
+        progressFillRenderer = progressFill.GetComponent<SpriteRenderer>();
+        AddIcon("battle/progress_bar", "战斗顶部进度条美术", new Vector3(0f, 1.04f, -0.46f), 0.11f, 66, 0.96f);
+
+        GameObject countdownObject = AddIcon("ui/number_3", "倒计时数字", new Vector3(0f, -0.02f, -0.48f), 0.72f, 80, 0.96f);
+        countdownRenderer = countdownObject.GetComponent<SpriteRenderer>();
+
+        BuildBattleHands();
+        RegisterMotion(countdownObject, MotionKind.Pulse, 0.028f, 6.5f, 0f);
+        scoreText = AddText("分数 0    连击 0", new Vector3(-1.68f, 0.87f, -0.48f), 0.017f, new Color(1f, 0.93f, 0.72f), 68);
+        feedbackText = AddText("", new Vector3(0f, -1.05f, -0.48f), 0.022f, new Color(1f, 0.93f, 0.7f), 60);
+    }
+
+    /// <summary>
+    /// 战斗静态舞台背景(远山/人群/怪物/火焰/祭坛/装饰手/边框)。抽成独立方法,
+    /// 为后续"战斗场景化"(把这块烘焙成可在场景里直接摆位的物体)做准备。
+    /// 目前仍在 ShowBattle 里运行时构建,视觉与之前完全一致。
+    /// </summary>
+    private void BuildBattleBackground()
+    {
         AddLayer("ui/mountain_background", "战斗远景底", new Vector3(0f, 0f, 0.08f), WideStripWidth, -30, 0.08f);
         AddLayer("battle/mountain_left_1", "左山一", new Vector3(0f, 0.03f, 0.04f), WideStripWidth, -22, 0.96f);
         AddLayer("battle/mountain_left_2", "左山二", new Vector3(0f, 0.03f, 0.03f), WideStripWidth, -21, 0.9f);
@@ -1857,47 +1909,6 @@ public class LijiangEchoGameController : MonoBehaviour
         AddLayer("battle/foreground_hand_right", "右前景手", new Vector3(0f, 0.03f, -0.32f), WideStripWidth, 40, 0.52f);
         AddLayer("battle/battle_border", "战斗边框", new Vector3(0f, 0.03f, -0.35f), WideStripWidth, 12, 0.08f);
 
-        AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.38f), 0.24f, 70, 0.9f);
-        GameObject centerRingObject = AddIcon(
-            "battle/hit_ring_center",
-            "中央节奏判定双圆环",
-            new Vector3(0f, 0f, -0.82f),
-            HitRingVisibleHeight,
-            190,
-            1f);
-        ringRenderer = centerRingObject.GetComponent<SpriteRenderer>();
-        ringTransform = centerRingObject.transform;
-        ringBaseScale = ringTransform.localScale;
-
-        RectInt[] traceCrops =
-        {
-            new RectInt(273, 2314, 1951, 2547),
-            new RectInt(1822, 2125, 2973, 2185),
-            new RectInt(995, 836, 1335, 1359)
-        };
-        GameObject patternObject = AddCroppedSprite(
-            tracePaths[selectedLevel],
-            "待描绘纹样",
-            traceCrops[selectedLevel],
-            new Vector3(1.84f, -0.82f, -0.42f),
-            0.34f,
-            62,
-            0.72f,
-            false);
-        patternRenderer = patternObject.GetComponent<SpriteRenderer>();
-
-        AddSolidRect("顶部进度底线", new Vector3(0f, 1.04f, -0.44f), 2.94f, 0.026f, new Color(1f, 1f, 1f, 0.42f), 64);
-        GameObject progressFill = AddSolidRect("战斗进度填充", new Vector3(-1.47f, 1.04f, -0.45f), 0.02f, 0.034f, new Color(1f, 0.86f, 0.35f, 0.82f), 65);
-        progressFillRenderer = progressFill.GetComponent<SpriteRenderer>();
-        AddIcon("battle/progress_bar", "战斗顶部进度条美术", new Vector3(0f, 1.04f, -0.46f), 0.11f, 66, 0.96f);
-
-        GameObject countdownObject = AddIcon("ui/number_3", "倒计时数字", new Vector3(0f, -0.02f, -0.48f), 0.72f, 80, 0.96f);
-        countdownRenderer = countdownObject.GetComponent<SpriteRenderer>();
-
-        BuildBattleHands();
-        RegisterMotion(countdownObject, MotionKind.Pulse, 0.028f, 6.5f, 0f);
-        scoreText = AddText("分数 0    连击 0", new Vector3(-1.68f, 0.87f, -0.48f), 0.017f, new Color(1f, 0.93f, 0.72f), 68);
-        feedbackText = AddText("", new Vector3(0f, -1.05f, -0.48f), 0.022f, new Color(1f, 0.93f, 0.7f), 60);
     }
 
     private void UpdateBattle()
