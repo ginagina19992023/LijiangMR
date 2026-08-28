@@ -3,17 +3,28 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 开始阶段场景（Stage_Start）的控制器，对应旧 LijiangEchoGameController 里的
-/// ShowStart/UpdateStart。内容拼装逻辑与旧版保持一致，只是改用
-/// LijiangEchoStageKit 的公共方法，并把舞台内容放在本场景自己的根节点下。
+/// 开始阶段场景（Stage_Start）的控制器，支持两种模式，二者视觉一致：
+///   · 未烘焙：场景里没有名为「开始舞台」的根节点时，沿用运行时构建
+///     （BuildStartScreenLayout），画面与场景化改造前完全一样。
+///   · 已烘焙：场景里存在「开始舞台」根节点（由 漓江回声/场景化/2. 烘焙 生成）时，
+///     直接使用场景中已摆好的美术内容——可在编辑器里拖拽替换——并自动跳过运行时
+///     构建，不会重复叠加。
+/// 详见 docs/superpowers/specs/2026-08-28-stage-start-authoring-design.md。
 /// </summary>
 public class StartStageController : MonoBehaviour
 {
-    private Transform stageRoot;
+    [Header("场景引用")]
+    [Tooltip("烘焙后可在此指定「开始舞台」根节点；留空则运行时自动查找或运行时构建")]
+    [SerializeField] private Transform stageRoot;
+
+    /// <summary>烘焙生成的舞台根节点名称，运行时据此判断是否已场景化。</summary>
+    private const string BakedStageRootName = "开始舞台";
+
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<LijiangEchoStageKit.MotionItem> motionItems = new List<LijiangEchoStageKit.MotionItem>();
     private SpriteRenderer startButtonPanelRenderer;
     private SpriteRenderer startButtonRenderer;
+    private bool ready;
     private bool confirmed;
 
     private IEnumerator Start()
@@ -23,13 +34,38 @@ public class StartStageController : MonoBehaviour
             yield return null;
         }
 
-        stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_开始舞台");
-        BuildStartScreen();
+        LijiangEchoStageKit.PlayStageLoop("ambience_water", 0.32f);
+        LijiangEchoStageKit.PlaySfx("birds", 0.22f);
+
+        // Inspector 未指定时，尝试在场景里找已烘焙的根节点
+        if (stageRoot == null)
+        {
+            stageRoot = FindBakedStageRoot();
+        }
+
+        if (stageRoot != null)
+        {
+            // 已烘焙：内容已在场景里，只需摆到相机前、收集动效、找到按钮渲染器
+            LijiangEchoStageKit.AnchorStageRoot(stageRoot);
+            CollectSceneMotions();
+            startButtonPanelRenderer = FindChildRenderer("进入游戏主按钮");
+            startButtonRenderer = FindChildRenderer("开始按钮高光");
+        }
+        else
+        {
+            // 未烘焙：沿用运行时构建，画面与改造前完全一致
+            stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_开始舞台");
+            BuildStartScreenLayout(stageRoot, spawnedObjects, motionItems);
+            startButtonPanelRenderer = FindSpawnedRenderer("进入游戏主按钮");
+            startButtonRenderer = FindSpawnedRenderer("开始按钮高光");
+        }
+
+        ready = true;
     }
 
     private void Update()
     {
-        if (stageRoot == null || confirmed)
+        if (!ready || confirmed)
         {
             return;
         }
@@ -59,18 +95,51 @@ public class StartStageController : MonoBehaviour
         }
     }
 
-    private void BuildStartScreen()
+    /// <summary>在当前激活场景里查找烘焙生成的「开始舞台」根节点；没有则返回 null。</summary>
+    private static Transform FindBakedStageRoot()
     {
-        LijiangEchoStageKit.PlayStageLoop("ambience_water", 0.32f);
-        LijiangEchoStageKit.PlaySfx("birds", 0.22f);
+        foreach (GameObject root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())
+        {
+            if (root.name == BakedStageRootName)
+            {
+                return root.transform;
+            }
 
-        BuildStartScreenLayout(stageRoot, spawnedObjects, motionItems);
+            Transform found = root.transform.Find(BakedStageRootName);
+            if (found != null)
+            {
+                return found;
+            }
+        }
 
-        startButtonPanelRenderer = FindLayerRenderer("进入游戏主按钮");
-        startButtonRenderer = FindLayerRenderer("开始按钮高光");
+        return null;
     }
 
-    private SpriteRenderer FindLayerRenderer(string objectName)
+    /// <summary>把场景里挂了动效组件的图层收集成 StageKit 认识的形式，动效算法不变。</summary>
+    private void CollectSceneMotions()
+    {
+        motionItems.Clear();
+        foreach (LijiangEchoMotion motion in stageRoot.GetComponentsInChildren<LijiangEchoMotion>(true))
+        {
+            LijiangEchoStageKit.RegisterMotion(
+                motionItems,
+                motion.gameObject,
+                motion.kind,
+                motion.amplitude,
+                motion.speed,
+                motion.phase);
+        }
+    }
+
+    /// <summary>在已烘焙的场景树里按名字找到某个图层的 SpriteRenderer。</summary>
+    private SpriteRenderer FindChildRenderer(string objectName)
+    {
+        Transform child = stageRoot.Find(objectName);
+        return child != null ? child.GetComponent<SpriteRenderer>() : null;
+    }
+
+    /// <summary>在运行时构建生成的物体列表里按名字找到某个图层的 SpriteRenderer。</summary>
+    private SpriteRenderer FindSpawnedRenderer(string objectName)
     {
         foreach (GameObject item in spawnedObjects)
         {
@@ -84,9 +153,8 @@ public class StartStageController : MonoBehaviour
     }
 
     /// <summary>
-    /// 开始界面的纯布局表。提为 public static 是为了让编辑器烘焙工具能在非 Play 模式下
-    /// 调用它、取得与运行时完全一致的数值作为基线，避免手工转写这张表出错。
-    /// 场景化改造完成后本方法连同调用一并删除（见实施计划 Task 5）。
+    /// 开始界面的纯布局表。未烘焙时由本控制器运行时调用；烘焙时由编辑器工具在非 Play
+    /// 模式下调用它、取得与运行时完全一致的数值作为基线（见实施计划 Task 1）。
     /// </summary>
     public static void BuildStartScreenLayout(
         Transform stageRoot,
