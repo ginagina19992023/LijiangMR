@@ -159,6 +159,7 @@ public static class LijiangEchoStageBakeTool
         stageRootObject.transform.localScale = Vector3.one;
 
         int meshMismatchCount = 0;
+        int createdCount = 0;
         foreach (LayerRecord record in set.layers)
         {
             Sprite assetSprite = LoadSpriteAsset(record.spriteAssetPath);
@@ -216,16 +217,19 @@ public static class LijiangEchoStageBakeTool
             {
                 meshMismatchCount++;
             }
+
+            createdCount++;
         }
 
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(stageRootObject.scene);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(stageRootObject.scene);
 
-        Debug.Log($"[漓江回声场景化] 已烘焙 {set.layers.Count} 个图层到 {StageStartScenePath}，网格差异计数 {meshMismatchCount}。");
-        EditorUtility.DisplayDialog(
-            "烘焙完成",
-            $"已生成 {set.layers.Count} 个图层。\n\n接下来请执行「3. 校验 Stage_Start 与基线一致」。",
-            "好");
+        // 报实际创建数,而非 set.layers.Count(否则全跳过时也误报 20)。
+        Debug.Log($"[漓江回声场景化] 已烘焙 {createdCount}/{set.layers.Count} 个图层到 {StageStartScenePath}，网格差异计数 {meshMismatchCount}。");
+        string bakeMsg = createdCount == set.layers.Count
+            ? $"已生成 {createdCount} 个图层。\n\n接下来请执行「3. 校验 Stage_Start 与基线一致」。"
+            : $"⚠️ 只生成了 {createdCount}/{set.layers.Count} 个图层,有 {set.layers.Count - createdCount} 个因找不到 Sprite 被跳过。\n请看 Console 的红色「找不到精灵资产」并检查那些贴图的导入设置(需为 Sprite)。";
+        EditorUtility.DisplayDialog("烘焙完成", bakeMsg, "好");
     }
 
     /// <summary>
@@ -239,6 +243,11 @@ public static class LijiangEchoStageBakeTool
             return null;
         }
 
+        // 关键:这些贴图运行时是 Sprite.Create 现造的,原图导入类型多为普通 Texture,
+        // 没有 Sprite 子资源。烘焙前先把它改成 Sprite/Single 并重新导入,否则下面 LoadAll
+        // 找不到 Sprite 会把整层跳过(表现为「开始舞台」空的、校验缺失 20 个子物体)。
+        EnsureSpriteImport(assetPath);
+
         foreach (UnityEngine.Object item in AssetDatabase.LoadAllAssetsAtPath(assetPath))
         {
             if (item is Sprite sprite)
@@ -247,7 +256,35 @@ public static class LijiangEchoStageBakeTool
             }
         }
 
-        return null;
+        return AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+    }
+
+    /// <summary>把贴图的导入类型确保为 Sprite（Single）,必要时重新导入。</summary>
+    private static void EnsureSpriteImport(string assetPath)
+    {
+        TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        if (importer == null)
+        {
+            return;
+        }
+
+        bool changed = false;
+        if (importer.textureType != TextureImporterType.Sprite)
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            changed = true;
+        }
+
+        if (importer.spriteImportMode != SpriteImportMode.Single)
+        {
+            importer.spriteImportMode = SpriteImportMode.Single;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            importer.SaveAndReimport();
+        }
     }
 
     [MenuItem("漓江回声/场景化/3. 校验 Stage_Start 与基线一致")]
