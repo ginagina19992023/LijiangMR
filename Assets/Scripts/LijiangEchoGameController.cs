@@ -66,6 +66,7 @@ public class LijiangEchoGameController : MonoBehaviour
         public float TargetHeight;
         public NoteKind Kind;
         public SpriteRenderer Renderer;
+        public SpriteRenderer Glow;
         public bool Judged;
     }
 
@@ -942,6 +943,17 @@ public class LijiangEchoGameController : MonoBehaviour
         introScrollRoot.localScale = Vector3.one;
         spawnedObjects.Add(scrollRootObject);
 
+        // 静止地平线背景板:选关进入过场后,层叠远山持续出现在远方地平线(不随漂浮素材横移)。
+        // 层叠做出景深,压在最底层(order -52…-40),y 偏下贴地平线。嫌浓淡/高度不对,调 alpha 与 y。
+        AddLayer("ui/mountain_background", "地平线天幕", new Vector3(0f, -0.18f, 0.5f), WideStripWidth, -52, 0.92f);
+        AddLayer("start/back_mountain_3", "地平线远山三", new Vector3(0f, -0.28f, 0.42f), WideStripWidth, -50, 0.72f);
+        AddLayer("start/back_mountain_2", "地平线远山二", new Vector3(0f, -0.30f, 0.36f), WideStripWidth, -49, 0.82f);
+        AddLayer("start/back_mountain_1", "地平线远山一", new Vector3(0f, -0.32f, 0.30f), WideStripWidth, -48, 0.9f);
+        AddLayer("start/front_mountain_left", "地平线前山左", new Vector3(0f, -0.34f, 0.24f), WideStripWidth, -44);
+        AddLayer("start/front_mountain_right", "地平线前山右", new Vector3(0f, -0.34f, 0.20f), WideStripWidth, -43);
+        GameObject horizonCloud = AddLayer("start/back_cloud_1", "地平线远云", new Vector3(-0.05f, 0.02f, 0.34f), WideStripWidth, -46, 0.5f);
+        RegisterMotion(horizonCloud, MotionKind.FloatX, 0.03f, 0.35f, 0.7f);
+
         AddIntroFlyItem("transition/mountain_1", "近景山一", new RectInt(127, 197, 490, 260), new Vector3(-3.25f, -0.18f, -0.16f), new Vector3(3.15f, -0.05f, -0.16f), 0.42f, 0.78f, 0.0f, 5.8f, 12, 0.88f);
         AddIntroFlyItem("transition/mountain_4", "近景山二", new RectInt(1390, 219, 373, 197), new Vector3(3.20f, -0.34f, -0.18f), new Vector3(-3.10f, -0.20f, -0.18f), 0.38f, 0.74f, 0.3f, 6.1f, 13, 0.84f);
         AddIntroFlyItem("transition/terrace", "漂浮梯田", new RectInt(507, 314, 451, 139), new Vector3(-3.0f, -0.60f, -0.22f), new Vector3(3.1f, -0.46f, -0.22f), 0.24f, 0.46f, 0.8f, 6.9f, 16, 0.92f);
@@ -1178,18 +1190,6 @@ public class LijiangEchoGameController : MonoBehaviour
         ResetStage(Stage.Trace);
         PlayStageLoop("ambience", 0.26f);
 
-        // ②/P5 背景补全：描绘阶段原本只有淡紫边框、画面空洞。用层叠远山填满整个地平线，
-        // 做出前后景深(参照开始界面的山峦分层),全部放在最底层(order -44…-32,均在淡紫边框
-        // -20 之下)。越远越淡、z 越大(越靠后)。嫌浓淡/层次不对,调这里的 alpha 与 z 即可。
-        AddLayer("ui/mountain_background", "描绘远景天幕", new Vector3(0f, 0.02f, 0.46f), WideStripWidth, -44, 0.9f);
-        AddLayer("start/back_mountain_3", "描绘远山三", new Vector3(0f, -0.02f, 0.36f), WideStripWidth, -42, 0.7f);
-        AddLayer("start/back_mountain_2", "描绘远山二", new Vector3(0f, -0.02f, 0.30f), WideStripWidth, -41, 0.8f);
-        AddLayer("start/back_mountain_1", "描绘远山一", new Vector3(0f, -0.02f, 0.24f), WideStripWidth, -40, 0.9f);
-        AddLayer("start/back_building", "描绘远景建筑", new Vector3(0f, -0.02f, 0.18f), WideStripWidth, -38, 0.85f);
-        AddLayer("start/front_mountain_left", "描绘前山左", new Vector3(0f, -0.02f, 0.12f), WideStripWidth, -34);
-        AddLayer("start/front_mountain_right", "描绘前山右", new Vector3(0f, -0.02f, 0.08f), WideStripWidth, -33);
-        GameObject traceBgCloud = AddLayer("start/back_cloud_1", "描绘远云", new Vector3(-0.04f, 0.06f, 0.2f), WideStripWidth, -37, 0.55f);
-        RegisterMotion(traceBgCloud, MotionKind.FloatX, 0.03f, 0.4f, 0.6f);
         AddLayer("transition/purple_frame", "描绘阶段淡紫边框", Vector3.zero, MainCanvasWidth, -20, 0.14f);
         AddLayer("pattern/drawing_card", "纹样描绘台", new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
 
@@ -1830,14 +1830,13 @@ public class LijiangEchoGameController : MonoBehaviour
             float startX = side * 2.26f;
             float targetX = 0f; // 用户反馈:音符最终飞到中心原点圆点(不再停在一侧)
             NoteKind kind = GetNoteKind(nextSpawnIndex);
-            // 用户反馈:单击不再用 hit_block(黄色圆弧),改用现有铜钱纹样。
-            // 注:需求原意单击=鱼纹,但项目里没有鱼纹「音符」图(只有 select/fish_symbol,
-            // 且音符系统用硬编码 crop),待美术给鱼纹音符图 + 内容矩形后一行替换。
-            string resourcePath = "pattern/coin_done";
-            RectInt crop = CoinDoneCrop;
+            // 用户反馈:单击用鱼纹。select/fish_symbol 是独立整图,传超范围矩形 → GetCroppedSprite
+            // 会夹到整图,即用整张鱼纹(无需知道其像素尺寸)。
+            string resourcePath = "select/fish_symbol";
+            RectInt crop = new RectInt(0, 0, 100000, 100000);
             float startHeight = 0.28f;
             float targetHeight = HitBlockVisibleHeight;
-            string objectName = "节奏击打_" + nextSpawnIndex;
+            string objectName = "鱼纹单击_" + nextSpawnIndex;
             if (kind == NoteKind.Hold)
             {
                 resourcePath = "pattern/snake_done";
@@ -1879,6 +1878,18 @@ public class LijiangEchoGameController : MonoBehaviour
                 0.42f,
                 side > 0f);
             SpriteRenderer noteRenderer = noteObject.GetComponent<SpriteRenderer>();
+
+            // 金色发光光晕:同纹样放大一圈、金色半透明,压在音符后面(子物体,自动跟随),
+            // 形成"围绕音符轮廓一圈金色发光"的明显效果。亮度在 UpdateNotes 里脉动。
+            GameObject glowObject = new GameObject("金色光晕");
+            glowObject.transform.SetParent(noteObject.transform, false);
+            glowObject.transform.localPosition = new Vector3(0f, 0f, 0.01f);
+            glowObject.transform.localScale = Vector3.one * 1.35f;
+            SpriteRenderer glowRenderer = glowObject.AddComponent<SpriteRenderer>();
+            glowRenderer.sprite = noteRenderer.sprite;
+            glowRenderer.sortingOrder = noteRenderer.sortingOrder - 1;
+            glowRenderer.color = new Color(1f, 0.82f, 0.15f, 0.7f);
+
             RhythmNote note = new RhythmNote
             {
                 ChartIndex = nextSpawnIndex,
@@ -1889,6 +1900,7 @@ public class LijiangEchoGameController : MonoBehaviour
                 TargetHeight = targetHeight,
                 Kind = kind,
                 Renderer = noteRenderer,
+                Glow = glowRenderer,
                 Judged = false
             };
             activeNotes.Add(note);
@@ -1935,6 +1947,14 @@ public class LijiangEchoGameController : MonoBehaviour
                 float ringFade = Mathf.InverseLerp(0.72f, 1f, eased);  // 接触圆环→进入段
                 float noteAlpha = Mathf.Lerp(Mathf.Lerp(0.35f, 1f, appear), 0.06f, ringFade);
                 note.Renderer.color = new Color(1f, 0.86f, 0.2f, noteAlpha); // 黄色发光
+            }
+
+            // 金色光晕脉动:越接近判定越亮 + 呼吸脉动,让"围绕音符一圈金色发光"明显起来。
+            if (note.Glow != null)
+            {
+                float glowAppear = Mathf.Clamp01(eased / 0.6f);
+                float glowPulse = 0.6f + 0.4f * Mathf.Abs(Mathf.Sin(Time.time * 6f));
+                note.Glow.color = new Color(1f, 0.82f, 0.15f, glowAppear * glowPulse);
             }
 
             // P3/P6：长按音符「龙头→龙尾」逐步消失。按住期间按 holdProgress/所需时长
