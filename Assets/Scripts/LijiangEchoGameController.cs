@@ -111,6 +111,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private const bool HoldWipeTowardEntrySide = true;
     // 用户反馈:纹样音符整体做小一些的缩放系数。
     private const float NoteSizeScale = 0.72f;
+    // 鱼纹图内容不在图片正中,导致落点看着偏右;单击(鱼纹)整体落点左移补偿(负=左移)。可调。
+    private const float FishNoteXOffset = -0.14f;
     private const float HitRingVisibleHeight = 0.62f;
     private const float HitBlockVisibleHeight = 0.34f;
     private const float HitRingTargetX = HitRingVisibleHeight * 0.5f;
@@ -964,23 +966,27 @@ public class LijiangEchoGameController : MonoBehaviour
 
         // 远方地平线一排小远山:每座缩到约原来 1/5,底面落在地平线上,横向排成一排(静止,不随
         // 漂浮素材横移)。参数:horizonY=地平线高度、mtnHeight=山高、xs=各山横坐标。可自行增删调整。
-        const float horizonY = -0.32f;
-        const float mtnHeight = 0.20f;
+        const float horizonY = 0.18f;   // 地平线抬高到屏幕偏上
+        const float mtnHeight = 0.10f;  // 再缩一半(约原 1/10),更小
         float mtnCenterY = horizonY + mtnHeight * 0.5f; // 让山底贴地平线
         string[] horizonMtnArt =
         {
             "start/back_mountain_1", "start/back_mountain_2", "start/back_mountain_3",
             "start/front_mountain_left", "start/front_mountain_right"
         };
-        float[] horizonMtnX = { -1.75f, -1.20f, -0.66f, -0.12f, 0.42f, 0.96f, 1.50f };
-        for (int m = 0; m < horizonMtnX.Length; m++)
+        // 山更小 → 用更密的间距把整条地平线排满(从左到右铺满一排)。
+        const float horizonHalfSpan = 1.95f;  // 排布横向半宽
+        const float horizonStep = 0.26f;      // 相邻两山间距(越小越密)
+        int horizonCount = Mathf.CeilToInt((horizonHalfSpan * 2f) / horizonStep) + 1;
+        for (int m = 0; m < horizonCount; m++)
         {
+            float hx = -horizonHalfSpan + m * horizonStep;
             AddIcon(
                 horizonMtnArt[m % horizonMtnArt.Length],
                 "地平线小远山_" + m,
-                new Vector3(horizonMtnX[m], mtnCenterY, 0.44f),
+                new Vector3(hx, mtnCenterY, 0.44f),
                 mtnHeight,
-                -50 + m,
+                -50 + (m % 5),
                 0.85f);
         }
         AddLayer("ui/mountain_background", "地平线天幕", new Vector3(0f, horizonY - 0.04f, 0.5f), WideStripWidth, -52, 0.45f);
@@ -1676,14 +1682,17 @@ public class LijiangEchoGameController : MonoBehaviour
 
     // ===== 左右手击打(对应 VR 手柄左/右手) =====
     private const float HandStrikeDuration = 0.24f;
-    private const float HandRestAngle = 62f;   // 平时旋转到镜头外的角度(左手 +、右手 -)
-    private const float HandStrikeAngle = 8f;  // 击打时向上旋转到接近圆环的角度
+    private const float HandRestAngle = 180f;    // 平时:手臂朝下(手在轴下方、藏于画面下方)
+    private const float HandStrikeAngle = 22f;   // 击打:从下方向上旋转,朝中心圆环的角度
+    private const float HandArmLength = 1.0f;     // 臂长(手离轴心多远)
+    private const float HandPivotSide = 0.35f;    // 左右轴心离中线的横向距离
+    private const float HandPivotY = -0.82f;      // 轴心高度(越负越靠下)
 
-    /// <summary>创建左右手:轴心在画面中偏下,手在轴上方;平时旋转到镜头外,打击时向上旋转击环。</summary>
+    /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
     {
-        leftHandPivot = CreateBattleHand("battle/hand_left", "左手", -1f, out leftHandRenderer);
-        rightHandPivot = CreateBattleHand("battle/hand_right", "右手", 1f, out rightHandRenderer);
+        leftHandPivot = CreateBattleHand("battle/7左手", "左手", -1f, out leftHandRenderer);
+        rightHandPivot = CreateBattleHand("battle/7右手", "右手", 1f, out rightHandRenderer);
         leftHandStrikeTimer = 0f;
         rightHandStrikeTimer = 0f;
     }
@@ -1692,13 +1701,13 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         GameObject pivotObject = new GameObject(handName + "轴");
         pivotObject.transform.SetParent(stageRoot, false);
-        pivotObject.transform.localPosition = new Vector3(0f, -0.55f, -0.55f); // 画面中心偏下的轴心
-        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, sideSign * HandRestAngle);
+        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, -0.55f); // 偏下两侧的轴心
+        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, HandRestAngle); // 平时手臂朝下
         spawnedObjects.Add(pivotObject);
 
         GameObject hand = AddIcon(art, handName, Vector3.zero, 0.55f, 240, 0f); // 初始全透明
         hand.transform.SetParent(pivotObject.transform, false);
-        hand.transform.localPosition = new Vector3(0f, 0.72f, 0f); // 臂长:手在轴上方
+        hand.transform.localPosition = new Vector3(0f, HandArmLength, 0f); // 手在轴的"手臂末端"
         hand.transform.localRotation = Quaternion.identity;
         handRenderer = hand.GetComponent<SpriteRenderer>();
         return pivotObject.transform;
@@ -1717,8 +1726,8 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
-        float rest = sideSign * HandRestAngle;
-        float strike = sideSign * HandStrikeAngle;
+        float rest = HandRestAngle;                 // 手臂朝下藏起
+        float strike = sideSign * HandStrikeAngle;  // 向上旋转、朝中心圆环
         float angle = rest;
         float alpha = 0f; // 平时全透明(VR 里镜头外也看得见,靠透明来隐藏)
         if (timer > 0f)
@@ -2021,6 +2030,12 @@ public class LijiangEchoGameController : MonoBehaviour
                 startHeight = 0.28f;
                 targetHeight = 0.44f;
                 objectName = "双击纹样_" + nextSpawnIndex;
+            }
+
+            // 鱼纹(单击)落点左移补偿其图内容偏右;其余纹样仍落正中心。
+            if (kind == NoteKind.Strike)
+            {
+                targetX = FishNoteXOffset;
             }
 
             // 用户反馈:纹样整体做小一些
