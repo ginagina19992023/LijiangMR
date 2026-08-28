@@ -1138,10 +1138,18 @@ public class LijiangEchoGameController : MonoBehaviour
         ResetStage(Stage.Trace);
         PlayStageLoop("ambience", 0.26f);
 
-        // ②/P5 背景补全：描绘阶段原本只有淡紫边框，画面偏空。把「山」背景（ui/mountain_background，
-        // 即美术包 UI 里的山背景图）铺到最底层（order -30，在淡紫边框 -20 之下）填补空洞。
-        // alpha 先给 0.85 便于看清，若太浓/太淡在此处调整即可。
-        AddLayer("ui/mountain_background", "描绘阶段远山底", new Vector3(0f, 0f, 0.1f), WideStripWidth, -30, 0.85f);
+        // ②/P5 背景补全：描绘阶段原本只有淡紫边框、画面空洞。用层叠远山填满整个地平线，
+        // 做出前后景深(参照开始界面的山峦分层),全部放在最底层(order -44…-32,均在淡紫边框
+        // -20 之下)。越远越淡、z 越大(越靠后)。嫌浓淡/层次不对,调这里的 alpha 与 z 即可。
+        AddLayer("ui/mountain_background", "描绘远景天幕", new Vector3(0f, 0.02f, 0.46f), WideStripWidth, -44, 0.9f);
+        AddLayer("start/back_mountain_3", "描绘远山三", new Vector3(0f, -0.02f, 0.36f), WideStripWidth, -42, 0.7f);
+        AddLayer("start/back_mountain_2", "描绘远山二", new Vector3(0f, -0.02f, 0.30f), WideStripWidth, -41, 0.8f);
+        AddLayer("start/back_mountain_1", "描绘远山一", new Vector3(0f, -0.02f, 0.24f), WideStripWidth, -40, 0.9f);
+        AddLayer("start/back_building", "描绘远景建筑", new Vector3(0f, -0.02f, 0.18f), WideStripWidth, -38, 0.85f);
+        AddLayer("start/front_mountain_left", "描绘前山左", new Vector3(0f, -0.02f, 0.12f), WideStripWidth, -34);
+        AddLayer("start/front_mountain_right", "描绘前山右", new Vector3(0f, -0.02f, 0.08f), WideStripWidth, -33);
+        GameObject traceBgCloud = AddLayer("start/back_cloud_1", "描绘远云", new Vector3(-0.04f, 0.06f, 0.2f), WideStripWidth, -37, 0.55f);
+        RegisterMotion(traceBgCloud, MotionKind.FloatX, 0.03f, 0.4f, 0.6f);
         AddLayer("transition/purple_frame", "描绘阶段淡紫边框", Vector3.zero, MainCanvasWidth, -20, 0.14f);
         AddLayer("pattern/drawing_card", "纹样描绘台", new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
 
