@@ -189,6 +189,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private Transform traceMirrorPointer;
     private Transform leftHandPivot;
     private Transform rightHandPivot;
+    private SpriteRenderer leftHandRenderer;
+    private SpriteRenderer rightHandRenderer;
     private float leftHandStrikeTimer;
     private float rightHandStrikeTimer;
     private LineRenderer traceDrawRenderer;
@@ -643,6 +645,8 @@ public class LijiangEchoGameController : MonoBehaviour
         traceMirrorPointer = null;
         leftHandPivot = null;
         rightHandPivot = null;
+        leftHandRenderer = null;
+        rightHandRenderer = null;
         leftHandStrikeTimer = 0f;
         rightHandStrikeTimer = 0f;
         traceFeedbackText = null;
@@ -1678,13 +1682,13 @@ public class LijiangEchoGameController : MonoBehaviour
     /// <summary>创建左右手:轴心在画面中偏下,手在轴上方;平时旋转到镜头外,打击时向上旋转击环。</summary>
     private void BuildBattleHands()
     {
-        leftHandPivot = CreateBattleHand("battle/hand_left", "左手", -1f);
-        rightHandPivot = CreateBattleHand("battle/hand_right", "右手", 1f);
+        leftHandPivot = CreateBattleHand("battle/hand_left", "左手", -1f, out leftHandRenderer);
+        rightHandPivot = CreateBattleHand("battle/hand_right", "右手", 1f, out rightHandRenderer);
         leftHandStrikeTimer = 0f;
         rightHandStrikeTimer = 0f;
     }
 
-    private Transform CreateBattleHand(string art, string handName, float sideSign)
+    private Transform CreateBattleHand(string art, string handName, float sideSign, out SpriteRenderer handRenderer)
     {
         GameObject pivotObject = new GameObject(handName + "轴");
         pivotObject.transform.SetParent(stageRoot, false);
@@ -1692,20 +1696,21 @@ public class LijiangEchoGameController : MonoBehaviour
         pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, sideSign * HandRestAngle);
         spawnedObjects.Add(pivotObject);
 
-        GameObject hand = AddIcon(art, handName, Vector3.zero, 0.55f, 240, 0.98f);
+        GameObject hand = AddIcon(art, handName, Vector3.zero, 0.55f, 240, 0f); // 初始全透明
         hand.transform.SetParent(pivotObject.transform, false);
         hand.transform.localPosition = new Vector3(0f, 0.72f, 0f); // 臂长:手在轴上方
         hand.transform.localRotation = Quaternion.identity;
+        handRenderer = hand.GetComponent<SpriteRenderer>();
         return pivotObject.transform;
     }
 
     private void UpdateBattleHands()
     {
-        UpdateBattleHand(leftHandPivot, ref leftHandStrikeTimer, -1f);
-        UpdateBattleHand(rightHandPivot, ref rightHandStrikeTimer, 1f);
+        UpdateBattleHand(leftHandPivot, leftHandRenderer, ref leftHandStrikeTimer, -1f);
+        UpdateBattleHand(rightHandPivot, rightHandRenderer, ref rightHandStrikeTimer, 1f);
     }
 
-    private void UpdateBattleHand(Transform pivot, ref float timer, float sideSign)
+    private void UpdateBattleHand(Transform pivot, SpriteRenderer hand, ref float timer, float sideSign)
     {
         if (pivot == null)
         {
@@ -1715,15 +1720,22 @@ public class LijiangEchoGameController : MonoBehaviour
         float rest = sideSign * HandRestAngle;
         float strike = sideSign * HandStrikeAngle;
         float angle = rest;
+        float alpha = 0f; // 平时全透明(VR 里镜头外也看得见,靠透明来隐藏)
         if (timer > 0f)
         {
             timer -= Time.deltaTime;
             float progress = 1f - Mathf.Clamp01(timer / HandStrikeDuration);
             float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
             angle = Mathf.Lerp(rest, strike, swing);
+            alpha = Mathf.Clamp01(swing * 1.6f); // 挥起时显现,落回时淡出
         }
 
         pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
+        if (hand != null)
+        {
+            Color c = hand.color;
+            hand.color = new Color(c.r, c.g, c.b, alpha);
+        }
     }
 
     /// <summary>触发击打挥手:side&lt;0 左手,side&gt;0 右手,side==0 双手(双击)。</summary>
