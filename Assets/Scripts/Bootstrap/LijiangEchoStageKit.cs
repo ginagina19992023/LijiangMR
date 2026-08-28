@@ -489,7 +489,9 @@ public static class LijiangEchoStageKit
     public static GameObject AddLayer(Transform stageRoot, List<GameObject> spawned, string resourcePath, string objectName, Vector3 localPosition, float targetWidth, int order, float alpha = 1f, Transform parent = null)
     {
         GameObject spriteObject = AddSprite(stageRoot, spawned, resourcePath, objectName, localPosition, Vector3.one, order, alpha, false, parent);
-        FitRendererWidth(spriteObject.GetComponent<SpriteRenderer>(), targetWidth);
+        SpriteRenderer renderer = spriteObject.GetComponent<SpriteRenderer>();
+        FitRendererWidth(renderer, targetWidth);
+        AttachSpriteLayer(spriteObject, renderer, LijiangEchoSpriteLayer.FitMode.Width, targetWidth, order, alpha);
         return spriteObject;
     }
 
@@ -499,7 +501,30 @@ public static class LijiangEchoStageKit
         SpriteRenderer renderer = spriteObject.GetComponent<SpriteRenderer>();
         FitRendererHeight(renderer, targetHeight);
         PlaceVisibleCenter(spriteObject.transform, renderer, visibleCenter);
+        AttachSpriteLayer(spriteObject, renderer, LijiangEchoSpriteLayer.FitMode.Height, targetHeight, order, alpha);
         return spriteObject;
+    }
+
+    /// <summary>
+    /// 给运行时生成的图层补上 LijiangEchoSpriteLayer，记录它「按什么拟合、拟合到多大」。
+    /// 场景化烘焙工具据此判断每个物体该用哪种拟合模式，不必再去猜。
+    /// 注意：先赋值字段再挂组件会触发 Awake 里的 Apply，故这里直接用已算好的值填充，
+    /// Apply 的结果与上面几行的计算等价，不会改变外观。
+    /// </summary>
+    private static void AttachSpriteLayer(
+        GameObject spriteObject,
+        SpriteRenderer renderer,
+        LijiangEchoSpriteLayer.FitMode fitMode,
+        float fitSize,
+        int order,
+        float alpha)
+    {
+        LijiangEchoSpriteLayer layer = spriteObject.AddComponent<LijiangEchoSpriteLayer>();
+        layer.sprite = renderer.sprite;
+        layer.fitMode = fitMode;
+        layer.fitSize = fitSize;
+        layer.sortingOrder = order;
+        layer.alpha = alpha;
     }
 
     public static GameObject AddCroppedSprite(
