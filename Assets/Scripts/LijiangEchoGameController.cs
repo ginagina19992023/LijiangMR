@@ -187,6 +187,10 @@ public class LijiangEchoGameController : MonoBehaviour
     private Vector3[] tracePoints;
     private LineRenderer traceMirrorDrawRenderer;
     private Transform traceMirrorPointer;
+    private Transform leftHandPivot;
+    private Transform rightHandPivot;
+    private float leftHandStrikeTimer;
+    private float rightHandStrikeTimer;
     private LineRenderer traceDrawRenderer;
     private Transform tracePointer;
     private TextMesh traceFeedbackText;
@@ -637,6 +641,10 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePointer = null;
         traceMirrorDrawRenderer = null;
         traceMirrorPointer = null;
+        leftHandPivot = null;
+        rightHandPivot = null;
+        leftHandStrikeTimer = 0f;
+        rightHandStrikeTimer = 0f;
         traceFeedbackText = null;
         startButtonPanelRenderer = null;
         startButtonRenderer = null;
@@ -1662,6 +1670,76 @@ public class LijiangEchoGameController : MonoBehaviour
         Debug.Log($"[漓江回声] 已从谱面表格加载 {noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count})。");
     }
 
+    // ===== 左右手击打(对应 VR 手柄左/右手) =====
+    private const float HandStrikeDuration = 0.24f;
+    private const float HandRestAngle = 62f;   // 平时旋转到镜头外的角度(左手 +、右手 -)
+    private const float HandStrikeAngle = 8f;  // 击打时向上旋转到接近圆环的角度
+
+    /// <summary>创建左右手:轴心在画面中偏下,手在轴上方;平时旋转到镜头外,打击时向上旋转击环。</summary>
+    private void BuildBattleHands()
+    {
+        leftHandPivot = CreateBattleHand("battle/hand_left", "左手", -1f);
+        rightHandPivot = CreateBattleHand("battle/hand_right", "右手", 1f);
+        leftHandStrikeTimer = 0f;
+        rightHandStrikeTimer = 0f;
+    }
+
+    private Transform CreateBattleHand(string art, string handName, float sideSign)
+    {
+        GameObject pivotObject = new GameObject(handName + "轴");
+        pivotObject.transform.SetParent(stageRoot, false);
+        pivotObject.transform.localPosition = new Vector3(0f, -0.55f, -0.55f); // 画面中心偏下的轴心
+        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, sideSign * HandRestAngle);
+        spawnedObjects.Add(pivotObject);
+
+        GameObject hand = AddIcon(art, handName, Vector3.zero, 0.55f, 240, 0.98f);
+        hand.transform.SetParent(pivotObject.transform, false);
+        hand.transform.localPosition = new Vector3(0f, 0.72f, 0f); // 臂长:手在轴上方
+        hand.transform.localRotation = Quaternion.identity;
+        return pivotObject.transform;
+    }
+
+    private void UpdateBattleHands()
+    {
+        UpdateBattleHand(leftHandPivot, ref leftHandStrikeTimer, -1f);
+        UpdateBattleHand(rightHandPivot, ref rightHandStrikeTimer, 1f);
+    }
+
+    private void UpdateBattleHand(Transform pivot, ref float timer, float sideSign)
+    {
+        if (pivot == null)
+        {
+            return;
+        }
+
+        float rest = sideSign * HandRestAngle;
+        float strike = sideSign * HandStrikeAngle;
+        float angle = rest;
+        if (timer > 0f)
+        {
+            timer -= Time.deltaTime;
+            float progress = 1f - Mathf.Clamp01(timer / HandStrikeDuration);
+            float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
+            angle = Mathf.Lerp(rest, strike, swing);
+        }
+
+        pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
+    }
+
+    /// <summary>触发击打挥手:side&lt;0 左手,side&gt;0 右手,side==0 双手(双击)。</summary>
+    private void TriggerHandStrike(float side)
+    {
+        if (side <= 0f)
+        {
+            leftHandStrikeTimer = HandStrikeDuration;
+        }
+
+        if (side >= 0f)
+        {
+            rightHandStrikeTimer = HandStrikeDuration;
+        }
+    }
+
     private void ShowBattle()
     {
         ResetStage(Stage.Battle);
@@ -1771,6 +1849,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
         GameObject countdownObject = AddIcon("ui/number_3", "倒计时数字", new Vector3(0f, -0.02f, -0.48f), 0.72f, 80, 0.96f);
         countdownRenderer = countdownObject.GetComponent<SpriteRenderer>();
+
+        BuildBattleHands();
         RegisterMotion(countdownObject, MotionKind.Pulse, 0.028f, 6.5f, 0f);
         scoreText = AddText("分数 0    连击 0", new Vector3(-1.68f, 0.87f, -0.48f), 0.017f, new Color(1f, 0.93f, 0.72f), 68);
         feedbackText = AddText("", new Vector3(0f, -1.05f, -0.48f), 0.022f, new Color(1f, 0.93f, 0.7f), 60);
@@ -1872,6 +1952,7 @@ public class LijiangEchoGameController : MonoBehaviour
             monsterRoot.localPosition = new Vector3(0f, -0.04f, -0.18f);
         }
 
+        UpdateBattleHands();
         UpdateRingVisual(beatTime);
         UpdatePatternProgress();
         UpdateProgressFill();
@@ -2078,6 +2159,9 @@ public class LijiangEchoGameController : MonoBehaviour
             }
         }
 
+        // 触发左右手挥击:双击两手一起,否则按该音符的一侧
+        TriggerHandStrike(GetNoteKind(nextNoteIndex) == NoteKind.Double ? 0f : hitSide);
+
         nextNoteIndex++;
         holdActive = false;
         holdProgress = 0f;
@@ -2140,6 +2224,7 @@ public class LijiangEchoGameController : MonoBehaviour
 
         holdActive = true;
         holdProgress = 0f;
+        TriggerHandStrike(heldNote.Side); // 长按:对应一侧手挥上击环
         SetFeedback("长按", new Color(0.88f, 0.68f, 1f));
         OVRInput.SetControllerVibration(0.18f, 0.28f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
     }
