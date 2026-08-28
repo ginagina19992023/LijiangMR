@@ -302,8 +302,9 @@ public class LijiangEchoGameController : MonoBehaviour
         new Vector3(1.33f, -0.46f, -0.18f)
     };
 
-    // 依据指定战斗音乐的瞬态峰值生成，覆盖整首 105.3 秒音轨。
-    private readonly float[] noteTimes =
+    // 依据指定战斗音乐的瞬态峰值生成，覆盖整首 105.3 秒音轨。（A 谱面，默认）
+    // 非 readonly：SelectNoteChart() 在战斗开始时可整体切换为 B（需求）谱面做对比。
+    private float[] noteTimes =
     {
         8.336f, 20.898f, 21.478f, 21.873f, 22.454f, 23.034f, 23.615f,
         24.009f, 24.381f, 25.542f, 27.098f, 27.492f, 27.887f, 28.259f,
@@ -323,7 +324,7 @@ public class LijiangEchoGameController : MonoBehaviour
         94.018f, 98.267f, 102.911f
     };
 
-    private readonly HashSet<int> holdNoteIndices = new HashSet<int>
+    private HashSet<int> holdNoteIndices = new HashSet<int>
     {
         0, 9, 29, 42, 51, 57, 65, 74, 84, 97, 102, 105
     };
@@ -336,10 +337,46 @@ public class LijiangEchoGameController : MonoBehaviour
     // <0.6s，首尾个别偏 1~2.3s（末尾音符稀疏所致）。若要与需求完全一致，需重建整张谱面。
     // 双击音符当前用 pattern/bird_done(鸟纹)与单击区分；需求原意为蛙纹，可在 SpawnDueNotes
     // 的 Double 分支一行替换。输入仍按单击命中处理，未加"快速点两下"判定。
-    private readonly HashSet<int> doubleNoteIndices = new HashSet<int>
+    private HashSet<int> doubleNoteIndices = new HashSet<int>
     {
         1, 33, 35, 41, 46, 47, 52, 66, 96, 98, 101, 103, 106
     };
+
+    // ===================== B 谱面(《刘三姐》需求文件忠实还原) =====================
+    // 与上面自动生成的 A 谱面并存，用于 A/B 对比。默认关闭（用 A）；把 ExternalUseSpecChart
+    // 设为 true 即在下次进入战斗时整体切到 B。切换点在 ShowBattle 开头的 SelectNoteChart()。
+    // B 谱面 = 需求文件中 33 个战斗音符（单击/双击/长按，按秒排布；4 段“符号滑动”属描绘阶段，
+    // 不在此列）。单击=鱼纹、双击=蛙纹、长按=蛇纹为需求原意（贴图切换见 SpawnDueNotes）。
+    public static bool? ExternalUseSpecChart;
+    private const bool UseSpecChartDefault = false;
+
+    private static readonly float[] SpecNoteTimes =
+    {
+        19f, 21f, 23f, 26f, 29f,
+        41f, 42f, 44f, 45f, 46f, 48f, 49f, 50f, 51f, 53f, 54f, 55f,
+        62f, 64f, 66f, 70f, 72f, 75f,
+        80f, 82f, 84f, 85f, 88f, 89f, 90f, 93f, 95f, 96f
+    };
+    private static readonly int[] SpecHoldIndices = { 3, 4, 19, 21, 22 };
+    private static readonly int[] SpecDoubleIndices = { 0, 5, 6, 8, 11, 12, 14, 18, 24, 26, 28, 29, 32 };
+
+    /// <summary>
+    /// 战斗开始时按开关选择谱面：默认 A（自动生成 108 音符），
+    /// ExternalUseSpecChart=true 时切到 B（需求 33 音符）。默认路径不动 A，零影响。
+    /// </summary>
+    private void SelectNoteChart()
+    {
+        bool useSpec = ExternalUseSpecChart ?? UseSpecChartDefault;
+        if (!useSpec)
+        {
+            return;
+        }
+
+        noteTimes = (float[])SpecNoteTimes.Clone();
+        holdNoteIndices = new HashSet<int>(SpecHoldIndices);
+        doubleNoteIndices = new HashSet<int>(SpecDoubleIndices);
+        Debug.Log($"[漓江回声] 已切换到 B（需求）谱面：{noteTimes.Length} 个音符");
+    }
 
     private int nextSpawnIndex;
     private int nextNoteIndex;
@@ -1445,6 +1482,7 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         ResetStage(Stage.Battle);
         StopStageLoop();
+        SelectNoteChart();
         score = 0;
         combo = 0;
         nextSpawnIndex = 0;
@@ -1862,6 +1900,13 @@ public class LijiangEchoGameController : MonoBehaviour
         if (doubleNoteIndices.Contains(index))
         {
             return NoteKind.Double;
+        }
+
+        // B（需求）谱面没有滑动音符：非长按、非双击即单击。A 谱面保留原有 Swipe 取模规则。
+        bool useSpec = ExternalUseSpecChart ?? UseSpecChartDefault;
+        if (useSpec)
+        {
+            return NoteKind.Strike;
         }
 
         return index % 8 == 3 || index % 11 == 6 ? NoteKind.Swipe : NoteKind.Strike;
