@@ -149,18 +149,18 @@ public static class LijiangEchoStageKit
 
     public static bool IsHeadPoseTracked()
     {
-        InputDevice headDevice = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+        UnityEngine.XR.InputDevice headDevice = InputDevices.GetDeviceAtXRNode(XRNode.Head);
         if (!headDevice.isValid)
         {
             return false;
         }
 
-        if (headDevice.TryGetFeatureValue(CommonUsages.isTracked, out bool tracked))
+        if (headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out bool tracked))
         {
             return tracked;
         }
 
-        return headDevice.TryGetFeatureValue(CommonUsages.devicePosition, out _);
+        return headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out _);
     }
 
     /// <summary>
@@ -217,8 +217,8 @@ public static class LijiangEchoStageKit
     {
         CacheControllerAnchors();
 
-        InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-        InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+        UnityEngine.XR.InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+        UnityEngine.XR.InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
         OVRInput.Controller connected = OVRInput.GetConnectedControllers();
 
         leftControllerTracked = IsTracked(leftDevice) || (connected & OVRInput.Controller.LTouch) != 0;
@@ -237,30 +237,30 @@ public static class LijiangEchoStageKit
         previousRightTriggerValue = rightTriggerValue;
     }
 
-    private static bool IsTracked(InputDevice device)
+    private static bool IsTracked(UnityEngine.XR.InputDevice device)
     {
         if (!device.isValid)
         {
             return false;
         }
 
-        if (device.TryGetFeatureValue(CommonUsages.isTracked, out bool tracked))
+        if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out bool tracked))
         {
             return tracked;
         }
 
-        return device.TryGetFeatureValue(CommonUsages.devicePosition, out _);
+        return device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out _);
     }
 
-    private static float ReadTrigger(InputDevice device, OVRInput.Controller controller)
+    private static float ReadTrigger(UnityEngine.XR.InputDevice device, OVRInput.Controller controller)
     {
         float value = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, controller);
-        if (device.isValid && device.TryGetFeatureValue(CommonUsages.trigger, out float xrValue))
+        if (device.isValid && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trigger, out float xrValue))
         {
             value = Mathf.Max(value, xrValue);
         }
 
-        if (device.isValid && device.TryGetFeatureValue(CommonUsages.triggerButton, out bool pressed) && pressed)
+        if (device.isValid && device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out bool pressed) && pressed)
         {
             value = Mathf.Max(value, 1f);
         }
@@ -450,15 +450,15 @@ public static class LijiangEchoStageKit
         }
 
         Vector2 stick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick);
-        InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-        InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-        if (leftDevice.isValid && leftDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 leftStick) &&
+        UnityEngine.XR.InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+        UnityEngine.XR.InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+        if (leftDevice.isValid && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 leftStick) &&
             Mathf.Abs(leftStick.x) > Mathf.Abs(stick.x))
         {
             stick = leftStick;
         }
 
-        if (rightDevice.isValid && rightDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 rightStick) &&
+        if (rightDevice.isValid && rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 rightStick) &&
             Mathf.Abs(rightStick.x) > Mathf.Abs(stick.x))
         {
             stick = rightStick;
