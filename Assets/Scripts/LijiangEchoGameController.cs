@@ -401,7 +401,12 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         PrepareStageRoot(true);
-        if (ExternalSelectedLevel.HasValue)
+        int debugStage = ReadDebugStartStage();
+        if (debugStage >= 0)
+        {
+            JumpToStageForDebug(debugStage);
+        }
+        else if (ExternalSelectedLevel.HasValue)
         {
             selectedLevel = ExternalSelectedLevel.Value;
             ShowIntro();
@@ -675,6 +680,41 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         spawnedObjects.Clear();
+    }
+
+    /// <summary>
+    /// 调试用:读取"下次 Play 直接进哪一段"的标记(由 漓江回声/调试 菜单写入 PlayerPrefs)。
+    /// 返回阶段序号(见 JumpToStageForDebug),无标记返回 -1。仅编辑器生效,发布版永远 -1。
+    /// </summary>
+    private static int ReadDebugStartStage()
+    {
+#if UNITY_EDITOR
+        return PlayerPrefs.GetInt("LJ_DebugStartStage", -1);
+#else
+        return -1;
+#endif
+    }
+
+    /// <summary>
+    /// 调试用:直接进入指定阶段,跳过前面的流程,便于单独跑测每一段。
+    /// 0=开始 1=选关 2=过场 3=描绘 4=战斗 5=结算。用一次即清除标记。
+    /// </summary>
+    private void JumpToStageForDebug(int stageIndex)
+    {
+#if UNITY_EDITOR
+        PlayerPrefs.DeleteKey("LJ_DebugStartStage");
+        selectedLevel = Mathf.Clamp(PlayerPrefs.GetInt("LJ_DebugLevel", 0), 0, levelNames.Length - 1);
+#endif
+        Debug.Log($"[漓江回声] 调试:直接进入阶段 {stageIndex}(关卡 {selectedLevel}）");
+        switch (stageIndex)
+        {
+            case 1: ShowSelect(); break;
+            case 2: ShowIntro(); break;
+            case 3: ShowTrace(); break;
+            case 4: ShowBattle(); break;
+            case 5: ShowCard(); break;
+            default: ShowStart(); break;
+        }
     }
 
     private void ShowStart()
