@@ -66,7 +66,8 @@ public class LijiangEchoGameController : MonoBehaviour
         public float TargetHeight;
         public NoteKind Kind;
         public SpriteRenderer Renderer;
-        public SpriteRenderer Glow;
+        public SpriteRenderer[] GlowLayers;   // 多层加色柔光,越外层越淡
+        public float[] GlowBaseAlpha;         // 每层基础亮度
         public bool Judged;
     }
 
@@ -106,13 +107,35 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float IntroWalkDuration = 38.85f;
     private const float IntroTotalDuration = 57f;
     private const float NoteApproachTime = 1.22f;
-    // P3/P6：长按「龙头→龙尾」消失动画的方向。true = 朝音符进入侧收拢，false = 反向。
-    // 纯 Transform 收缩实现，观感如相反，改这一个布尔即可（详见 UpdateNotes）。
-    private const bool HoldWipeTowardEntrySide = true;
     // 用户反馈:纹样音符整体做小一些的缩放系数。
     private const float NoteSizeScale = 0.72f;
     // 鱼纹图内容不在图片正中,导致落点看着偏右;单击(鱼纹)整体落点左移补偿(负=左移)。可调。
     private const float FishNoteXOffset = -0.14f;
+
+    // 打击纹样材质:白色剪影 + 加色柔光。运行时按 shader 名创建、全体音符共享(颜色靠 renderer.color 传)。
+    private Material noteWhiteMaterial;
+    private Material noteGlowMaterial;
+
+    private void EnsureNoteMaterials()
+    {
+        if (noteWhiteMaterial == null)
+        {
+            Shader s = Shader.Find("LijiangEcho/WhiteSilhouette");
+            if (s != null)
+            {
+                noteWhiteMaterial = new Material(s) { name = "白色纹样(运行时)" };
+            }
+        }
+
+        if (noteGlowMaterial == null)
+        {
+            Shader g = Shader.Find("LijiangEcho/SoftGlowAdd");
+            if (g != null)
+            {
+                noteGlowMaterial = new Material(g) { name = "柔光光晕(运行时)" };
+            }
+        }
+    }
     private const float HitRingVisibleHeight = 0.62f;
     private const float HitBlockVisibleHeight = 0.34f;
     private const float HitRingTargetX = HitRingVisibleHeight * 0.5f;
@@ -2053,16 +2076,35 @@ public class LijiangEchoGameController : MonoBehaviour
                 false); // 不镜像:所有音符都朝正中心飞、不翻转,避免落点偏移
             SpriteRenderer noteRenderer = noteObject.GetComponent<SpriteRenderer>();
 
-            // 金色发光光晕:同纹样放大一圈、金色半透明,压在音符后面(子物体,自动跟随),
-            // 形成"围绕音符轮廓一圈金色发光"的明显效果。亮度在 UpdateNotes 里脉动。
-            GameObject glowObject = new GameObject("金色光晕");
-            glowObject.transform.SetParent(noteObject.transform, false);
-            glowObject.transform.localPosition = new Vector3(0f, 0f, 0.01f);
-            glowObject.transform.localScale = Vector3.one * 1.55f;
-            SpriteRenderer glowRenderer = glowObject.AddComponent<SpriteRenderer>();
-            glowRenderer.sprite = noteRenderer.sprite;
-            glowRenderer.sortingOrder = noteRenderer.sortingOrder - 1;
-            glowRenderer.color = new Color(1f, 0.95f, 0.55f, 0.85f);
+            // 所有打击纹样统一换白色剪影材质:用原图 alpha 当形状、输出纯白(renderer.color 控淡入淡出)。
+            EnsureNoteMaterials();
+            if (noteWhiteMaterial != null)
+            {
+                noteRenderer.sharedMaterial = noteWhiteMaterial;
+            }
+
+            // 加色柔光光晕:同纹样叠 3 层、越外越大越淡的金色,加色混合叠出外扩柔和的发光。
+            // 亮度在 UpdateNotes 里按接近判定 + 呼吸脉动。压在音符后面(子物体,自动跟随)。
+            float[] glowScales = { 1.6f, 2.15f, 2.8f };
+            float[] glowBase = { 0.55f, 0.34f, 0.20f };
+            SpriteRenderer[] glowLayers = new SpriteRenderer[glowScales.Length];
+            for (int gi = 0; gi < glowScales.Length; gi++)
+            {
+                GameObject glowObject = new GameObject("柔光光晕_" + gi);
+                glowObject.transform.SetParent(noteObject.transform, false);
+                glowObject.transform.localPosition = new Vector3(0f, 0f, 0.01f + gi * 0.01f);
+                glowObject.transform.localScale = Vector3.one * glowScales[gi];
+                SpriteRenderer glowRenderer = glowObject.AddComponent<SpriteRenderer>();
+                glowRenderer.sprite = noteRenderer.sprite;
+                glowRenderer.sortingOrder = noteRenderer.sortingOrder - (gi + 1);
+                if (noteGlowMaterial != null)
+                {
+                    glowRenderer.sharedMaterial = noteGlowMaterial;
+                }
+
+                glowRenderer.color = new Color(1f, 0.86f, 0.42f, glowBase[gi]);
+                glowLayers[gi] = glowRenderer;
+            }
 
             RhythmNote note = new RhythmNote
             {
@@ -2074,7 +2116,8 @@ public class LijiangEchoGameController : MonoBehaviour
                 TargetHeight = targetHeight,
                 Kind = kind,
                 Renderer = noteRenderer,
-                Glow = glowRenderer,
+                GlowLayers = glowLayers,
+                GlowBaseAlpha = glowBase,
                 Judged = false
             };
             activeNotes.Add(note);
@@ -2122,17 +2165,28 @@ public class LijiangEchoGameController : MonoBehaviour
                 note.Renderer.color = new Color(1f, 1f, 1f, noteAlpha); // 纯白
             }
 
-            // 金色光晕脉动:越接近判定越亮 + 呼吸脉动,形成围绕音符一圈很亮很明显的金色发光。
-            if (note.Glow != null)
+            // 柔光光晕脉动:越接近判定越亮 + 呼吸脉动。多层各按自己的基础亮度一起脉动,
+            // 加色叠出外扩、明亮、柔和的金色发光。
+            if (note.GlowLayers != null)
             {
                 float glowAppear = Mathf.Clamp01(eased / 0.55f);
-                float glowPulse = 0.78f + 0.22f * Mathf.Abs(Mathf.Sin(Time.time * 6f));
-                note.Glow.color = new Color(1f, 0.95f, 0.55f, glowAppear * glowPulse);
+                float glowPulse = 0.80f + 0.20f * Mathf.Abs(Mathf.Sin(Time.time * 6f));
+                for (int gi = 0; gi < note.GlowLayers.Length; gi++)
+                {
+                    SpriteRenderer gr = note.GlowLayers[gi];
+                    if (gr == null)
+                    {
+                        continue;
+                    }
+
+                    float baseA = (note.GlowBaseAlpha != null && gi < note.GlowBaseAlpha.Length) ? note.GlowBaseAlpha[gi] : 0.4f;
+                    gr.color = new Color(1f, 0.86f, 0.42f, baseA * glowAppear * glowPulse);
+                }
             }
 
             // P3/P6：长按音符「龙头→龙尾」逐步消失。按住期间按 holdProgress/所需时长
-            // 把纹样沿水平方向从一端收拢（宽度收缩 + 位置补偿，纯 Transform、无 shader、
-            // 无需新美术），作为长按完成的视觉反馈。方向由 HoldWipeTowardEntrySide 控制。
+            // 把纹样沿竖直方向「往上划出」收拢：高度收缩 + 保持顶边不动、尾巴往上收进去
+            // （纯 Transform、无 shader、无需新美术），作为长按完成的视觉反馈。
             if (holdActive && heldNote == note && note.Renderer.sprite != null)
             {
                 float holdRequired = GetHoldDuration(nextNoteIndex);
@@ -2140,10 +2194,9 @@ public class LijiangEchoGameController : MonoBehaviour
                 Transform noteTransform = note.Renderer.transform;
                 Vector3 poseScale = noteTransform.localScale;
                 float remaining = Mathf.Max(1f - wipe, 0.0001f);
-                float removedWidth = note.Renderer.sprite.bounds.size.x * Mathf.Abs(poseScale.x) * wipe;
-                float wipeDir = HoldWipeTowardEntrySide ? note.Side : -note.Side;
-                noteTransform.localScale = new Vector3(poseScale.x * remaining, poseScale.y, poseScale.z);
-                noteTransform.localPosition += new Vector3(removedWidth * 0.5f * wipeDir, 0f, 0f);
+                float removedHeight = note.Renderer.sprite.bounds.size.y * Mathf.Abs(poseScale.y) * wipe;
+                noteTransform.localScale = new Vector3(poseScale.x, poseScale.y * remaining, poseScale.z);
+                noteTransform.localPosition += new Vector3(0f, removedHeight * 0.5f, 0f); // 顶边不动,整体往上收
             }
 
             if (!holdActive && beatTime - note.HitTime > 0.55f)

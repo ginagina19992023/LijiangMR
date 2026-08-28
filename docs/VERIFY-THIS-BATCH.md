@@ -22,6 +22,16 @@
 - [ ] 单击鱼纹落点**往左挪了**(补偿之前偏右);正好落圆心最理想
 - 还偏 → 调 `FishNoteXOffset`(现 -0.14,负=更左;偏左了就调大到 -0.08 之类)
 
+## C2. 纹样纯白 + 柔光光晕 + 长按向上划出(菜单 调试→进 战斗(关卡1))
+- [ ] **所有打击纹样(鱼/蛇/蛙/鸟)都变纯白剪影**(不再是彩色)——用新 shader 拿原图 alpha 当形状输出纯白
+- [ ] 音符外围有**外扩、明亮、柔和的金色柔光**(3 层加色叠出,呼吸脉动)——比之前明显
+- [ ] **蛇纹长按**按住时纹样**向上划出**收拢(不再往左,顶边不动、尾巴往上收)
+- 白/柔光靠两个 shader:`LijiangEcho/WhiteSilhouette`、`LijiangEcho/SoftGlowAdd`(在 Assets/Shaders)
+- 光晕更大/更亮/更柔 → 调 SpawnDueNotes 里 `glowScales{1.6,2.15,2.8}` 与 `glowBase{0.55,0.34,0.20}`、金色 `(1,0.86,0.42)`
+- **真机注意**:这俩 shader 是运行时创建的,已加脚本自动塞进 Graphics→Always Included Shaders(防打包变粉);
+  若真机发现纹样变粉,手动跑菜单 `漓江回声/材质/把打击纹样 shader 加入 Always Included` 再打包
+- [ ] Console 无 "shader ... not found"、纹样不是粉色 = shader 正常
+
 ## D. 谱面预览窗口(核心新功能,菜单 漓江回声→谱面→0. 打开预览窗口)
 前置:选 `LijiangEchoAudio/battle_music` → Inspector **Load Type=Decompress On Load** + 勾 Preload → **Apply**
 - [ ] 打开窗口,拖 **灵敏度 / 最小间隔** 两根滑条
@@ -34,8 +44,6 @@
 ---
 
 ## 待你回一句(还没做,等你定)
-- [ ] **打击纹样纯白**:鱼纹是彩色图,`SpriteRenderer.color` 白色是"相乘"只能压不能漂白 → 要纯白有两条路:
-      (a) 你给一张白色剪影的纹样图;(b) 我写个 unlit 白色材质/shader,用图的 alpha 当形状、输出纯白。**选哪个?**
 - [ ] 这批(battle-visual-hands 分支)验收 OK 后,要不要我合回 `stage-start-authoring` / 主分支?
 - [ ] 双击贴图鸟纹/蛙纹 · 结算那张纹样卡保留还是去掉 · 各阶段是否单开 scene + 测试相机
 
