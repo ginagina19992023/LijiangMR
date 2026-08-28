@@ -165,13 +165,27 @@ public static class LijiangEchoStageKit
 
     /// <summary>
     /// 在当前激活场景里创建一个新的舞台根节点，锚定在相机前方（不随转头移动）。
-    /// 每个阶段场景各自拥有独立的舞台根节点，场景卸载时随场景一起销毁，无需手动清理。
+    /// 供尚未场景化的阶段使用；已场景化的阶段请改用 AnchorStageRoot。
     /// </summary>
     public static Transform PrepareStageRoot(string rootName)
     {
-        Camera camera = EnsureCamera();
         GameObject rootObject = new GameObject(rootName);
-        Transform stageRoot = rootObject.transform;
+        AnchorStageRoot(rootObject.transform);
+        return rootObject.transform;
+    }
+
+    /// <summary>
+    /// 把一个已存在的舞台根节点摆到相机前方。场景化后的阶段，其根节点预先放在场景里
+    /// （这样美术内容作为子物体在 Scene 视图中可见可拖），运行时只需要重新定位。
+    /// </summary>
+    public static void AnchorStageRoot(Transform stageRoot)
+    {
+        if (stageRoot == null)
+        {
+            return;
+        }
+
+        Camera camera = EnsureCamera();
 
         Vector3 forward = Vector3.ProjectOnPlane(camera.transform.forward, Vector3.up);
         if (forward.sqrMagnitude < 0.01f)
@@ -180,12 +194,12 @@ public static class LijiangEchoStageKit
         }
 
         forward.Normalize();
+        stageRoot.SetParent(null, true);
         stageRoot.position = camera.transform.position + forward * StageDistance + Vector3.down * 0.02f;
         stageRoot.rotation = Quaternion.LookRotation(forward, Vector3.up);
         stageRoot.localScale = Vector3.one * StageWorldScale;
 
         CacheControllerAnchors();
-        return stageRoot;
     }
 
     private static void CacheControllerAnchors()
