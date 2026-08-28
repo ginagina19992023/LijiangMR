@@ -18,13 +18,14 @@
 - [x] **T1 安全抽取(已做)**:把 ShowBattle 里的静态背景块抽成 `BuildBattleBackground()`,
       视觉零变化。→ 你验收:进战斗,画面与之前**完全一样**(远山/怪物/火焰/边框都在)。
 
-- [ ] **T2 背景层打标记**:让巨石版 `AddLayer/AddIcon` 生成的背景对象也挂上 `LijiangEchoSpriteLayer`
-      (记录 resourcePath/order/alpha/尺寸),使其可被烘焙工具捕获。仅影响战斗背景对象,不改视觉。
-
-- [ ] **T3 战斗烘焙工具**:仿 `LijiangEchoStageBakeTool` 加菜单
-      `漓江回声/场景化/烘焙战斗背景` —— 进战斗 Play → 捕获「怪物分层」+ 背景兄弟层 → 存成
-      `Assets/Scenes/Stages/Battle_Background.unity`(或塞进 Main 的一个「战斗舞台」根)。
-      产出:一个你能打开、在 Scene 视图直接拖拽摆位的场景。
+- [x] **T2/T3 通用烘焙工具(已做,`LijiangEchoSceneBakeTool.cs`)**:按孟苏阳要求做成**一个通用工具、
+      所有阶段复用**,不为每个场景单独写。两步:
+      - `通用A. 捕获当前画面(Play中)`:抓 `漓江回声_关卡画面`(stageRoot)整棵子树,按**路径**记录
+        每个图层(位置/缩放/层级/透明度/贴图)→ `ValidationCaptures/SceneBake_Last.json`。按路径记录
+        天然区分重名(装饰左手 vs 挥手左手)。
+      - `通用B. 烘焙成可编辑场景(退出Play)`:读 JSON → 新建场景 → 按层级重建(挂 SpriteRenderer +
+        `LijiangEchoSpriteLayer`、贴图解析回资源)→ 放预览相机 → 弹保存框自己命名(每阶段存一个 .unity)。
+      - 限制:静态背景准确;个别裁剪图图层(如"待描绘纹样")会显示整图;运行时白块解析不到贴图→留空节点。
 
 - [ ] **T4 双模式接入**:ShowBattle 里先找「战斗舞台」根;有就用场景里摆好的背景(跳过
       `BuildBattleBackground` 运行时构建),没有就照旧运行时构建(和 StartStageController 一样)。
