@@ -132,6 +132,9 @@ public class LijiangEchoGameController : MonoBehaviour
     /// </summary>
     public static int? ExternalSelectedLevel;
 
+    // 双手镜像绘制开关:null/true = 左右对称双手画(把描绘镜像到对侧);false = 单手画全程。
+    public static bool? ExternalTraceMirror;
+
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
@@ -182,6 +185,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private float traceCompleteTimer;
     private int tracePointIndex;
     private Vector3[] tracePoints;
+    private LineRenderer traceMirrorDrawRenderer;
+    private Transform traceMirrorPointer;
     private LineRenderer traceDrawRenderer;
     private Transform tracePointer;
     private TextMesh traceFeedbackText;
@@ -630,6 +635,8 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePoints = null;
         traceDrawRenderer = null;
         tracePointer = null;
+        traceMirrorDrawRenderer = null;
+        traceMirrorPointer = null;
         traceFeedbackText = null;
         startButtonPanelRenderer = null;
         startButtonRenderer = null;
@@ -1269,6 +1276,31 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePointer = pointerObject.transform;
         tracePointer.gameObject.SetActive(false);
 
+        // 双手镜像绘制:把指引线/已描绘线/光标镜像到对侧(x→-x),形成左右对称的双手画效果
+        // (会议:"画的虚线直接复制过来")。开关 ExternalTraceMirror 默认开;设 false 则单手画全程。
+        if (ExternalTraceMirror ?? true)
+        {
+            LineRenderer mirrorGuide = AddLineRenderer("纹样描绘指引(镜像)", 0.03f, new Color(1f, 0.9f, 0.55f, 0.16f), 30);
+            mirrorGuide.positionCount = tracePoints.Length;
+            for (int gi = 0; gi < tracePoints.Length; gi++)
+            {
+                Vector3 gp = tracePoints[gi];
+                mirrorGuide.SetPosition(gi, new Vector3(-gp.x, gp.y, gp.z - 0.018f));
+            }
+
+            traceMirrorDrawRenderer = AddLineRenderer("已描绘轨迹(镜像)", 0.072f, new Color(1f, 0.86f, 0.28f, 0.98f), 34);
+            traceMirrorDrawRenderer.colorGradient = traceGlowGradient;
+
+            GameObject mirrorPointerObject = AddIcon("battle/hit_ring_center", "手柄描绘光标(镜像)", new Vector3(0f, 0f, TracePlaneZ - 0.04f), 0.105f, 42, 0.92f);
+            traceMirrorPointer = mirrorPointerObject.transform;
+            traceMirrorPointer.gameObject.SetActive(false);
+        }
+        else
+        {
+            traceMirrorDrawRenderer = null;
+            traceMirrorPointer = null;
+        }
+
         traceFeedbackText = AddText(
             "绘制纹样",
             new Vector3(0f, 0.78f, -0.56f),
@@ -1297,6 +1329,11 @@ public class LijiangEchoGameController : MonoBehaviour
                 tracePointer.gameObject.SetActive(false);
             }
 
+            if (traceMirrorPointer != null)
+            {
+                traceMirrorPointer.gameObject.SetActive(false);
+            }
+
             hasPreviousTracePointer = false;
             return;
         }
@@ -1305,6 +1342,12 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             tracePointer.gameObject.SetActive(true);
             tracePointer.localPosition = new Vector3(localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
+        }
+
+        if (traceMirrorPointer != null)
+        {
+            traceMirrorPointer.gameObject.SetActive(true);
+            traceMirrorPointer.localPosition = new Vector3(-localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
         }
 
         if (!drawing || tracePoints == null || tracePointIndex >= tracePoints.Length)
@@ -1475,6 +1518,17 @@ public class LijiangEchoGameController : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             traceDrawRenderer.SetPosition(i, tracePoints[i] + new Vector3(0f, 0f, -0.025f));
+        }
+
+        // 双手镜像:把已描绘线镜像到对侧
+        if (traceMirrorDrawRenderer != null)
+        {
+            traceMirrorDrawRenderer.positionCount = count;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 mp = tracePoints[i] + new Vector3(0f, 0f, -0.025f);
+                traceMirrorDrawRenderer.SetPosition(i, new Vector3(-mp.x, mp.y, mp.z));
+            }
         }
     }
 
