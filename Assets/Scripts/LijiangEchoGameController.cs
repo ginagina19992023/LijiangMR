@@ -108,8 +108,8 @@ public class LijiangEchoGameController : MonoBehaviour
     // P3/P6：长按「龙头→龙尾」消失动画的方向。true = 朝音符进入侧收拢，false = 反向。
     // 纯 Transform 收缩实现，观感如相反，改这一个布尔即可（详见 UpdateNotes）。
     private const bool HoldWipeTowardEntrySide = true;
-    // P2：纹样进入中心圆环后横向拉宽成「发光长条」的最大宽度倍数（1 = 不拉宽）。
-    private const float RingBarWiden = 1.35f;
+    // 用户反馈:纹样音符整体做小一些的缩放系数。
+    private const float NoteSizeScale = 0.72f;
     private const float HitRingVisibleHeight = 0.62f;
     private const float HitBlockVisibleHeight = 0.34f;
     private const float HitRingTargetX = HitRingVisibleHeight * 0.5f;
@@ -1672,7 +1672,7 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             float side = nextSpawnIndex % 2 == 0 ? -1f : 1f;
             float startX = side * 2.26f;
-            float targetX = side * HitRingTargetX;
+            float targetX = 0f; // 用户反馈:音符最终飞到中心原点圆点(不再停在一侧)
             NoteKind kind = GetNoteKind(nextSpawnIndex);
             string resourcePath = "battle/hit_block";
             RectInt crop = HitBlockCrop;
@@ -1705,6 +1705,10 @@ public class LijiangEchoGameController : MonoBehaviour
                 targetHeight = 0.44f;
                 objectName = "双击纹样_" + nextSpawnIndex;
             }
+
+            // 用户反馈:纹样整体做小一些
+            startHeight *= NoteSizeScale;
+            targetHeight *= NoteSizeScale;
 
             GameObject noteObject = AddCroppedSprite(
                 resourcePath,
@@ -1763,23 +1767,15 @@ public class LijiangEchoGameController : MonoBehaviour
                 Mathf.Lerp(0.42f, 1f, eased),
                 note.Side > 0f);
 
-            // P2：纹样进入中心圆环后变成「发光长条」。用接近判定的程度（eased 尾段）把音符
-            // 横向拉宽成长条并提亮发光，作为「已进环、可打击」的高亮提示。纯 Transform+颜色，
-            // 不需新美术。长按音符另有自己的视觉（见下方 P3），此处不处理，避免叠加冲突。
-            float inRing = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, eased));
-            if (inRing > 0f && !(holdActive && heldNote == note))
+            // P2（按用户反馈重做）：音符黄色发光,飞向中心原点;从接触圆环到进入的过程中
+            // 透明度淡出到最低（最终停在中心、几乎不可见）。前段渐显、进环段淡出。
+            // 长按音符另有 P3 视觉,此处不处理,避免叠加冲突。
+            if (!(holdActive && heldNote == note))
             {
-                Transform ringBarTransform = note.Renderer.transform;
-                Vector3 ringBarScale = ringBarTransform.localScale;
-                ringBarTransform.localScale = new Vector3(
-                    ringBarScale.x * Mathf.Lerp(1f, RingBarWiden, inRing),
-                    ringBarScale.y,
-                    ringBarScale.z);
-                Color noteColor = note.Renderer.color;
-                note.Renderer.color = Color.Lerp(
-                    noteColor,
-                    new Color(1f, 0.95f, 0.55f, Mathf.Max(noteColor.a, 0.95f)),
-                    inRing);
+                float appear = Mathf.Clamp01(eased / 0.7f);            // 前 70% 渐显
+                float ringFade = Mathf.InverseLerp(0.72f, 1f, eased);  // 接触圆环→进入段
+                float noteAlpha = Mathf.Lerp(Mathf.Lerp(0.35f, 1f, appear), 0.06f, ringFade);
+                note.Renderer.color = new Color(1f, 0.86f, 0.2f, noteAlpha); // 黄色发光
             }
 
             // P3/P6：长按音符「龙头→龙尾」逐步消失。按住期间按 holdProgress/所需时长
