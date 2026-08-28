@@ -989,8 +989,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
         // 远方地平线一排小远山:每座缩到约原来 1/5,底面落在地平线上,横向排成一排(静止,不随
         // 漂浮素材横移)。参数:horizonY=地平线高度、mtnHeight=山高、xs=各山横坐标。可自行增删调整。
-        const float horizonY = 0.18f;   // 地平线抬高到屏幕偏上
-        const float mtnHeight = 0.10f;  // 再缩一半(约原 1/10),更小
+        const float horizonY = 0.30f;    // 地平线再往上抬
+        const float mtnHeight = 0.025f;  // 再缩到上一版的 1/4,很小
         float mtnCenterY = horizonY + mtnHeight * 0.5f; // 让山底贴地平线
         string[] horizonMtnArt =
         {
@@ -998,8 +998,8 @@ public class LijiangEchoGameController : MonoBehaviour
             "start/front_mountain_left", "start/front_mountain_right"
         };
         // 山更小 → 用更密的间距把整条地平线排满(从左到右铺满一排)。
-        const float horizonHalfSpan = 1.95f;  // 排布横向半宽
-        const float horizonStep = 0.26f;      // 相邻两山间距(越小越密)
+        const float horizonHalfSpan = 2.1f;   // 排布横向半宽
+        const float horizonStep = 0.14f;      // 相邻两山间距(越小越密)
         int horizonCount = Mathf.CeilToInt((horizonHalfSpan * 2f) / horizonStep) + 1;
         for (int m = 0; m < horizonCount; m++)
         {
@@ -2083,16 +2083,22 @@ public class LijiangEchoGameController : MonoBehaviour
                 noteRenderer.sharedMaterial = noteWhiteMaterial;
             }
 
-            // 加色柔光光晕:同纹样叠 3 层、越外越大越淡的金色,加色混合叠出外扩柔和的发光。
-            // 亮度在 UpdateNotes 里按接近判定 + 呼吸脉动。压在音符后面(子物体,自动跟随)。
-            float[] glowScales = { 1.6f, 2.15f, 2.8f };
-            float[] glowBase = { 0.55f, 0.34f, 0.20f };
+            // 加色柔光光晕:同纹样叠 2 层、越外越淡的金色,加色混合叠出外扩柔和的发光(比 3 层收敛)。
+            // 关键:每层要以"纹样可见中心(sprite.bounds.center)"为中心放大,否则纹样原点偏移时
+            // 放大的光晕会相对本体错位(鱼纹那种"散射"就是这个原因)。
+            Vector3 spriteCenter = noteRenderer.sprite != null ? noteRenderer.sprite.bounds.center : Vector3.zero;
+            float[] glowScales = { 1.35f, 1.75f };
+            float[] glowBase = { 0.40f, 0.20f };
             SpriteRenderer[] glowLayers = new SpriteRenderer[glowScales.Length];
             for (int gi = 0; gi < glowScales.Length; gi++)
             {
                 GameObject glowObject = new GameObject("柔光光晕_" + gi);
                 glowObject.transform.SetParent(noteObject.transform, false);
-                glowObject.transform.localPosition = new Vector3(0f, 0f, 0.01f + gi * 0.01f);
+                // 以纹样可见中心为放大中心:偏移 = center*(1-scale),保证与本体同心。
+                glowObject.transform.localPosition = new Vector3(
+                    spriteCenter.x * (1f - glowScales[gi]),
+                    spriteCenter.y * (1f - glowScales[gi]),
+                    0.01f + gi * 0.01f);
                 glowObject.transform.localScale = Vector3.one * glowScales[gi];
                 SpriteRenderer glowRenderer = glowObject.AddComponent<SpriteRenderer>();
                 glowRenderer.sprite = noteRenderer.sprite;
@@ -2184,19 +2190,19 @@ public class LijiangEchoGameController : MonoBehaviour
                 }
             }
 
-            // P3/P6：长按音符「龙头→龙尾」逐步消失。按住期间按 holdProgress/所需时长
-            // 把纹样沿竖直方向「往上划出」收拢：高度收缩 + 保持顶边不动、尾巴往上收进去
-            // （纯 Transform、无 shader、无需新美术），作为长按完成的视觉反馈。
+            // P3/P6：长按音符「往上划出」消失。按住期间整体向上平移 + 渐隐 + 轻微缩短,
+            // 做成"纹样向上飘走消失",而不是原地压扁(之前的纯高度收缩看着像被挤扁)。
             if (holdActive && heldNote == note && note.Renderer.sprite != null)
             {
                 float holdRequired = GetHoldDuration(nextNoteIndex);
                 float wipe = holdRequired > 0f ? Mathf.Clamp01(holdProgress / holdRequired) : 0f;
                 Transform noteTransform = note.Renderer.transform;
+                float up = wipe * note.TargetHeight * 1.6f; // 上移距离随进度增大
+                noteTransform.localPosition += new Vector3(0f, up, 0f);
                 Vector3 poseScale = noteTransform.localScale;
-                float remaining = Mathf.Max(1f - wipe, 0.0001f);
-                float removedHeight = note.Renderer.sprite.bounds.size.y * Mathf.Abs(poseScale.y) * wipe;
-                noteTransform.localScale = new Vector3(poseScale.x, poseScale.y * remaining, poseScale.z);
-                noteTransform.localPosition += new Vector3(0f, removedHeight * 0.5f, 0f); // 顶边不动,整体往上收
+                float shrink = Mathf.Lerp(1f, 0.85f, wipe); // 轻微缩短,不做成压扁
+                noteTransform.localScale = new Vector3(poseScale.x, poseScale.y * shrink, poseScale.z);
+                note.Renderer.color = new Color(1f, 1f, 1f, Mathf.Clamp01(1f - wipe)); // 渐隐
             }
 
             if (!holdActive && beatTime - note.HitTime > 0.55f)
