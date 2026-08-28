@@ -38,7 +38,8 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         Strike,
         Hold,
-        Swipe
+        Swipe,
+        Double
     }
 
     private sealed class MotionItem
@@ -325,6 +326,14 @@ public class LijiangEchoGameController : MonoBehaviour
     private readonly HashSet<int> holdNoteIndices = new HashSet<int>
     {
         0, 9, 29, 42, 51, 57, 65, 74, 84, 97, 102, 105
+    };
+
+    // P4/P6：双击音符的谱面 index。默认留空 → 现有行为零变化。
+    // 待孟苏阳确认后，往这里填入要作为「双击」的音符 index（写法同 holdNoteIndices），
+    // 这些音符会用不同纹样(pattern/bird_done)显示以区分单击/双击（见 GetNoteKind / SpawnDueNotes）。
+    // 是否要求"圆环内快速点两下"的输入判定另议；当前仍按单击命中处理，仅视觉区分。
+    private readonly HashSet<int> doubleNoteIndices = new HashSet<int>
+    {
     };
 
     private int nextSpawnIndex;
@@ -1681,6 +1690,16 @@ public class LijiangEchoGameController : MonoBehaviour
                 targetHeight = 0.37f;
                 objectName = "蛙纹滑动_" + nextSpawnIndex;
             }
+            else if (kind == NoteKind.Double)
+            {
+                // P4/P6：双击音符——用不同纹样(鸟纹)与单击(hit_block)在视觉上区分。
+                // 仅当 doubleNoteIndices 里填了 index 才会出现；输入仍按单击命中处理。
+                resourcePath = "pattern/bird_done";
+                crop = BirdDoneCrop;
+                startHeight = 0.28f;
+                targetHeight = 0.44f;
+                objectName = "双击纹样_" + nextSpawnIndex;
+            }
 
             GameObject noteObject = AddCroppedSprite(
                 resourcePath,
@@ -1833,6 +1852,11 @@ public class LijiangEchoGameController : MonoBehaviour
         if (holdNoteIndices.Contains(index))
         {
             return NoteKind.Hold;
+        }
+
+        if (doubleNoteIndices.Contains(index))
+        {
+            return NoteKind.Double;
         }
 
         return index % 8 == 3 || index % 11 == 6 ? NoteKind.Swipe : NoteKind.Strike;
