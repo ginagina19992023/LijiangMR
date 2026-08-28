@@ -153,6 +153,11 @@ public static class LijiangEchoStageBakeTool
         LayerRecordSet set = BuildLayoutAndRecord(out GameObject tempRoot);
         UnityEngine.Object.DestroyImmediate(tempRoot);
 
+        // 预处理:先把所有用到的贴图一次性同步确保为 Sprite 导入(ForceSynchronousImport),
+        // 再进入创建循环。绝不在循环里边设导入边读,否则重导入没就绪会让 Sprite 时有时无,
+        // 表现为「烘焙后图层时多时少 / 又没了」。
+        EnsureSpritesImported(set);
+
         GameObject stageRootObject = new GameObject(StageRootName);
         stageRootObject.transform.position = Vector3.zero;
         stageRootObject.transform.rotation = Quaternion.identity;
@@ -243,11 +248,7 @@ public static class LijiangEchoStageBakeTool
             return null;
         }
 
-        // 关键:这些贴图运行时是 Sprite.Create 现造的,原图导入类型多为普通 Texture,
-        // 没有 Sprite 子资源。烘焙前先把它改成 Sprite/Single 并重新导入,否则下面 LoadAll
-        // 找不到 Sprite 会把整层跳过(表现为「开始舞台」空的、校验缺失 20 个子物体)。
-        EnsureSpriteImport(assetPath);
-
+        // 导入类型已由 EnsureSpritesImported 预处理为 Sprite,这里只加载,不再触发重导入。
         foreach (UnityEngine.Object item in AssetDatabase.LoadAllAssetsAtPath(assetPath))
         {
             if (item is Sprite sprite)
@@ -259,31 +260,54 @@ public static class LijiangEchoStageBakeTool
         return AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
     }
 
-    /// <summary>把贴图的导入类型确保为 Sprite（Single）,必要时重新导入。</summary>
-    private static void EnsureSpriteImport(string assetPath)
+    /// <summary>
+    /// 烘焙前一次性把所有图层用到的贴图确保为 Sprite/Single 导入,并同步(ForceSynchronousImport)
+    /// 重导入,保证进入创建循环时每张贴图的 Sprite 子资源都已就绪。绝不在创建循环里做重导入。
+    /// </summary>
+    private static void EnsureSpritesImported(LayerRecordSet set)
     {
-        TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
-        if (importer == null)
+        HashSet<string> paths = new HashSet<string>();
+        foreach (LayerRecord record in set.layers)
         {
-            return;
+            if (!string.IsNullOrEmpty(record.spriteAssetPath))
+            {
+                paths.Add(record.spriteAssetPath);
+            }
         }
 
-        bool changed = false;
-        if (importer.textureType != TextureImporterType.Sprite)
+        bool anyReimported = false;
+        foreach (string path in paths)
         {
-            importer.textureType = TextureImporterType.Sprite;
-            changed = true;
+            TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer == null)
+            {
+                continue;
+            }
+
+            bool changed = false;
+            if (importer.textureType != TextureImporterType.Sprite)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                changed = true;
+            }
+
+            if (importer.spriteImportMode != SpriteImportMode.Single)
+            {
+                importer.spriteImportMode = SpriteImportMode.Single;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                importer.SaveAndReimport();
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+                anyReimported = true;
+            }
         }
 
-        if (importer.spriteImportMode != SpriteImportMode.Single)
+        if (anyReimported)
         {
-            importer.spriteImportMode = SpriteImportMode.Single;
-            changed = true;
-        }
-
-        if (changed)
-        {
-            importer.SaveAndReimport();
+            AssetDatabase.Refresh();
         }
     }
 
