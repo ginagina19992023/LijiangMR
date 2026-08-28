@@ -108,12 +108,36 @@ public static class LijiangEchoStageBakeTool
     /// </summary>
     private static string ResolveSpriteAssetPath(SpriteRenderer renderer)
     {
-        if (renderer.sprite == null || renderer.sprite.texture == null)
+        if (renderer == null || renderer.sprite == null || renderer.sprite.texture == null)
         {
             return string.Empty;
         }
 
-        return AssetDatabase.GetAssetPath(renderer.sprite.texture);
+        Texture2D texture = renderer.sprite.texture;
+        string path = AssetDatabase.GetAssetPath(texture);
+        if (!string.IsNullOrEmpty(path))
+        {
+            return path;
+        }
+
+        // 兜底:运行时 Sprite.Create 的贴图,GetAssetPath 有时返回空(这正是"路径全空 → 0/20
+        // 被跳过"的根因)。此时按贴图名在 Resources/LijiangEchoArt 下反查真实资产路径。
+        string textureName = texture.name;
+        if (string.IsNullOrEmpty(textureName))
+        {
+            return string.Empty;
+        }
+
+        foreach (string guid in AssetDatabase.FindAssets(textureName + " t:Texture2D", new[] { "Assets/Resources/LijiangEchoArt" }))
+        {
+            string candidate = AssetDatabase.GUIDToAssetPath(guid);
+            if (Path.GetFileNameWithoutExtension(candidate) == textureName)
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
     }
 
     private const string StageStartScenePath = "Assets/Scenes/Stages/Stage_Start.unity";
