@@ -15,16 +15,17 @@ using UnityEngine;
 /// </summary>
 public static class LijiangEchoChartGenerator
 {
-    private const string ClipResourcePath = "LijiangEchoAudio/battle_music";
-    private const string OutputPath = "Assets/Resources/LijiangEchoCharts/chart_generated.txt";
-    private const string RequirementChartPath = "Assets/Resources/LijiangEchoCharts/chart_liusanjie.txt";
+    // 预览窗口(LijiangEchoChartWindow)也会用到这些常量/方法,故设为 internal。
+    internal const string ClipResourcePath = "LijiangEchoAudio/battle_music";
+    internal const string OutputPath = "Assets/Resources/LijiangEchoCharts/chart_generated.txt";
+    internal const string RequirementChartPath = "Assets/Resources/LijiangEchoCharts/chart_liusanjie.txt";
 
-    // —— 可调参数 ——
+    // —— 可调参数(菜单命令用这些默认值;预览窗口用滑条实时传参) ——
     private const float Sensitivity = 1.5f;      // 越大越"挑剔"、点越少;越小点越多
     private const float MinGapSeconds = 0.16f;   // 两个音符最小间隔,防止一个鼓点出好几下
     private const int FrameSize = 1024;
     private const int HopSize = 512;
-    private const float SnapWindowSeconds = 0.3f; // 贴类型时,需求点吸附到最近检测点的最大距离
+    internal const float SnapWindowSeconds = 0.3f; // 贴类型时,需求点吸附到最近检测点的最大距离
 
     [MenuItem("漓江回声/谱面/1. 从音乐检测拍子生成谱面")]
     public static void GenerateFromMusic()
@@ -36,7 +37,7 @@ public static class LijiangEchoChartGenerator
             return;
         }
 
-        float[] onsets = DetectOnsets(clip, out int frameCount);
+        float[] onsets = DetectOnsets(clip, Sensitivity, MinGapSeconds, out int frameCount);
         if (onsets == null)
         {
             EditorUtility.DisplayDialog("读取失败", "无法读取音频采样(可能需要在导入设置里勾选 Decompress On Load / Load Type)。", "好");
@@ -139,8 +140,25 @@ public static class LijiangEchoChartGenerator
         EditorUtility.DisplayDialog("已贴类型", $"把 {matched} 个需求音符的类型(单/双/长按)吸附到了最近的拍子点。\n结果在 {OutputPath}。", "好");
     }
 
-    /// <summary>能量-通量起音检测:返回按时间升序的起音时间点(秒)。</summary>
-    private static float[] DetectOnsets(AudioClip clip, out int frameCount)
+    /// <summary>把检测到的时间点写成 chart_generated.txt(类型默认 single)。预览窗口"写入"复用。</summary>
+    internal static void WriteChart(float[] onsets, float sensitivity, float minGap)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("# 从 " + ClipResourcePath + " 自动生成(能量起音检测) —— 时间(秒),类型");
+        sb.AppendLine("# 参数 Sensitivity=" + sensitivity + " MinGap=" + minGap + "s;点太多/少改参数再跑。");
+        sb.AppendLine("# 类型暂全 single,可用「2. 把需求类型贴到最近拍子」写入单/双/长按。");
+        foreach (float t in onsets)
+        {
+            sb.AppendLine(t.ToString("F3") + ",single");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputPath)));
+        File.WriteAllText(Path.GetFullPath(OutputPath), sb.ToString());
+        AssetDatabase.Refresh();
+    }
+
+    /// <summary>能量-通量起音检测:返回按时间升序的起音时间点(秒)。sensitivity/minGap 可由预览窗口传入。</summary>
+    internal static float[] DetectOnsets(AudioClip clip, float sensitivity, float minGap, out int frameCount)
     {
         frameCount = 0;
         int channels = clip.channels;
@@ -209,12 +227,12 @@ public static class LijiangEchoChartGenerator
             }
 
             mean /= (b - a + 1);
-            float threshold = mean * Sensitivity + 1e-4f;
+            float threshold = mean * sensitivity + 1e-4f;
 
             if (flux[f] > threshold && flux[f] >= flux[f - 1] && flux[f] > flux[f + 1])
             {
                 float t = (f * HopSize + FrameSize * 0.5f) / sampleRate;
-                if (t - lastOnset >= MinGapSeconds)
+                if (t - lastOnset >= minGap)
                 {
                     onsets.Add(t);
                     lastOnset = t;
