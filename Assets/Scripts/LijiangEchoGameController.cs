@@ -1122,6 +1122,10 @@ public class LijiangEchoGameController : MonoBehaviour
         ResetStage(Stage.Trace);
         PlayStageLoop("ambience", 0.26f);
 
+        // ②/P5 背景补全：描绘阶段原本只有淡紫边框，画面偏空。把「山」背景（ui/mountain_background，
+        // 即美术包 UI 里的山背景图）铺到最底层（order -30，在淡紫边框 -20 之下）填补空洞。
+        // alpha 先给 0.85 便于看清，若太浓/太淡在此处调整即可。
+        AddLayer("ui/mountain_background", "描绘阶段远山底", new Vector3(0f, 0f, 0.1f), WideStripWidth, -30, 0.85f);
         AddLayer("transition/purple_frame", "描绘阶段淡紫边框", Vector3.zero, MainCanvasWidth, -20, 0.14f);
         AddLayer("pattern/drawing_card", "纹样描绘台", new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
 
