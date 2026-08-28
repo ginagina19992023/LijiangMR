@@ -104,6 +104,9 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float IntroWalkDuration = 38.85f;
     private const float IntroTotalDuration = 57f;
     private const float NoteApproachTime = 1.22f;
+    // P3/P6：长按「龙头→龙尾」消失动画的方向。true = 朝音符进入侧收拢，false = 反向。
+    // 纯 Transform 收缩实现，观感如相反，改这一个布尔即可（详见 UpdateNotes）。
+    private const bool HoldWipeTowardEntrySide = true;
     private const float HitRingVisibleHeight = 0.62f;
     private const float HitBlockVisibleHeight = 0.34f;
     private const float HitRingTargetX = HitRingVisibleHeight * 0.5f;
@@ -1700,6 +1703,22 @@ public class LijiangEchoGameController : MonoBehaviour
                 (holdActive && heldNote == note ? 1f + Mathf.Sin(Time.time * 8f) * 0.035f : 1f),
                 Mathf.Lerp(0.42f, 1f, eased),
                 note.Side > 0f);
+
+            // P3/P6：长按音符「龙头→龙尾」逐步消失。按住期间按 holdProgress/所需时长
+            // 把纹样沿水平方向从一端收拢（宽度收缩 + 位置补偿，纯 Transform、无 shader、
+            // 无需新美术），作为长按完成的视觉反馈。方向由 HoldWipeTowardEntrySide 控制。
+            if (holdActive && heldNote == note && note.Renderer.sprite != null)
+            {
+                float holdRequired = GetHoldDuration(nextNoteIndex);
+                float wipe = holdRequired > 0f ? Mathf.Clamp01(holdProgress / holdRequired) : 0f;
+                Transform noteTransform = note.Renderer.transform;
+                Vector3 poseScale = noteTransform.localScale;
+                float remaining = Mathf.Max(1f - wipe, 0.0001f);
+                float removedWidth = note.Renderer.sprite.bounds.size.x * Mathf.Abs(poseScale.x) * wipe;
+                float wipeDir = HoldWipeTowardEntrySide ? note.Side : -note.Side;
+                noteTransform.localScale = new Vector3(poseScale.x * remaining, poseScale.y, poseScale.z);
+                noteTransform.localPosition += new Vector3(removedWidth * 0.5f * wipeDir, 0f, 0f);
+            }
 
             if (!holdActive && beatTime - note.HitTime > 0.55f)
             {
