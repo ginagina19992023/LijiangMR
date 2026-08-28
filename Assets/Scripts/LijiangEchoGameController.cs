@@ -713,7 +713,7 @@ public class LijiangEchoGameController : MonoBehaviour
             case 2: ShowIntro(); break;
             case 3: ShowTrace(); break;
             case 4: ShowBattle(); break;
-            case 5: ShowResult(); break;
+            case 5: ShowCard(); break;
             default: ShowStart(); break;
         }
     }
@@ -1829,8 +1829,7 @@ public class LijiangEchoGameController : MonoBehaviour
             battleEndingTimer += Time.deltaTime;
             if (battleEndingTimer >= 0.72f)
             {
-                // 用户反馈:战斗结束应直接进结算,不再先弹纹样解析卡(ShowCard)。
-                ShowResult();
+                ShowCard();
             }
         }
     }
