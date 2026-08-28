@@ -64,60 +64,72 @@ public class StartStageController : MonoBehaviour
         LijiangEchoStageKit.PlayStageLoop("ambience_water", 0.32f);
         LijiangEchoStageKit.PlaySfx("birds", 0.22f);
 
-        AddLayer("start/frame_16_9", "开始界面底框", Vector3.zero, LijiangEchoStageKit.MainCanvasWidth, -20, 0.04f);
-        AddLayer("start/back_mountain_1", "开始远山一", new Vector3(0f, -0.02f, 0.34f), LijiangEchoStageKit.WideStripWidth, -16, 0.9f);
-        AddLayer("start/back_mountain_2", "开始远山二", new Vector3(0f, -0.02f, 0.25f), LijiangEchoStageKit.WideStripWidth, -15, 0.82f);
-        AddLayer("start/back_mountain_3", "开始远山三", new Vector3(0f, -0.02f, 0.16f), LijiangEchoStageKit.WideStripWidth, -14, 0.78f);
-        AddLayer("start/back_building", "开始建筑", new Vector3(0f, -0.02f, 0.07f), LijiangEchoStageKit.WideStripWidth, -13, 0.88f);
+        BuildStartScreenLayout(stageRoot, spawnedObjects, motionItems);
 
-        GameObject cloudOne = AddLayer("start/back_cloud_1", "开始后云一", new Vector3(-0.02f, -0.02f, -0.04f), LijiangEchoStageKit.WideStripWidth, -10, 0.76f);
-        GameObject cloudTwo = AddLayer("start/back_cloud_2", "开始后云二", new Vector3(0.02f, -0.02f, -0.12f), LijiangEchoStageKit.WideStripWidth, -9, 0.62f);
-        RegisterMotion(cloudOne, LijiangEchoStageKit.MotionKind.FloatX, 0.045f, 0.55f, 0f);
-        RegisterMotion(cloudTwo, LijiangEchoStageKit.MotionKind.FloatX, 0.032f, 0.42f, 1.4f);
-
-        AddLayer("start/front_mountain_left", "开始前山左", new Vector3(0f, -0.02f, -0.25f), LijiangEchoStageKit.WideStripWidth, -6);
-        AddLayer("start/front_mountain_right", "开始前山右", new Vector3(0f, -0.02f, -0.32f), LijiangEchoStageKit.WideStripWidth, -5);
-
-        GameObject frontCloudLeft = AddLayer("start/front_cloud_left", "开始前云左", new Vector3(0f, -0.02f, -0.40f), LijiangEchoStageKit.WideStripWidth, -3, 0.9f);
-        GameObject frontCloudRight = AddLayer("start/front_cloud_right", "开始前云右", new Vector3(0f, -0.02f, -0.46f), LijiangEchoStageKit.WideStripWidth, -2, 0.9f);
-        RegisterMotion(frontCloudLeft, LijiangEchoStageKit.MotionKind.FloatX, 0.038f, 0.5f, 2f);
-        RegisterMotion(frontCloudRight, LijiangEchoStageKit.MotionKind.FloatX, 0.036f, 0.48f, 4f);
-
-        GameObject buttonPanel = AddIcon("start/start_ui", "进入游戏主按钮", new Vector3(0f, -0.38f, -0.53f), 0.52f, 5, 0.98f);
-        GameObject button = AddIcon("start/start_button", "开始按钮高光", new Vector3(0f, -0.48f, -0.55f), 0.095f, 6, 0.88f);
-        startButtonPanelRenderer = buttonPanel.GetComponent<SpriteRenderer>();
-        startButtonRenderer = button.GetComponent<SpriteRenderer>();
-        RegisterMotion(buttonPanel, LijiangEchoStageKit.MotionKind.Pulse, 0.01f, 2.1f, 0.7f);
-        RegisterMotion(button, LijiangEchoStageKit.MotionKind.Pulse, 0.022f, 2.4f, 0f);
-
-        GameObject ball = AddIcon("start/embroidered_ball", "绣球", new Vector3(0f, 0.23f, -0.66f), 0.72f, 7, 0.96f);
-        GameObject birdBig = AddIcon("start/bird_big", "大鸟", new Vector3(1.28f, 0.68f, -0.61f), 0.19f, 8, 0.92f);
-        GameObject birdSmall = AddIcon("start/bird_small", "小鸟", new Vector3(1.74f, 0.52f, -0.63f), 0.16f, 8, 0.78f);
-        RegisterMotion(ball, LijiangEchoStageKit.MotionKind.FloatY, 0.035f, 1.4f, 0f);
-        RegisterMotion(birdBig, LijiangEchoStageKit.MotionKind.FloatY, 0.025f, 2.1f, 1.2f);
-        RegisterMotion(birdSmall, LijiangEchoStageKit.MotionKind.FloatY, 0.022f, 1.8f, 2.8f);
-
-        AddIcon("start/progress_bar", "开始进度底条", new Vector3(0f, -0.74f, -0.2f), 0.12f, 9, 0.82f);
-        GameObject pattern = AddIcon("start/progress_pattern", "开始进度纹样", new Vector3(-0.72f, -0.74f, -0.21f), 0.08f, 10, 0.95f);
-        RegisterMotion(pattern, LijiangEchoStageKit.MotionKind.FloatX, 0.34f, 0.72f, 1.7f);
-
-        AddLayer("start/start_border", "开始外框纹样", new Vector3(0f, -0.02f, -0.23f), LijiangEchoStageKit.WideStripWidth, 24, 0.95f);
-
-        AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.28f), 0.24f, 30, 0.88f);
+        startButtonPanelRenderer = FindLayerRenderer("进入游戏主按钮");
+        startButtonRenderer = FindLayerRenderer("开始按钮高光");
     }
 
-    private GameObject AddLayer(string resourcePath, string objectName, Vector3 localPosition, float targetWidth, int order, float alpha = 1f)
+    private SpriteRenderer FindLayerRenderer(string objectName)
     {
-        return LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, resourcePath, objectName, localPosition, targetWidth, order, alpha);
+        foreach (GameObject item in spawnedObjects)
+        {
+            if (item != null && item.name == objectName)
+            {
+                return item.GetComponent<SpriteRenderer>();
+            }
+        }
+
+        return null;
     }
 
-    private GameObject AddIcon(string resourcePath, string objectName, Vector3 visibleCenter, float targetHeight, int order, float alpha = 1f)
+    /// <summary>
+    /// 开始界面的纯布局表。提为 public static 是为了让编辑器烘焙工具能在非 Play 模式下
+    /// 调用它、取得与运行时完全一致的数值作为基线，避免手工转写这张表出错。
+    /// 场景化改造完成后本方法连同调用一并删除（见实施计划 Task 5）。
+    /// </summary>
+    public static void BuildStartScreenLayout(
+        Transform stageRoot,
+        List<GameObject> spawned,
+        List<LijiangEchoStageKit.MotionItem> motions)
     {
-        return LijiangEchoStageKit.AddIcon(stageRoot, spawnedObjects, resourcePath, objectName, visibleCenter, targetHeight, order, alpha);
-    }
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/frame_16_9", "开始界面底框", Vector3.zero, LijiangEchoStageKit.MainCanvasWidth, -20, 0.04f);
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_mountain_1", "开始远山一", new Vector3(0f, -0.02f, 0.34f), LijiangEchoStageKit.WideStripWidth, -16, 0.9f);
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_mountain_2", "开始远山二", new Vector3(0f, -0.02f, 0.25f), LijiangEchoStageKit.WideStripWidth, -15, 0.82f);
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_mountain_3", "开始远山三", new Vector3(0f, -0.02f, 0.16f), LijiangEchoStageKit.WideStripWidth, -14, 0.78f);
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_building", "开始建筑", new Vector3(0f, -0.02f, 0.07f), LijiangEchoStageKit.WideStripWidth, -13, 0.88f);
 
-    private void RegisterMotion(GameObject item, LijiangEchoStageKit.MotionKind kind, float amplitude, float speed, float phase)
-    {
-        LijiangEchoStageKit.RegisterMotion(motionItems, item, kind, amplitude, speed, phase);
+        GameObject cloudOne = LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_cloud_1", "开始后云一", new Vector3(-0.02f, -0.02f, -0.04f), LijiangEchoStageKit.WideStripWidth, -10, 0.76f);
+        GameObject cloudTwo = LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/back_cloud_2", "开始后云二", new Vector3(0.02f, -0.02f, -0.12f), LijiangEchoStageKit.WideStripWidth, -9, 0.62f);
+        LijiangEchoStageKit.RegisterMotion(motions, cloudOne, LijiangEchoStageKit.MotionKind.FloatX, 0.045f, 0.55f, 0f);
+        LijiangEchoStageKit.RegisterMotion(motions, cloudTwo, LijiangEchoStageKit.MotionKind.FloatX, 0.032f, 0.42f, 1.4f);
+
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/front_mountain_left", "开始前山左", new Vector3(0f, -0.02f, -0.25f), LijiangEchoStageKit.WideStripWidth, -6);
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/front_mountain_right", "开始前山右", new Vector3(0f, -0.02f, -0.32f), LijiangEchoStageKit.WideStripWidth, -5);
+
+        GameObject frontCloudLeft = LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/front_cloud_left", "开始前云左", new Vector3(0f, -0.02f, -0.40f), LijiangEchoStageKit.WideStripWidth, -3, 0.9f);
+        GameObject frontCloudRight = LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/front_cloud_right", "开始前云右", new Vector3(0f, -0.02f, -0.46f), LijiangEchoStageKit.WideStripWidth, -2, 0.9f);
+        LijiangEchoStageKit.RegisterMotion(motions, frontCloudLeft, LijiangEchoStageKit.MotionKind.FloatX, 0.038f, 0.5f, 2f);
+        LijiangEchoStageKit.RegisterMotion(motions, frontCloudRight, LijiangEchoStageKit.MotionKind.FloatX, 0.036f, 0.48f, 4f);
+
+        GameObject buttonPanel = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/start_ui", "进入游戏主按钮", new Vector3(0f, -0.38f, -0.53f), 0.52f, 5, 0.98f);
+        GameObject button = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/start_button", "开始按钮高光", new Vector3(0f, -0.48f, -0.55f), 0.095f, 6, 0.88f);
+        LijiangEchoStageKit.RegisterMotion(motions, buttonPanel, LijiangEchoStageKit.MotionKind.Pulse, 0.01f, 2.1f, 0.7f);
+        LijiangEchoStageKit.RegisterMotion(motions, button, LijiangEchoStageKit.MotionKind.Pulse, 0.022f, 2.4f, 0f);
+
+        GameObject ball = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/embroidered_ball", "绣球", new Vector3(0f, 0.23f, -0.66f), 0.72f, 7, 0.96f);
+        GameObject birdBig = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/bird_big", "大鸟", new Vector3(1.28f, 0.68f, -0.61f), 0.19f, 8, 0.92f);
+        GameObject birdSmall = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/bird_small", "小鸟", new Vector3(1.74f, 0.52f, -0.63f), 0.16f, 8, 0.78f);
+        LijiangEchoStageKit.RegisterMotion(motions, ball, LijiangEchoStageKit.MotionKind.FloatY, 0.035f, 1.4f, 0f);
+        LijiangEchoStageKit.RegisterMotion(motions, birdBig, LijiangEchoStageKit.MotionKind.FloatY, 0.025f, 2.1f, 1.2f);
+        LijiangEchoStageKit.RegisterMotion(motions, birdSmall, LijiangEchoStageKit.MotionKind.FloatY, 0.022f, 1.8f, 2.8f);
+
+        LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/progress_bar", "开始进度底条", new Vector3(0f, -0.74f, -0.2f), 0.12f, 9, 0.82f);
+        GameObject pattern = LijiangEchoStageKit.AddIcon(stageRoot, spawned, "start/progress_pattern", "开始进度纹样", new Vector3(-0.72f, -0.74f, -0.21f), 0.08f, 10, 0.95f);
+        LijiangEchoStageKit.RegisterMotion(motions, pattern, LijiangEchoStageKit.MotionKind.FloatX, 0.34f, 0.72f, 1.7f);
+
+        LijiangEchoStageKit.AddLayer(stageRoot, spawned, "start/start_border", "开始外框纹样", new Vector3(0f, -0.02f, -0.23f), LijiangEchoStageKit.WideStripWidth, 24, 0.95f);
+
+        LijiangEchoStageKit.AddIcon(stageRoot, spawned, "ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.28f), 0.24f, 30, 0.88f);
     }
 }
