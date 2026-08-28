@@ -328,12 +328,17 @@ public class LijiangEchoGameController : MonoBehaviour
         0, 9, 29, 42, 51, 57, 65, 74, 84, 97, 102, 105
     };
 
-    // P4/P6：双击音符的谱面 index。默认留空 → 现有行为零变化。
-    // 待孟苏阳确认后，往这里填入要作为「双击」的音符 index（写法同 holdNoteIndices），
-    // 这些音符会用不同纹样(pattern/bird_done)显示以区分单击/双击（见 GetNoteKind / SpawnDueNotes）。
-    // 是否要求"圆环内快速点两下"的输入判定另议；当前仍按单击命中处理，仅视觉区分。
+    // P4/P6：双击音符的谱面 index。
+    // 来源：早期需求文件《刘三姐音乐游戏内容需求》的音符编排——双击(蛙类)出现在
+    // 19/41/42/45/49/50/53/64/82/85/89/90/96 秒。把这些秒数映射到本代码 noteTimes
+    // 里最接近的音符 index 得到下表。⚠️ 注意：本代码的 noteTimes 是按音频峰值自动生成的
+    // 108 个音符，与需求文件手工编排的 ~33 个音符并非一一对应，故为近似映射：中段偏差
+    // <0.6s，首尾个别偏 1~2.3s（末尾音符稀疏所致）。若要与需求完全一致，需重建整张谱面。
+    // 双击音符当前用 pattern/bird_done(鸟纹)与单击区分；需求原意为蛙纹，可在 SpawnDueNotes
+    // 的 Double 分支一行替换。输入仍按单击命中处理，未加"快速点两下"判定。
     private readonly HashSet<int> doubleNoteIndices = new HashSet<int>
     {
+        1, 33, 35, 41, 46, 47, 52, 66, 96, 98, 101, 103, 106
     };
 
     private int nextSpawnIndex;
