@@ -1674,8 +1674,11 @@ public class LijiangEchoGameController : MonoBehaviour
             float startX = side * 2.26f;
             float targetX = 0f; // 用户反馈:音符最终飞到中心原点圆点(不再停在一侧)
             NoteKind kind = GetNoteKind(nextSpawnIndex);
-            string resourcePath = "battle/hit_block";
-            RectInt crop = HitBlockCrop;
+            // 用户反馈:单击不再用 hit_block(黄色圆弧),改用现有铜钱纹样。
+            // 注:需求原意单击=鱼纹,但项目里没有鱼纹「音符」图(只有 select/fish_symbol,
+            // 且音符系统用硬编码 crop),待美术给鱼纹音符图 + 内容矩形后一行替换。
+            string resourcePath = "pattern/coin_done";
+            RectInt crop = CoinDoneCrop;
             float startHeight = 0.28f;
             float targetHeight = HitBlockVisibleHeight;
             string objectName = "节奏击打_" + nextSpawnIndex;
