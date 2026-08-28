@@ -303,7 +303,7 @@ public class LijiangEchoGameController : MonoBehaviour
     };
 
     // 依据指定战斗音乐的瞬态峰值生成，覆盖整首 105.3 秒音轨。
-    private readonly float[] noteTimes =
+    private float[] noteTimes =
     {
         8.336f, 20.898f, 21.478f, 21.873f, 22.454f, 23.034f, 23.615f,
         24.009f, 24.381f, 25.542f, 27.098f, 27.492f, 27.887f, 28.259f,
@@ -323,7 +323,7 @@ public class LijiangEchoGameController : MonoBehaviour
         94.018f, 98.267f, 102.911f
     };
 
-    private readonly HashSet<int> holdNoteIndices = new HashSet<int>
+    private HashSet<int> holdNoteIndices = new HashSet<int>
     {
         0, 9, 29, 42, 51, 57, 65, 74, 84, 97, 102, 105
     };
@@ -336,7 +336,7 @@ public class LijiangEchoGameController : MonoBehaviour
     // <0.6s，首尾个别偏 1~2.3s（末尾音符稀疏所致）。若要与需求完全一致，需重建整张谱面。
     // 双击音符当前用 pattern/bird_done(鸟纹)与单击区分；需求原意为蛙纹，可在 SpawnDueNotes
     // 的 Double 分支一行替换。输入仍按单击命中处理，未加"快速点两下"判定。
-    private readonly HashSet<int> doubleNoteIndices = new HashSet<int>
+    private HashSet<int> doubleNoteIndices = new HashSet<int>
     {
         1, 33, 35, 41, 46, 47, 52, 66, 96, 98, 101, 103, 106
     };
@@ -1530,10 +1530,77 @@ public class LijiangEchoGameController : MonoBehaviour
         OVRInput.SetControllerVibration(0f, 0f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
     }
 
+    /// <summary>
+    /// 战斗开始时读谱面表格驱动音符:优先 chart_generated(从音乐生成),否则 chart_liusanjie
+    /// (需求表),都没有则保留代码里的默认谱面。文件每行"时间(秒),类型";类型 single/double/hold;
+    /// # 开头为注释、空行忽略;会按时间升序排序。
+    /// </summary>
+    private void LoadChartIfAvailable()
+    {
+        TextAsset chart = Resources.Load<TextAsset>("LijiangEchoCharts/chart_generated");
+        if (chart == null)
+        {
+            chart = Resources.Load<TextAsset>("LijiangEchoCharts/chart_liusanjie");
+        }
+
+        if (chart == null || string.IsNullOrEmpty(chart.text))
+        {
+            return;
+        }
+
+        List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
+        foreach (string rawLine in chart.text.Split('\n'))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith("#"))
+            {
+                continue;
+            }
+
+            string[] parts = line.Split(',');
+            if (parts.Length < 1 || !float.TryParse(parts[0].Trim(), out float t))
+            {
+                continue;
+            }
+
+            string type = parts.Length >= 2 ? parts[1].Trim().ToLowerInvariant() : "single";
+            rows.Add(new KeyValuePair<float, string>(t, type));
+        }
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        rows.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+        float[] times = new float[rows.Count];
+        HashSet<int> holds = new HashSet<int>();
+        HashSet<int> doubles = new HashSet<int>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            times[i] = rows[i].Key;
+            if (rows[i].Value == "hold")
+            {
+                holds.Add(i);
+            }
+            else if (rows[i].Value == "double")
+            {
+                doubles.Add(i);
+            }
+        }
+
+        noteTimes = times;
+        holdNoteIndices = holds;
+        doubleNoteIndices = doubles;
+        Debug.Log($"[漓江回声] 已从谱面表格加载 {noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count})。");
+    }
+
     private void ShowBattle()
     {
         ResetStage(Stage.Battle);
         StopStageLoop();
+        LoadChartIfAvailable();
         score = 0;
         combo = 0;
         nextSpawnIndex = 0;
