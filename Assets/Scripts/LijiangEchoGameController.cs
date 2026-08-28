@@ -1150,11 +1150,40 @@ public class LijiangEchoGameController : MonoBehaviour
 
         tracePoints = BuildTracePath(selectedLevel);
 
+        // P1 / 描绘增强：全程「淡淡指引线」——沿纹样形状铺满整条路径，给玩家指引方向。
+        // 线本身即对齐纹样基本形状；如需虚线观感，可给此 LineRenderer 换一张虚线纹理材质。
+        LineRenderer traceGuideRenderer = AddLineRenderer(
+            "纹样描绘指引",
+            0.03f,
+            new Color(1f, 0.9f, 0.55f, 0.16f),
+            30);
+        traceGuideRenderer.positionCount = tracePoints.Length;
+        for (int gi = 0; gi < tracePoints.Length; gi++)
+        {
+            traceGuideRenderer.SetPosition(gi, tracePoints[gi] + new Vector3(0f, 0f, -0.018f));
+        }
+
         traceDrawRenderer = AddLineRenderer(
             "已描绘轨迹",
             0.072f,
             new Color(1f, 0.86f, 0.28f, 0.98f),
             34);
+
+        // 描绘增强：已描绘的线沿绘制方向从暗金渐变到亮发光（头→尾逐渐点亮），
+        // 相当于纹样随绘制顺序逐渐亮起。colorGradient 按线长归一化，线增长时描绘头始终最亮。
+        Gradient traceGlowGradient = new Gradient();
+        traceGlowGradient.SetKeys(
+            new GradientColorKey[]
+            {
+                new GradientColorKey(new Color(0.85f, 0.6f, 0.2f), 0f),
+                new GradientColorKey(new Color(1f, 0.95f, 0.6f), 1f)
+            },
+            new GradientAlphaKey[]
+            {
+                new GradientAlphaKey(0.55f, 0f),
+                new GradientAlphaKey(1f, 1f)
+            });
+        traceDrawRenderer.colorGradient = traceGlowGradient;
 
         GameObject pointerObject = AddIcon(
             "battle/hit_ring_center",
