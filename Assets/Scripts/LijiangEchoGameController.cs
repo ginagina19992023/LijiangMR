@@ -1359,6 +1359,47 @@ public class LijiangEchoGameController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 每关纹样的「关键点」(而非细分后的全部路径点),供编辑器"自动摆放打击点"工具定位使用:
+    /// 在这些点上各摆一个打击点,连起来就是该关纹样的大致形状。0=蛙纹 1=鸟纹 2=铜钱纹(圆)。
+    /// </summary>
+    public static Vector2[] GetPatternControlPoints(int level)
+    {
+        if (level == 2)
+        {
+            const int ringPoints = 12;
+            Vector2[] ring = new Vector2[ringPoints];
+            for (int i = 0; i < ringPoints; i++)
+            {
+                float angle = Mathf.PI * 0.5f - i / (float)ringPoints * Mathf.PI * 2f;
+                ring[i] = new Vector2(Mathf.Cos(angle) * 0.43f, Mathf.Sin(angle) * 0.43f + 0.02f);
+            }
+
+            return ring;
+        }
+
+        return level == 0
+            ? new[]
+            {
+                new Vector2(-0.20f, 0.44f), new Vector2(-0.38f, 0.28f),
+                new Vector2(-0.17f, 0.13f), new Vector2(-0.34f, -0.03f),
+                new Vector2(-0.10f, -0.14f), new Vector2(-0.18f, -0.34f),
+                new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                new Vector2(0.20f, 0.44f)
+            }
+            : new[]
+            {
+                new Vector2(-0.52f, 0.02f), new Vector2(-0.34f, 0.30f),
+                new Vector2(-0.10f, 0.14f), new Vector2(0f, 0.38f),
+                new Vector2(0.10f, 0.14f), new Vector2(0.34f, 0.30f),
+                new Vector2(0.52f, 0.02f), new Vector2(0.25f, -0.06f),
+                new Vector2(0f, -0.45f), new Vector2(-0.25f, -0.06f),
+                new Vector2(-0.52f, 0.02f)
+            };
+    }
+
     private Vector3[] BuildTracePath(int level)
     {
         List<Vector3> points = new List<Vector3>();
