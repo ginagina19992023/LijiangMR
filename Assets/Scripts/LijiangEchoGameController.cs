@@ -109,8 +109,6 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float NoteApproachTime = 1.22f;
     // 用户反馈:纹样音符整体做小一些的缩放系数。
     private const float NoteSizeScale = 0.72f;
-    // 鱼纹图内容不在图片正中,导致落点看着偏右;单击(鱼纹)整体落点左移补偿(负=左移)。可调。
-    private const float FishNoteXOffset = -0.14f;
 
     // 打击纹样材质:白色剪影 + 加色柔光。运行时按 shader 名创建、全体音符共享(颜色靠 renderer.color 传)。
     private Material noteWhiteMaterial;
@@ -1704,12 +1702,13 @@ public class LijiangEchoGameController : MonoBehaviour
     }
 
     // ===== 左右手击打(对应 VR 手柄左/右手) =====
-    private const float HandStrikeDuration = 0.24f;
-    private const float HandRestAngle = 180f;    // 平时:手臂朝下(手在轴下方、藏于画面下方)
-    private const float HandStrikeAngle = 22f;   // 击打:从下方向上旋转,朝中心圆环的角度
-    private const float HandArmLength = 1.0f;     // 臂长(手离轴心多远)
-    private const float HandPivotSide = 0.35f;    // 左右轴心离中线的横向距离
-    private const float HandPivotY = -0.82f;      // 轴心高度(越负越靠下)
+    private const float HandStrikeDuration = 0.26f;
+    private const float HandRestAngle = 58f;     // 平时:手臂朝各自外下方甩出(藏在画面外侧)
+    private const float HandStrikeAngle = 8f;    // 击打终点:接近竖直、手落到中心圆环上(不越过)
+    private const float HandArmLength = 1.15f;    // 臂长(手离轴心多远)
+    private const float HandPivotSide = 0.5f;     // 左右轴心离中线的横向距离
+    private const float HandPivotY = -1.15f;      // 轴心高度(越负越靠下)
+    private const float HandVisualHeight = 2.6f;  // 手的显示高度(放大约 5 倍)
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
@@ -1725,10 +1724,10 @@ public class LijiangEchoGameController : MonoBehaviour
         GameObject pivotObject = new GameObject(handName + "轴");
         pivotObject.transform.SetParent(stageRoot, false);
         pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, -0.55f); // 偏下两侧的轴心
-        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, HandRestAngle); // 平时手臂朝下
+        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, -sideSign * HandRestAngle); // 平时朝各自外下方甩出
         spawnedObjects.Add(pivotObject);
 
-        GameObject hand = AddIcon(art, handName, Vector3.zero, 0.55f, 240, 0f); // 初始全透明
+        GameObject hand = AddIcon(art, handName, Vector3.zero, HandVisualHeight, 240, 0f); // 初始全透明,放大
         hand.transform.SetParent(pivotObject.transform, false);
         hand.transform.localPosition = new Vector3(0f, HandArmLength, 0f); // 手在轴的"手臂末端"
         hand.transform.localRotation = Quaternion.identity;
@@ -1749,8 +1748,8 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
-        float rest = HandRestAngle;                 // 手臂朝下藏起
-        float strike = sideSign * HandStrikeAngle;  // 向上旋转、朝中心圆环
+        float rest = -sideSign * HandRestAngle;     // 各自外下方甩出、藏起
+        float strike = sideSign * HandStrikeAngle;  // 向上旋转、手落到中心圆环
         float angle = rest;
         float alpha = 0f; // 平时全透明(VR 里镜头外也看得见,靠透明来隐藏)
         if (timer > 0f)
@@ -2066,11 +2065,7 @@ public class LijiangEchoGameController : MonoBehaviour
                 objectName = "双击纹样_" + nextSpawnIndex;
             }
 
-            // 鱼纹(单击)落点左移补偿其图内容偏右;其余纹样仍落正中心。
-            if (kind == NoteKind.Strike)
-            {
-                targetX = FishNoteXOffset;
-            }
+            // (落点居中改由 SetCroppedSpritePose 的 centerOnVisual 统一处理,不再单独给鱼纹加偏移)
 
             // 用户反馈:纹样整体做小一些
             startHeight *= NoteSizeScale;
@@ -2094,12 +2089,12 @@ public class LijiangEchoGameController : MonoBehaviour
                 noteRenderer.sharedMaterial = noteWhiteMaterial;
             }
 
-            // 加色柔光光晕:同纹样叠 2 层、越外越淡的金色,加色混合叠出外扩柔和的发光(比 3 层收敛)。
-            // 关键:每层要以"纹样可见中心(sprite.bounds.center)"为中心放大,否则纹样原点偏移时
+            // 加色柔光光晕:1 层金色、加色混合、柔和外扩。
+            // 关键:要以"纹样可见中心(sprite.bounds.center)"为中心放大,否则纹样原点偏移时
             // 放大的光晕会相对本体错位(鱼纹那种"散射"就是这个原因)。
             Vector3 spriteCenter = noteRenderer.sprite != null ? noteRenderer.sprite.bounds.center : Vector3.zero;
-            float[] glowScales = { 1.35f, 1.75f };
-            float[] glowBase = { 0.40f, 0.20f };
+            float[] glowScales = { 1.5f };
+            float[] glowBase = { 0.42f };
             SpriteRenderer[] glowLayers = new SpriteRenderer[glowScales.Length];
             for (int gi = 0; gi < glowScales.Length; gi++)
             {
@@ -2170,7 +2165,8 @@ public class LijiangEchoGameController : MonoBehaviour
                 Mathf.Lerp(note.TargetHeight * 0.76f, note.TargetHeight, eased) *
                 (holdActive && heldNote == note ? 1f + Mathf.Sin(Time.time * 8f) * 0.035f : 1f),
                 Mathf.Lerp(0.42f, 1f, eased),
-                false); // 不镜像,朝正中心飞
+                false,   // 不镜像,朝正中心飞
+                true);   // 以纹样可见中心对齐落点(修鱼纹往右散射)
 
             // 纹样纯白:渐显到全亮;进环略淡但仍清晰可见(不再淡到不可见)。
             // 长按音符另有 P3 视觉,此处不处理,避免叠加冲突。
@@ -3281,7 +3277,7 @@ public class LijiangEchoGameController : MonoBehaviour
         return spriteObject;
     }
 
-    private void SetCroppedSpritePose(SpriteRenderer renderer, Vector3 visibleCenter, float targetHeight, float alpha, bool mirrorX)
+    private void SetCroppedSpritePose(SpriteRenderer renderer, Vector3 visibleCenter, float targetHeight, float alpha, bool mirrorX, bool centerOnVisual = false)
     {
         if (renderer == null || renderer.sprite == null || renderer.sprite.bounds.size.y <= 0f)
         {
@@ -3289,7 +3285,16 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         float scale = targetHeight / renderer.sprite.bounds.size.y;
-        renderer.transform.localPosition = visibleCenter;
+        Vector3 pos = visibleCenter;
+        if (centerOnVisual)
+        {
+            // 精灵原点(pivot)不在可见内容中心时,把"可见中心"对齐到 visibleCenter,
+            // 否则纹样会整体偏向一侧(鱼纹往右散射就是这个原因)。
+            Vector3 c = renderer.sprite.bounds.center;
+            pos -= new Vector3((mirrorX ? -scale : scale) * c.x, scale * c.y, 0f);
+        }
+
+        renderer.transform.localPosition = pos;
         renderer.transform.localRotation = Quaternion.identity;
         renderer.transform.localScale = new Vector3(mirrorX ? -scale : scale, scale, scale);
         renderer.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
