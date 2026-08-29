@@ -1858,6 +1858,11 @@ public class LijiangEchoChartWindow : EditorWindow
                 }
 
                 GUILayout.Label("← 例:把鼓点层整层设成双击", EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button(new GUIContent("自动撒挥划(旧规则)", "按旧自动谱规则(每8个第4、每11个第7)把这些拍设为挥划"), GUILayout.MaxWidth(140f)))
+                {
+                    AutoScatterSwipe();
+                }
             }
 
             // 2) 按比例随机分配类型(勾选类型 + 权重)
@@ -1897,6 +1902,29 @@ public class LijiangEchoChartWindow : EditorWindow
                 }
             }
         }
+    }
+
+    /// <summary>按旧自动谱规则(index%8==3 || index%11==6)把当前图层这些拍设为挥划。</summary>
+    private void AutoScatterSwipe()
+    {
+        if (noteTimes.Count == 0)
+        {
+            status = "当前图层没有音符。";
+            return;
+        }
+
+        RecordUndo();
+        int n = 0;
+        for (int i = 0; i < noteTypes.Count; i++)
+        {
+            if (i % 8 == 3 || i % 11 == 6)
+            {
+                noteTypes[i] = "swipe";
+                n++;
+            }
+        }
+
+        status = $"已按旧规则把 {n} 个拍设为挥划(每8个第4、每11个第7)。";
     }
 
     private void SetAllType(int typeIdx)
@@ -2568,6 +2596,8 @@ public class LijiangEchoChartWindow : EditorWindow
         private static readonly MethodInfo Play3 = Find(new[] { "PlayPreviewClip", "PlayClip" }, new[] { typeof(AudioClip), typeof(int), typeof(bool) });
         private static readonly MethodInfo Play1 = Find(new[] { "PlayPreviewClip", "PlayClip" }, new[] { typeof(AudioClip) });
         private static readonly MethodInfo StopAll = Find(new[] { "StopAllPreviewClips", "StopAllClips" }, Type.EmptyTypes);
+        private static readonly MethodInfo StopClip1 = Find(new[] { "StopClip", "StopPreviewClip" }, new[] { typeof(AudioClip) });
+        private static AudioClip current; // 最近播放的 clip(用于按 clip 停止)
         private static readonly MethodInfo PosM = Find(new[] { "GetPreviewClipSamplePosition", "GetClipSamplePosition" }, Type.EmptyTypes);
         private static readonly MethodInfo PlayingM = Find(new[] { "IsPreviewClipPlaying", "IsClipPlaying" }, Type.EmptyTypes);
 
@@ -2610,12 +2640,15 @@ public class LijiangEchoChartWindow : EditorWindow
 
         public static string Diag()
         {
+            string stopSig = StopAll != null ? "(" + StopAll.GetParameters().Length + "参)" : "";
             return $"AudioUtil={(Util != null)}  Play3={(Play3 != null)}  Play1={(Play1 != null)}  " +
-                   $"StopAll={(StopAll != null)}  Pos={(PosM != null)}  Playing={(PlayingM != null)}";
+                   $"StopAll={(StopAll != null)}{stopSig}  StopClip={(StopClip1 != null)}  Pos={(PosM != null)}  Playing={(PlayingM != null)}";
         }
 
         public static void Play(AudioClip c, int startSample)
         {
+            Stop(); // 先停掉上一次,避免叠加
+            current = c;
             try
             {
                 if (Play3 != null)
@@ -2659,8 +2692,21 @@ public class LijiangEchoChartWindow : EditorWindow
 
         public static void Stop()
         {
-            try { StopAll?.Invoke(null, null); }
-            catch { }
+            // 1) 参数正确地调 StopAll(只在它确实无参时调,避免 Invoke 抛异常被吞)。
+            if (StopAll != null && StopAll.GetParameters().Length == 0)
+            {
+                try { StopAll.Invoke(null, null); }
+                catch (Exception ex) { Debug.LogWarning("[漓江回声] StopAll 失败:" + ex.GetType().Name + " " + ex.Message); }
+            }
+
+            // 2) 兜底:按 clip 停(某些版本 StopAllPreviewClips 不生效,但 StopClip(clip) 生效)。
+            if (StopClip1 != null && current != null)
+            {
+                try { StopClip1.Invoke(null, new object[] { current }); }
+                catch { }
+            }
+
+            current = null;
         }
 
         public static int Pos()
