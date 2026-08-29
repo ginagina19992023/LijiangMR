@@ -98,7 +98,9 @@ public class LijiangEchoChartWindow : EditorWindow
     // —— 节拍试听:播放/拖动时播放头经过音符就叠一声(按类型),不进 Play 也能听谱对齐 ——
     private bool metronome = true;
     private float lastClickPlayhead = -1f;
-    private AudioClip clickHit, clickSnake, clickSwipe;
+    private float clickVolume = 0.9f; // 提示音响度
+    private AudioClip genSingle, genHold, genSwipe; // 程序生成的清脆"咔哒",响度可控
+    private float genVolume = -1f;
 
     private string status = "点「检测拍子」或「读回已有谱面」开始。";
 
@@ -388,6 +390,7 @@ public class LijiangEchoChartWindow : EditorWindow
     {
         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {
+            GUILayout.Label("图层（保存时合并所有『显示』的层）", EditorStyles.boldLabel);
             for (int i = 0; i < layers.Count; i++)
             {
                 NoteLayer layer = layers[i];
@@ -431,7 +434,7 @@ public class LijiangEchoChartWindow : EditorWindow
                     AddEmptyLayer();
                 }
 
-                if (GUILayout.Button(new GUIContent("检测→新图层", "用当前频段检测,把结果放进一个新图层(不动其它层)"), GUILayout.Height(20f)))
+                if (GUILayout.Button(new GUIContent($"检测→新图层（{BandLabels[bandIndex]}）", "用上方【频段+灵敏度+最小间隔】检测全部起音,放进一个新图层(不动其它层)"), GUILayout.Height(20f)))
                 {
                     DetectToNewLayer();
                 }
@@ -446,6 +449,10 @@ public class LijiangEchoChartWindow : EditorWindow
                     ImportLayerFromFile();
                 }
             }
+
+            EditorGUILayout.LabelField(
+                $"「检测→新图层」用当前设置生成：频段={BandLabels[bandIndex]}、灵敏度={sensitivity:F1}、最小间隔={minGap:F2}s(检测全部起音)。改上方设置再点即可。",
+                EditorStyles.wordWrappedMiniLabel);
         }
     }
 
@@ -830,7 +837,12 @@ public class LijiangEchoChartWindow : EditorWindow
 
             GUILayout.Label($"播放头 {playhead:F2}s / {clipLength:F1}s", GUILayout.MaxWidth(160f));
             autoPreview = GUILayout.Toggle(autoPreview, "松手即试听", GUILayout.MaxWidth(90f));
-            metronome = GUILayout.Toggle(metronome, new GUIContent("节拍声", "播放时播放头经过音符就叠一声(按类型)。若音乐被打断请关掉"), GUILayout.MaxWidth(70f));
+            metronome = GUILayout.Toggle(metronome, new GUIContent("节拍声", "播放时播放头经过音符就叠一声(按类型)。若音乐被打断请关掉"), GUILayout.MaxWidth(60f));
+            using (new EditorGUI.DisabledScope(!metronome))
+            {
+                GUILayout.Label(new GUIContent("响度", "拍子提示音的音量"), GUILayout.MaxWidth(30f));
+                clickVolume = GUILayout.HorizontalSlider(clickVolume, 0.1f, 1f, GUILayout.Width(70f));
+            }
             follow = GUILayout.Toggle(follow, "跟随", GUILayout.MaxWidth(55f));
             GUILayout.FlexibleSpace();
             GUILayout.Label("缩放", GUILayout.MaxWidth(32f));
@@ -1415,27 +1427,39 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private AudioClip ClickClip(string type)
     {
-        if (clickHit == null)
+        if (genSingle == null || !Mathf.Approximately(genVolume, clickVolume))
         {
-            clickHit = Resources.Load<AudioClip>("LijiangEchoAudio/hit");
-        }
-
-        if (clickSnake == null)
-        {
-            clickSnake = Resources.Load<AudioClip>("LijiangEchoAudio/snake");
-        }
-
-        if (clickSwipe == null)
-        {
-            clickSwipe = Resources.Load<AudioClip>("LijiangEchoAudio/swipe");
+            genVolume = clickVolume;
+            genSingle = MakeTick(1200f, 0.045f, clickVolume, false); // 单/双:高频脆响
+            genHold = MakeTick(600f, 0.075f, clickVolume, false);    // 长按:低一点、长一点
+            genSwipe = MakeTick(0f, 0.06f, clickVolume, true);       // 挥划:噪声"刷"
         }
 
         switch (type)
         {
-            case "hold": return clickSnake != null ? clickSnake : clickHit;
-            case "swipe": return clickSwipe != null ? clickSwipe : clickHit;
-            default: return clickHit; // 单击/双击
+            case "hold": return genHold;
+            case "swipe": return genSwipe;
+            default: return genSingle; // 单击/双击
         }
+    }
+
+    /// <summary>程序生成一个短"咔哒"提示音(指数衰减);noise=true 用白噪声,否则用正弦。响度 amp。</summary>
+    private static AudioClip MakeTick(float freq, float dur, float amp, bool noise)
+    {
+        const int sr = 44100;
+        int n = Mathf.Max(1, (int)(sr * dur));
+        AudioClip c = AudioClip.Create("lijiang_tick", n, 1, sr, false);
+        float[] data = new float[n];
+        System.Random rng = new System.Random(20260829);
+        for (int i = 0; i < n; i++)
+        {
+            float env = Mathf.Exp(-9f * i / n); // 快速衰减,脆
+            float s = noise ? (float)(rng.NextDouble() * 2.0 - 1.0) : Mathf.Sin(2f * Mathf.PI * freq * i / sr);
+            data[i] = Mathf.Clamp(s * env * amp, -1f, 1f);
+        }
+
+        c.SetData(data, 0);
+        return c;
     }
 
     private void StopPreview()
