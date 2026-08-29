@@ -63,10 +63,23 @@ public class LijiangEchoChartWindow : EditorWindow
     }
 
     [System.Serializable]
-    private class LayersJson { public List<LayerJson> layers = new List<LayerJson>(); }
+    private class LayersJson
+    {
+        public string name;            // 草稿名
+        public int appliedLevel = -1;  // 已应用到哪个关卡(-1=未应用,0/1/2)
+        public List<LayerJson> layers = new List<LayerJson>();
+    }
 
     private const string DraftLayersPath = "Assets/Resources/LijiangEchoCharts/chart_draft.json";
+    private const string DraftsFolder = "Assets/Resources/LijiangEchoCharts/drafts";
     private const int DraftSourceIndex = 5; // 「源谱」下拉里『草稿』的下标
+
+    // —— 谱面库(多个命名草稿)——
+    private sealed class DraftInfo { public string path; public string name; public int total, d, h, sw; public int appliedLevel; }
+    private readonly List<DraftInfo> drafts = new List<DraftInfo>();
+    private bool showLibrary = true;
+    private string newDraftName = "谱面1";
+    private Vector2 libraryScroll;
 
     // 现有编辑逻辑都用 noteTimes/noteTypes → 指向"当前图层",零改动即作用于当前层。
     private List<float> noteTimes => layers[activeLayer].times;
@@ -121,7 +134,7 @@ public class LijiangEchoChartWindow : EditorWindow
     private bool musicMuted; // 只放拍子(静音音乐)——不放音乐、只按拍点响,避免音乐/点击叠音冲突
     private float lastClickPlayhead = -1f;
     private float clickVolume = 0.9f; // 提示音响度
-    private AudioClip genSingle, genHold, genSwipe; // 程序生成的清脆"咔哒",响度可控
+    private AudioClip genSingle, genDouble, genHold, genSwipe; // 程序生成的清脆"咔哒",响度可控
     private float genVolume = -1f;
 
     private string status = "点「检测拍子」或「读回已有谱面」开始。";
@@ -189,6 +202,7 @@ public class LijiangEchoChartWindow : EditorWindow
     private void OnEnable()
     {
         EnsureLayers();
+        RefreshDrafts();
         EnsureClip();
         // 尝试读回已有谱面,方便接着编辑
         if (LijiangEchoChartGenerator.TryLoadChartRows(out List<float> t, out List<string> ty))
@@ -272,6 +286,7 @@ public class LijiangEchoChartWindow : EditorWindow
         EditorGUILayout.Space(4f);
         DrawSourceTargetBar();
         DrawBottomBar();
+        DrawChartLibrary();
     }
 
     // ======================= 源谱 / 目标战斗场景 =======================
@@ -459,6 +474,244 @@ public class LijiangEchoChartWindow : EditorWindow
         selected = -1;
         selection.Clear();
         return true;
+    }
+
+    // ======================= 谱面库(多个命名草稿) =======================
+    private LayersJson BuildLayersJson(string name)
+    {
+        LayersJson lj = new LayersJson { name = name };
+        foreach (NoteLayer L in layers)
+        {
+            LayerJson lay = new LayerJson { name = L.name, color = L.color, visible = L.visible };
+            lay.times.AddRange(L.times);
+            lay.types.AddRange(L.types);
+            lj.layers.Add(lay);
+        }
+
+        return lj;
+    }
+
+    private static string SanitizeFileName(string s)
+    {
+        foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+        {
+            s = s.Replace(c, '_');
+        }
+
+        return s;
+    }
+
+    private void SaveDraftAs(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            status = "先给草稿起个名。";
+            return;
+        }
+
+        name = name.Trim();
+        System.IO.Directory.CreateDirectory(DraftsFolder);
+        string path = DraftsFolder + "/" + SanitizeFileName(name) + ".json";
+        System.IO.File.WriteAllText(path, JsonUtility.ToJson(BuildLayersJson(name), true));
+        AssetDatabase.Refresh();
+        RefreshDrafts();
+        status = $"已存草稿「{name}」(含 {layers.Count} 个图层)。";
+    }
+
+    private void RefreshDrafts()
+    {
+        drafts.Clear();
+        if (!System.IO.Directory.Exists(DraftsFolder))
+        {
+            return;
+        }
+
+        foreach (string f in System.IO.Directory.GetFiles(DraftsFolder, "*.json"))
+        {
+            try
+            {
+                LayersJson lj = JsonUtility.FromJson<LayersJson>(System.IO.File.ReadAllText(f));
+                if (lj == null)
+                {
+                    continue;
+                }
+
+                DraftInfo di = new DraftInfo
+                {
+                    path = f.Replace('\\', '/'),
+                    name = string.IsNullOrEmpty(lj.name) ? System.IO.Path.GetFileNameWithoutExtension(f) : lj.name,
+                    appliedLevel = lj.appliedLevel
+                };
+                if (lj.layers != null)
+                {
+                    foreach (LayerJson lay in lj.layers)
+                    {
+                        for (int i = 0; i < lay.types.Count; i++)
+                        {
+                            di.total++;
+                            string ty = lay.types[i];
+                            if (ty == "double") di.d++;
+                            else if (ty == "hold") di.h++;
+                            else if (ty == "swipe") di.sw++;
+                        }
+                    }
+                }
+
+                drafts.Add(di);
+            }
+            catch
+            {
+                // 坏文件跳过
+            }
+        }
+
+        drafts.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.Ordinal));
+    }
+
+    private void LoadDraftFile(string path)
+    {
+        if (!System.IO.File.Exists(path))
+        {
+            status = "草稿文件不在了。";
+            RefreshDrafts();
+            return;
+        }
+
+        LayersJson lj = JsonUtility.FromJson<LayersJson>(System.IO.File.ReadAllText(path));
+        if (lj == null || lj.layers == null || lj.layers.Count == 0)
+        {
+            status = "草稿为空。";
+            return;
+        }
+
+        RecordUndo();
+        layers.Clear();
+        foreach (LayerJson lay in lj.layers)
+        {
+            NoteLayer L = new NoteLayer { name = lay.name, color = lay.color, visible = lay.visible };
+            L.times.AddRange(lay.times);
+            L.types.AddRange(lay.types);
+            layers.Add(L);
+        }
+
+        EnsureLayers();
+        activeLayer = 0;
+        selected = -1;
+        selection.Clear();
+        status = $"已载入草稿「{lj.name}」。";
+    }
+
+    private void DeleteDraftFile(DraftInfo di)
+    {
+        if (EditorUtility.DisplayDialog("删除草稿", $"删除草稿「{di.name}」?", "删除", "取消"))
+        {
+            AssetDatabase.DeleteAsset(di.path);
+            RefreshDrafts();
+            status = $"已删除草稿「{di.name}」。";
+        }
+    }
+
+    private void ApplyDraftToLevel(DraftInfo di, int level)
+    {
+        LayersJson lj = JsonUtility.FromJson<LayersJson>(System.IO.File.ReadAllText(di.path));
+        if (lj == null || lj.layers == null)
+        {
+            return;
+        }
+
+        List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
+        foreach (LayerJson lay in lj.layers)
+        {
+            if (!lay.visible)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < lay.times.Count; i++)
+            {
+                rows.Add(new KeyValuePair<float, string>(lay.times[i], i < lay.types.Count ? lay.types[i] : "single"));
+            }
+        }
+
+        rows.Sort((a, b) => a.Key.CompareTo(b.Key));
+        List<float> t = new List<float>();
+        List<string> ty = new List<string>();
+        float last = -999f;
+        foreach (KeyValuePair<float, string> r in rows)
+        {
+            if (r.Key - last < 0.02f)
+            {
+                continue;
+            }
+
+            t.Add(r.Key);
+            ty.Add(r.Value);
+            last = r.Key;
+        }
+
+        string chartPath = LijiangEchoChartGenerator.ChartPathForLevel(level);
+        LijiangEchoChartGenerator.BackupChartFile(chartPath);
+        LijiangEchoChartGenerator.WriteChartExplicit(t, ty, chartPath);
+        lj.appliedLevel = level;
+        System.IO.File.WriteAllText(di.path, JsonUtility.ToJson(lj, true));
+        AssetDatabase.Refresh();
+        RefreshDrafts();
+        status = $"已把草稿「{di.name}」应用到关卡{level}({t.Count} 拍)。";
+    }
+
+    private void DrawChartLibrary()
+    {
+        showLibrary = EditorGUILayout.Foldout(showLibrary, $"谱面库 / 草稿（{drafts.Count}）", true);
+        if (!showLibrary)
+        {
+            return;
+        }
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label("新草稿名", GUILayout.MaxWidth(60f));
+                newDraftName = EditorGUILayout.TextField(newDraftName, GUILayout.MaxWidth(160f));
+                if (GUILayout.Button("📝 另存为草稿(存当前全部图层)", GUILayout.MaxWidth(200f)))
+                {
+                    SaveDraftAs(newDraftName);
+                }
+
+                if (GUILayout.Button("刷新", GUILayout.MaxWidth(50f)))
+                {
+                    RefreshDrafts();
+                }
+            }
+
+            if (drafts.Count == 0)
+            {
+                GUILayout.Label("还没有草稿。填个名字点「另存为草稿」即可。", EditorStyles.miniLabel);
+            }
+
+            libraryScroll = EditorGUILayout.BeginScrollView(libraryScroll, GUILayout.MaxHeight(150f));
+            for (int i = 0; i < drafts.Count; i++)
+            {
+                DraftInfo di = drafts[i];
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label(di.name, GUILayout.MaxWidth(130f));
+                    GUILayout.Label($"{di.total}拍 单{di.total - di.d - di.h - di.sw} 双{di.d} 长{di.h} 划{di.sw}", GUILayout.MaxWidth(170f));
+                    GUILayout.Label(di.appliedLevel >= 0 ? $"→关卡{di.appliedLevel}" : "未应用", GUILayout.MaxWidth(56f));
+                    if (GUILayout.Button("载入", GUILayout.MaxWidth(46f)))
+                    {
+                        LoadDraftFile(di.path);
+                    }
+
+                    if (GUILayout.Button(new GUIContent("应用→0", "应用到蛙纹关卡"), GUILayout.MaxWidth(52f))) { ApplyDraftToLevel(di, 0); break; }
+                    if (GUILayout.Button(new GUIContent("1", "应用到鸟纹关卡"), GUILayout.MaxWidth(24f))) { ApplyDraftToLevel(di, 1); break; }
+                    if (GUILayout.Button(new GUIContent("2", "应用到鱼纹关卡"), GUILayout.MaxWidth(24f))) { ApplyDraftToLevel(di, 2); break; }
+                    if (GUILayout.Button("删", GUILayout.MaxWidth(34f))) { DeleteDraftFile(di); break; }
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
     }
 
     private static string TypeCountSummary(List<string> ty)
@@ -2209,40 +2462,61 @@ public class LijiangEchoChartWindow : EditorWindow
         {
             genVolume = clickVolume;
             genSingle = MakeTickAsset("tick_single", 1200f, 0.045f, clickVolume, false);
+            genDouble = MakeDoubleTickAsset("tick_double", 1200f, clickVolume); // 双击=两声连击
             genHold = MakeTickAsset("tick_hold", 600f, 0.075f, clickVolume, false);
             genSwipe = MakeTickAsset("tick_swipe", 0f, 0.06f, clickVolume, true);
         }
 
         switch (type)
         {
+            case "double": return genDouble; // 双击=两声
             case "hold": return genHold;
             case "swipe": return genSwipe;
-            default: return genSingle; // 单击/双击
+            default: return genSingle;        // 单击
         }
     }
 
-    /// <summary>
-    /// 生成短"咔哒"提示音并写成真实 WAV 素材再导入(运行时 AudioClip.Create 的 clip AudioUtil 播不出来,必须真素材)。
-    /// </summary>
-    private static AudioClip MakeTickAsset(string name, float freq, float dur, float amp, bool noise)
+    /// <summary>把一段"咔哒"渲染进缓冲(叠加),支持在指定采样偏移处。</summary>
+    private static void RenderTickInto(float[] data, int offset, int sr, float freq, float dur, float amp, bool noise)
     {
-        const int sr = 44100;
         int n = Mathf.Max(8, (int)(sr * dur));
-        float[] data = new float[n];
         System.Random rng = new System.Random(20260830);
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < n && offset + i < data.Length; i++)
         {
             float env = Mathf.Exp(-9f * i / n);
             float s = noise ? (float)(rng.NextDouble() * 2.0 - 1.0) : Mathf.Sin(2f * Mathf.PI * freq * i / sr);
-            data[i] = Mathf.Clamp(s * env * amp, -1f, 1f);
+            data[offset + i] = Mathf.Clamp(data[offset + i] + s * env * amp, -1f, 1f);
         }
+    }
 
+    private static AudioClip WriteWavAsset(string name, float[] data, int sr)
+    {
         const string dir = "Assets/Resources/LijiangEchoNotes";
         System.IO.Directory.CreateDirectory(dir);
         string path = dir + "/" + name + ".wav";
         System.IO.File.WriteAllBytes(path, EncodeWavMono16(data, sr));
         AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
         return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+    }
+
+    /// <summary>生成单声"咔哒"WAV 素材(运行时 AudioClip.Create 的 clip AudioUtil 播不出,必须真素材)。</summary>
+    private static AudioClip MakeTickAsset(string name, float freq, float dur, float amp, bool noise)
+    {
+        const int sr = 44100;
+        float[] data = new float[Mathf.Max(8, (int)(sr * dur))];
+        RenderTickInto(data, 0, sr, freq, dur, amp, noise);
+        return WriteWavAsset(name, data, sr);
+    }
+
+    /// <summary>双击音效:两声快速连击(同一 WAV 内隔 70ms 两声)。</summary>
+    private static AudioClip MakeDoubleTickAsset(string name, float freq, float amp)
+    {
+        const int sr = 44100;
+        const float gap = 0.07f, tickDur = 0.04f;
+        float[] data = new float[(int)(sr * (gap + tickDur))];
+        RenderTickInto(data, 0, sr, freq, tickDur, amp, false);
+        RenderTickInto(data, (int)(sr * gap), sr, freq, tickDur, amp, false);
+        return WriteWavAsset(name, data, sr);
     }
 
     private static byte[] EncodeWavMono16(float[] data, int sampleRate)
