@@ -96,12 +96,8 @@ public static class LijiangEchoNotePrefabTool
                 changed = true;
             }
 
-            if (!ti.isReadable)
-            {
-                ti.isReadable = true;
-                changed = true;
-            }
-
+            // 注:不再要求 Read/Write。Crunch/压缩贴图无法开 Read/Write,像素改由
+            // RenderTexture blit 读取(见 MakeReadableCopy),兼容任何格式、且不改压缩设置。
             if (changed)
             {
                 ti.SaveAndReimport();
@@ -115,18 +111,16 @@ public static class LijiangEchoNotePrefabTool
             return "贴图未生成 Sprite(导入类型异常)";
         }
 
-        // 计算不透明像素紧包围盒 + 内容中心相对贴图中心的偏移(局部单位)
-        Color32[] px;
-        try
+        // 计算不透明像素紧包围盒 + 内容中心相对贴图中心的偏移(局部单位)。
+        // 用 GPU blit 拷一份可读副本 → 兼容 Crunch/压缩/未开 Read/Write 的贴图。
+        Texture2D readable = MakeReadableCopy(tex);
+        if (readable == null)
         {
-            px = tex.GetPixels32();
-        }
-        catch
-        {
-            return "贴图不可读(Read/Write),无法计算居中";
+            return "无法读取贴图像素(blit 失败)";
         }
 
-        int w = tex.width, h = tex.height;
+        Color32[] px = readable.GetPixels32();
+        int w = readable.width, h = readable.height;
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
         int step = Mathf.Max(1, Mathf.Max(w, h) / 512);
         for (int y = 0; y < h; y += step)
@@ -143,6 +137,8 @@ public static class LijiangEchoNotePrefabTool
                 }
             }
         }
+
+        Object.DestroyImmediate(readable); // 用完释放副本
 
         if (maxX < minX)
         {
@@ -191,5 +187,38 @@ public static class LijiangEchoNotePrefabTool
         }
 
         return $"OK(内容 {maxX - minX + 1}x{maxY - minY + 1}px,scale {scale:F3})";
+    }
+
+    /// <summary>
+    /// 用 RenderTexture blit 把任意贴图(压缩/Crunch/未开 Read/Write)拷成一份 CPU 可读的 RGBA32 副本。
+    /// 这是编辑器里读像素最稳的方式,不需要也不改贴图的 Read/Write / 压缩设置。调用方用完需 DestroyImmediate。
+    /// </summary>
+    private static Texture2D MakeReadableCopy(Texture2D src)
+    {
+        if (src == null || src.width <= 0 || src.height <= 0)
+        {
+            return null;
+        }
+
+        RenderTexture rt = RenderTexture.GetTemporary(src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        RenderTexture prev = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(src, rt);
+            RenderTexture.active = rt;
+            Texture2D readable = new Texture2D(src.width, src.height, TextureFormat.RGBA32, false);
+            readable.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
+            readable.Apply();
+            return readable;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+        }
     }
 }
