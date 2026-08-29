@@ -499,6 +499,20 @@ public class LijiangEchoChartWindow : EditorWindow
                 }
             }
 
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label("重叠(以当前图层为准):", GUILayout.MaxWidth(140f));
+                if (GUILayout.Button(new GUIContent("删其它层的重叠拍", "其它图层里与当前图层同一时刻的拍子全删掉,只保留当前图层的"), GUILayout.Height(20f)))
+                {
+                    RemoveOverlapsInOtherLayers();
+                }
+
+                if (GUILayout.Button(new GUIContent("重叠拍→抽成新图层", "把其它图层里与当前图层重叠的拍子抽出为一个新图层,并从原图层删掉"), GUILayout.Height(20f)))
+                {
+                    ExtractOverlapsToNewLayer();
+                }
+            }
+
             EditorGUILayout.LabelField(
                 $"「检测→新图层」用当前设置生成：频段={BandLabels[bandIndex]}、灵敏度={sensitivity:F1}、最小间隔={minGap:F2}s(检测全部起音)。改上方设置再点即可。",
                 EditorStyles.wordWrappedMiniLabel);
@@ -619,6 +633,97 @@ public class LijiangEchoChartWindow : EditorWindow
         activeLayer = layers.Count - 1;
         selected = -1;
         status = $"已把可见图层合并成一个新图层({t.Count} 拍)。";
+    }
+
+    private const float OverlapThreshold = 0.03f; // 判定"重叠"的时间阈值(秒)
+
+    private bool OverlapsActiveLayer(float t)
+    {
+        List<float> cur = layers[activeLayer].times;
+        for (int i = 0; i < cur.Count; i++)
+        {
+            if (Mathf.Abs(cur[i] - t) <= OverlapThreshold)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>其它图层里与当前图层重叠的拍子全部删掉(当前图层优先/保留)。</summary>
+    private void RemoveOverlapsInOtherLayers()
+    {
+        RecordUndo();
+        int removed = 0;
+        for (int li = 0; li < layers.Count; li++)
+        {
+            if (li == activeLayer)
+            {
+                continue;
+            }
+
+            NoteLayer L = layers[li];
+            for (int i = L.times.Count - 1; i >= 0; i--)
+            {
+                if (OverlapsActiveLayer(L.times[i]))
+                {
+                    L.times.RemoveAt(i);
+                    L.types.RemoveAt(i);
+                    removed++;
+                }
+            }
+        }
+
+        selection.Clear();
+        selected = -1;
+        status = $"已从其它图层删除与当前图层重叠的 {removed} 个拍子(当前图层保留)。";
+    }
+
+    /// <summary>把其它图层里与当前图层重叠的拍子抽出为一个新图层,并从原图层删掉。</summary>
+    private void ExtractOverlapsToNewLayer()
+    {
+        RecordUndo();
+        List<KeyValuePair<float, string>> picked = new List<KeyValuePair<float, string>>();
+        for (int li = 0; li < layers.Count; li++)
+        {
+            if (li == activeLayer)
+            {
+                continue;
+            }
+
+            NoteLayer L = layers[li];
+            for (int i = L.times.Count - 1; i >= 0; i--)
+            {
+                if (OverlapsActiveLayer(L.times[i]))
+                {
+                    picked.Add(new KeyValuePair<float, string>(L.times[i], i < L.types.Count ? L.types[i] : "single"));
+                    L.times.RemoveAt(i);
+                    L.types.RemoveAt(i);
+                }
+            }
+        }
+
+        picked.Sort((a, b) => a.Key.CompareTo(b.Key));
+        NoteLayer nl = new NoteLayer { name = "重叠层", color = LayerPalette[layers.Count % LayerPalette.Length] };
+        float last = -999f;
+        foreach (KeyValuePair<float, string> r in picked)
+        {
+            if (r.Key - last < OverlapThreshold)
+            {
+                continue; // 多个图层同一拍只留一份
+            }
+
+            nl.times.Add(r.Key);
+            nl.types.Add(r.Value);
+            last = r.Key;
+        }
+
+        layers.Add(nl);
+        activeLayer = layers.Count - 1;
+        selection.Clear();
+        selected = -1;
+        status = $"已把与(原)当前图层重叠的拍子抽出为新图层「重叠层」({nl.times.Count} 拍),原图层已删掉这些拍。";
     }
 
     // ======================= 顶部工具条 =======================
