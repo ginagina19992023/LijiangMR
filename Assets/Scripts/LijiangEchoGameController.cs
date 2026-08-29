@@ -1763,9 +1763,9 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float HandStrikeDuration = 0.36f; // 击打持续时间:加长,手停留更久更看得清
     private const float HandRestAngle = 45f;     // 平时:手臂朝各自外下方甩出(藏在画面下侧,靠透明隐藏)
     private const float HandStrikeAngle = 8f;    // 击打终点:接近竖直略向内,手落到中心圆环上(不越过)
-    private const float HandArmLength = 1.5f;     // 臂长(手离轴心多远):加长,让手挥到圆环处
+    private const float HandArmLength = 1.0f;     // 臂长:缩短,配合抬高的轴心让击打终点仍落在圆环
     private const float HandPivotSide = 0.45f;    // 左右轴心离中线的横向距离
-    private const float HandPivotY = -1.3f;       // 轴心高度(屏幕下缘;挥起时手正好升到圆环)
+    private const float HandPivotY = -0.85f;      // 轴心高度:抬进画面中下部(之前 -1.3 太低,Game 画面里出框/被前景挡)
     private const float HandPivotZ = -0.88f;      // 轴心深度:放到玩法平面(≈圆环/音符),不再"非常前面"被近裁剪切掉
     private const float HandVisualHeight = 3.3f;  // 手的显示高度(再放大些,击打时更醒目)
     // 临时诊断:true = 左右手一直可见(不再只有击打瞬间显形),方便截图确认它们停在哪、大小对不对。
