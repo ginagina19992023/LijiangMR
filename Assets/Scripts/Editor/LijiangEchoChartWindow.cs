@@ -482,7 +482,7 @@ public class LijiangEchoChartWindow : EditorWindow
         using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
         {
             sensitivity = EditorGUILayout.Slider(new GUIContent("灵敏度", "越大点越少"), sensitivity, 0.5f, 4f, GUILayout.MaxWidth(260f));
-            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 0.5f, GUILayout.MaxWidth(260f));
+            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 1f, GUILayout.MaxWidth(260f));
             if (GUILayout.Button("检测拍子", GUILayout.Height(22f)))
             {
                 Detect();
