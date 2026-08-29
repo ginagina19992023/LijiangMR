@@ -92,11 +92,13 @@ public class LijiangEchoChartWindow : EditorWindow
     private bool autoPreview = true; // 松开播放头即试听
     private bool follow = true;      // 播放时视图跟随播放头
 
-    // —— 播放状态 ——
+    // —— 播放状态(播放头按真实时间推进,不依赖会被节拍声污染的 AudioUtil.Pos()) ——
     private bool isPlaying;
+    private double playStartRealtime;
+    private float playStartHead;
 
     // —— 节拍试听:播放/拖动时播放头经过音符就叠一声(按类型),不进 Play 也能听谱对齐 ——
-    private bool metronome = true;
+    private bool metronome; // 默认关(叠音走 AudioUtil,可能干扰音乐;需要时手动开)
     private float lastClickPlayhead = -1f;
     private float clickVolume = 0.9f; // 提示音响度
     private AudioClip genSingle, genHold, genSwipe; // 程序生成的清脆"咔哒",响度可控
@@ -115,6 +117,15 @@ public class LijiangEchoChartWindow : EditorWindow
     private int batchTo;                    // 替换目标类型
     private readonly bool[] ratioOn = { true, true, true, false };  // 比例分配勾选哪些类型
     private readonly float[] ratioWeight = { 6f, 3f, 1f, 1f };      // 各类型相对权重
+
+    // —— 多选(当前图层内的音符下标) ——
+    private readonly HashSet<int> selection = new HashSet<int>();
+
+    // —— 撤销 / 重做(自定义栈:快照全部图层) ——
+    private sealed class LayerSnap { public string name; public Color color; public bool visible; public List<float> times; public List<string> types; }
+    private sealed class Snapshot { public List<LayerSnap> layers; public int active; }
+    private readonly List<Snapshot> undoStack = new List<Snapshot>();
+    private readonly List<Snapshot> redoStack = new List<Snapshot>();
 
     // 源谱(载入编辑):三关专属谱 + 全局生成谱 + 需求谱。
     private static readonly string[] SourceLabels =
@@ -199,33 +210,36 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
-        if (AudioPreview.Playing())
+        // 播放头按真实时间推进(不读 AudioUtil.Pos(),因为节拍声会污染它导致卡在第一拍)。
+        float prev = playhead;
+        float newHead = playStartHead + (float)(EditorApplication.timeSinceStartup - playStartRealtime);
+        if (newHead >= clipLength)
         {
-            float prev = playhead;
-            playhead = Mathf.Clamp(AudioPreview.Pos() / (float)sampleRate, 0f, clipLength);
-            if (metronome)
-            {
-                PlayMetronomeClicks(lastClickPlayhead >= 0f ? lastClickPlayhead : prev, playhead);
-                lastClickPlayhead = playhead;
-            }
-
-            if (follow)
-            {
-                EnsureVisible(playhead);
-            }
-
+            playhead = clipLength;
+            StopPreview();
             Repaint();
+            return;
         }
-        else
+
+        playhead = Mathf.Clamp(newHead, 0f, clipLength);
+        if (metronome)
         {
-            isPlaying = false;
-            Repaint();
+            PlayMetronomeClicks(lastClickPlayhead >= 0f ? lastClickPlayhead : prev, playhead);
+            lastClickPlayhead = playhead;
         }
+
+        if (follow)
+        {
+            EnsureVisible(playhead);
+        }
+
+        Repaint();
     }
 
     private void OnGUI()
     {
         EnsureLayers();
+        HandleUndoRedoKeys();
         DrawToolbar();
         EditorGUILayout.Space(2f);
         DrawLayersBar();
@@ -329,6 +343,7 @@ public class LijiangEchoChartWindow : EditorWindow
         string path = SourcePath(sourceIndex);
         if (LijiangEchoChartGenerator.TryLoadChartRows(path, out List<float> t, out List<string> ty))
         {
+            RecordUndo();
             noteTimes.Clear();
             noteTypes.Clear();
             noteTimes.AddRange(t);
@@ -428,6 +443,7 @@ public class LijiangEchoChartWindow : EditorWindow
                     {
                         if (GUILayout.Button("删", GUILayout.Width(30f)))
                         {
+                            RecordUndo();
                             layers.RemoveAt(i);
                             activeLayer = Mathf.Clamp(activeLayer, 0, layers.Count - 1);
                             selected = -1;
@@ -513,6 +529,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private NoteLayer AddEmptyLayer()
     {
+        RecordUndo();
         NoteLayer L = new NoteLayer
         {
             name = "图层 " + (layers.Count + 1),
@@ -566,6 +583,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void MergeVisibleLayers()
     {
+        RecordUndo();
         CollectVisibleNotes(out List<float> t, out List<string> ty);
         NoteLayer L = new NoteLayer { name = "合并层", color = LayerPalette[layers.Count % LayerPalette.Length] };
         for (int i = 0; i < t.Count; i++)
@@ -1024,12 +1042,17 @@ public class LijiangEchoChartWindow : EditorWindow
             }
 
             Color c = TypeColor(noteTypes[i]);
-            bool sel = i == selected;
-            float w = sel ? 3f : 1.6f;
+            bool inSel = selection.Contains(i);
+            bool focus = i == selected;
+            float w = (inSel || focus) ? 3f : 1.6f;
             EditorGUI.DrawRect(new Rect(x - w * 0.5f, content.y + 2f, w, content.height - 4f), c);
-            // 顶部小方块作为可点句柄
+            // 顶部句柄:选中=白;当前编辑焦点=更大的白框
             Rect handle = new Rect(x - 5f, content.y + 2f, 10f, 10f);
-            EditorGUI.DrawRect(handle, sel ? Color.white : c);
+            EditorGUI.DrawRect(handle, inSel ? Color.white : c);
+            if (focus)
+            {
+                EditorGUI.DrawRect(new Rect(x - 6f, content.y + 1f, 12f, 3f), Color.white); // 焦点顶部白条
+            }
         }
     }
 
@@ -1053,7 +1076,15 @@ public class LijiangEchoChartWindow : EditorWindow
 
             if (hit >= 0 && !onPlayheadTop)
             {
-                selected = hit;
+                if (e.control || e.command || e.shift)
+                {
+                    ToggleSelect(hit); // Ctrl/Shift 点 = 补选/取消选(多选)
+                }
+                else
+                {
+                    SelectSingle(hit);
+                }
+
                 GUI.changed = true;
                 e.Use();
             }
@@ -1134,6 +1165,7 @@ public class LijiangEchoChartWindow : EditorWindow
                     int next = EditorGUILayout.Popup("类型", cur, TypeLabels, GUILayout.MaxWidth(200f));
                     if (next != cur)
                     {
+                        RecordUndo();
                         noteTypes[selected] = TypeOptions[next];
                     }
 
@@ -1144,9 +1176,11 @@ public class LijiangEchoChartWindow : EditorWindow
 
                     if (GUILayout.Button("删除", GUILayout.MaxWidth(60f)))
                     {
+                        RecordUndo();
                         noteTimes.RemoveAt(selected);
                         noteTypes.RemoveAt(selected);
                         selected = Mathf.Clamp(selected, -1, noteTimes.Count - 1);
+                        selection.Clear();
                     }
                 }
             }
@@ -1170,6 +1204,48 @@ public class LijiangEchoChartWindow : EditorWindow
 
         using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {
+            // 0) 撤销/重做 + 多选(全选/选类型/删除选中)
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(undoStack.Count == 0))
+                {
+                    if (GUILayout.Button(new GUIContent("↶ 撤销", "Ctrl+Z"), GUILayout.MaxWidth(60f)))
+                    {
+                        Undo();
+                    }
+                }
+
+                using (new EditorGUI.DisabledScope(redoStack.Count == 0))
+                {
+                    if (GUILayout.Button(new GUIContent("↷ 重做", "Ctrl+Y"), GUILayout.MaxWidth(60f)))
+                    {
+                        Redo();
+                    }
+                }
+
+                GUILayout.Space(12f);
+                if (GUILayout.Button("全选本层", GUILayout.MaxWidth(70f)))
+                {
+                    SelectAllInLayer();
+                }
+
+                if (GUILayout.Button(new GUIContent($"选中「{TypeShort[batchFrom]}」", "选中当前图层里所有『把』左边那种类型(下方那个下拉)"), GUILayout.MaxWidth(90f)))
+                {
+                    SelectByType(batchFrom);
+                }
+
+                using (new EditorGUI.DisabledScope(selection.Count == 0))
+                {
+                    if (GUILayout.Button($"删除选中({selection.Count})", GUILayout.MaxWidth(110f)))
+                    {
+                        DeleteSelected();
+                    }
+                }
+
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"已选 {selection.Count}(时间轴上 Ctrl+点 补选)", EditorStyles.miniLabel);
+            }
+
             // 1) 整层全设为某类型(如:鼓点层→全双击)
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -1224,6 +1300,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void SetAllType(int typeIdx)
     {
+        RecordUndo();
         string ty = TypeOptions[Mathf.Clamp(typeIdx, 0, 3)];
         for (int i = 0; i < noteTypes.Count; i++)
         {
@@ -1252,6 +1329,7 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
+        RecordUndo();
         System.Random rng = new System.Random();
         for (int i = 0; i < noteTypes.Count; i++)
         {
@@ -1276,6 +1354,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void ReplaceType(int from, int to)
     {
+        RecordUndo();
         string f = TypeOptions[from];
         string t = TypeOptions[to];
         int n = 0;
@@ -1293,6 +1372,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void DeleteType(int typeIdx)
     {
+        RecordUndo();
         string f = TypeOptions[typeIdx];
         int n = 0;
         for (int i = noteTimes.Count - 1; i >= 0; i--)
@@ -1307,6 +1387,185 @@ public class LijiangEchoChartWindow : EditorWindow
 
         selected = -1;
         status = $"已删除当前图层 {n} 个「{TypeShort[typeIdx]}」音符。";
+    }
+
+    // ======================= 撤销 / 重做 =======================
+    private void HandleUndoRedoKeys()
+    {
+        Event e = Event.current;
+        if (e.type != EventType.KeyDown || !(e.control || e.command))
+        {
+            return;
+        }
+
+        if (e.keyCode == KeyCode.Z && !e.shift)
+        {
+            Undo();
+            e.Use();
+        }
+        else if (e.keyCode == KeyCode.Y || (e.keyCode == KeyCode.Z && e.shift))
+        {
+            Redo();
+            e.Use();
+        }
+    }
+
+    private Snapshot Capture()
+    {
+        Snapshot s = new Snapshot { active = activeLayer, layers = new List<LayerSnap>() };
+        foreach (NoteLayer L in layers)
+        {
+            s.layers.Add(new LayerSnap
+            {
+                name = L.name, color = L.color, visible = L.visible,
+                times = new List<float>(L.times), types = new List<string>(L.types)
+            });
+        }
+
+        return s;
+    }
+
+    /// <summary>在任何"改数据"的操作前调用:把当前状态压入撤销栈。</summary>
+    private void RecordUndo()
+    {
+        undoStack.Add(Capture());
+        if (undoStack.Count > 80)
+        {
+            undoStack.RemoveAt(0);
+        }
+
+        redoStack.Clear();
+    }
+
+    private void Restore(Snapshot s)
+    {
+        layers.Clear();
+        foreach (LayerSnap ls in s.layers)
+        {
+            NoteLayer L = new NoteLayer { name = ls.name, color = ls.color, visible = ls.visible };
+            L.times.AddRange(ls.times);
+            L.types.AddRange(ls.types);
+            layers.Add(L);
+        }
+
+        EnsureLayers();
+        activeLayer = Mathf.Clamp(s.active, 0, layers.Count - 1);
+        selected = -1;
+        selection.Clear();
+    }
+
+    private void Undo()
+    {
+        if (undoStack.Count == 0)
+        {
+            status = "没有可撤销的操作。";
+            return;
+        }
+
+        redoStack.Add(Capture());
+        Snapshot s = undoStack[undoStack.Count - 1];
+        undoStack.RemoveAt(undoStack.Count - 1);
+        Restore(s);
+        status = "已撤销(Ctrl+Z)。";
+    }
+
+    private void Redo()
+    {
+        if (redoStack.Count == 0)
+        {
+            status = "没有可重做的操作。";
+            return;
+        }
+
+        undoStack.Add(Capture());
+        Snapshot s = redoStack[redoStack.Count - 1];
+        redoStack.RemoveAt(redoStack.Count - 1);
+        Restore(s);
+        status = "已重做(Ctrl+Y)。";
+    }
+
+    // ======================= 多选 =======================
+    private void SelectSingle(int i)
+    {
+        selected = i;
+        selection.Clear();
+        if (i >= 0)
+        {
+            selection.Add(i);
+        }
+    }
+
+    private void ToggleSelect(int i)
+    {
+        if (i < 0)
+        {
+            return;
+        }
+
+        if (!selection.Remove(i))
+        {
+            selection.Add(i);
+            selected = i;
+        }
+        else if (selected == i)
+        {
+            selected = -1;
+        }
+    }
+
+    private void SelectAllInLayer()
+    {
+        selection.Clear();
+        for (int i = 0; i < noteTimes.Count; i++)
+        {
+            selection.Add(i);
+        }
+
+        selected = noteTimes.Count == 1 ? 0 : -1;
+        status = $"已选中当前图层全部 {selection.Count} 个音符。";
+    }
+
+    private void SelectByType(int typeIdx)
+    {
+        string ty = TypeOptions[typeIdx];
+        selection.Clear();
+        for (int i = 0; i < noteTypes.Count; i++)
+        {
+            if (noteTypes[i] == ty)
+            {
+                selection.Add(i);
+            }
+        }
+
+        selected = -1;
+        status = $"已选中当前图层全部「{TypeShort[typeIdx]}」共 {selection.Count} 个。";
+    }
+
+    private void DeleteSelected()
+    {
+        if (selection.Count == 0)
+        {
+            status = "没有选中的音符。";
+            return;
+        }
+
+        RecordUndo();
+        List<int> idx = new List<int>(selection);
+        idx.Sort();
+        for (int k = idx.Count - 1; k >= 0; k--)
+        {
+            int i = idx[k];
+            if (i >= 0 && i < noteTimes.Count)
+            {
+                noteTimes.RemoveAt(i);
+                noteTypes.RemoveAt(i);
+            }
+        }
+
+        int n = idx.Count;
+        selection.Clear();
+        selected = -1;
+        status = $"已删除选中的 {n} 个音符。";
     }
 
     // ======================= 底部:保存 / 贴类型 =======================
@@ -1397,6 +1656,7 @@ public class LijiangEchoChartWindow : EditorWindow
         }
 
         float[] t = LijiangEchoChartGenerator.EvenlySpacedBeats(clipLength, targetBeatCount);
+        RecordUndo();
         noteTimes.Clear();
         noteTypes.Clear();
         foreach (float x in t)
@@ -1464,6 +1724,7 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
+        RecordUndo();
         noteTimes.Clear();
         noteTypes.Clear();
         foreach (float t in onsets)
@@ -1478,6 +1739,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void AddNoteAt(float t)
     {
+        RecordUndo();
         noteTimes.Add(Mathf.Clamp(t, 0f, clipLength));
         noteTypes.Add("single");
         SortModel();
@@ -1553,9 +1815,13 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
+        AudioPreview.Stop(); // 先停掉一切(上一次音乐 + 残留节拍声),避免重叠
         int startSample = Mathf.Clamp(Mathf.RoundToInt(t * sampleRate), 0, Mathf.Max(0, clip.samples - 1));
         AudioPreview.Play(clip, startSample);
         isPlaying = true;
+        playStartHead = Mathf.Clamp(t, 0f, clipLength);
+        playStartRealtime = EditorApplication.timeSinceStartup;
+        playhead = playStartHead;
         lastClickPlayhead = t; // 从这里开始记节拍,避免把之前的音符一次性响出来
     }
 
