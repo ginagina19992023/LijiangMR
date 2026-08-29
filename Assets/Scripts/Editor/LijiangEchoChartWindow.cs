@@ -631,6 +631,12 @@ public class LijiangEchoChartWindow : EditorWindow
                     SetAsBattleMusic();
                 }
             }
+
+            if (GUILayout.Button(new GUIContent("诊断音频", "检查编辑器音频接口(播放/停止/节拍声)是否可用"), GUILayout.MaxWidth(70f)))
+            {
+                status = "音频接口:" + AudioPreview.Diag();
+                Debug.Log("[漓江回声] " + status);
+            }
         }
     }
 
@@ -1917,16 +1923,40 @@ public class LijiangEchoChartWindow : EditorWindow
                 return null;
             }
 
+            const BindingFlags F = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (string n in names)
             {
-                MethodInfo m = Util.GetMethod(n, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, sig, null);
+                MethodInfo m = Util.GetMethod(n, F, null, sig, null);
                 if (m != null)
                 {
                     return m;
                 }
             }
 
+            // 兜底:忽略签名,按名字找(不同 Unity 版本参数可能不同)。
+            foreach (string n in names)
+            {
+                try
+                {
+                    MethodInfo m = Util.GetMethod(n, F);
+                    if (m != null)
+                    {
+                        return m;
+                    }
+                }
+                catch
+                {
+                    // AmbiguousMatchException:有多个重载,跳过按名兜底。
+                }
+            }
+
             return null;
+        }
+
+        public static string Diag()
+        {
+            return $"AudioUtil={(Util != null)}  Play3={(Play3 != null)}  Play1={(Play1 != null)}  " +
+                   $"StopAll={(StopAll != null)}  Pos={(PosM != null)}  Playing={(PlayingM != null)}";
         }
 
         public static void Play(AudioClip c, int startSample)
