@@ -1911,16 +1911,31 @@ public class LijiangEchoGameController : MonoBehaviour
             new RectInt(1822, 2125, 2973, 2185),
             new RectInt(995, 836, 1335, 1359)
         };
-        GameObject patternObject = AddCroppedSprite(
-            tracePaths[selectedLevel],
-            "待描绘纹样",
-            traceCrops[selectedLevel],
-            new Vector3(1.84f, -0.82f, -0.42f),
-            0.34f,
-            62,
-            0.72f,
-            false);
-        patternRenderer = patternObject.GetComponent<SpriteRenderer>();
+        // 右下角"待描绘纹样":本关有 Trace_level{关卡} Prefab 就用你摆的静态 Prefab(跳过进度动画);
+        // 没有则保持原动态纹样(会随描绘进度换图/变亮)。
+        GameObject tracePrefab = Resources.Load<GameObject>("LijiangEchoNotes/Trace_level" + selectedLevel);
+        if (tracePrefab != null)
+        {
+            GameObject traceInst = Instantiate(tracePrefab, stageRoot, false);
+            traceInst.name = "待描绘纹样(Prefab)";
+            traceInst.transform.localPosition = new Vector3(1.84f, -0.82f, -0.42f);
+            traceInst.transform.localRotation = Quaternion.identity;
+            spawnedObjects.Add(traceInst);
+            patternRenderer = null; // 用 Prefab 时不再由 UpdatePatternProgress 动态改图
+        }
+        else
+        {
+            GameObject patternObject = AddCroppedSprite(
+                tracePaths[selectedLevel],
+                "待描绘纹样",
+                traceCrops[selectedLevel],
+                new Vector3(1.84f, -0.82f, -0.42f),
+                0.34f,
+                62,
+                0.72f,
+                false);
+            patternRenderer = patternObject.GetComponent<SpriteRenderer>();
+        }
 
         AddSolidRect("顶部进度底线", new Vector3(0f, 1.04f, -0.44f), 2.94f, 0.026f, new Color(1f, 1f, 1f, 0.42f), 64);
         GameObject progressFill = AddSolidRect("战斗进度填充", new Vector3(-1.47f, 1.04f, -0.45f), 0.02f, 0.034f, new Color(1f, 0.86f, 0.35f, 0.82f), 65);

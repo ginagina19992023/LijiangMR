@@ -17,7 +17,7 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
     private string status = string.Empty;
 
     private static readonly string[] LevelLabels = { "全局(所有关卡)", "关卡0 · 蛙", "关卡1 · 鸟", "关卡2 · 鱼" };
-    private static readonly string[] TypeLabels = { "单击", "双击", "长按", "挥划" };
+    private static readonly string[] TypeLabels = { "单击", "双击", "长按", "挥划", "待描绘纹样(右下角)" };
     private static readonly string[] TypeKeys = { "single", "double", "hold", "swipe" };
     private static readonly string[] GlobalNames = { "Note_Fish", "Note_Bird", "Note_Snake", "Note_Frog" };
 
@@ -31,6 +31,12 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
 
     private string TargetPrefabName()
     {
+        if (typeIndex == 4)
+        {
+            // 待描绘纹样是按关卡的:Trace_level{关卡}(全局也归到关卡0)。
+            return "Trace_level" + Mathf.Max(0, levelIndex - 1);
+        }
+
         return levelIndex == 0 ? GlobalNames[typeIndex] : $"Note_level{levelIndex - 1}_{TypeKeys[typeIndex]}";
     }
 
