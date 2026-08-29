@@ -411,6 +411,11 @@ public class LijiangEchoGameController : MonoBehaviour
     private int combo;
     private float feedbackTimer;
 
+    // 连击≥5 的黄色荡漾光环
+    private sealed class ComboRipple { public Transform tr; public SpriteRenderer sr; public float age; public float life; }
+    private readonly List<ComboRipple> comboRipples = new List<ComboRipple>();
+    private float comboRippleTimer;
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureController()
     {
@@ -739,6 +744,8 @@ public class LijiangEchoGameController : MonoBehaviour
         motionItems.Clear();
         activeNotes.Clear();
         scheduledSfx.Clear();
+        comboRipples.Clear();
+        comboRippleTimer = 0f;
         introWalkItems.Clear();
         introPreLevelItems.Clear();
         introFlyItems.Clear();
@@ -2275,6 +2282,7 @@ public class LijiangEchoGameController : MonoBehaviour
 
         UpdateBattleHands();
         UpdateScheduledSfx(); // 处理延时音效(如双击的第二声)
+        UpdateComboRipples(); // 连击≥5 的黄色荡漾光环
         UpdateRingVisual(beatTime);
         UpdatePatternProgress();
         UpdateProgressFill();
@@ -2586,6 +2594,68 @@ public class LijiangEchoGameController : MonoBehaviour
                 scheduledSfx.RemoveAt(i);
             }
         }
+    }
+
+    /// <summary>
+    /// 连击 ≥5 时,从圆环中心周期性放出一圈黄色光环,向外扩散并渐隐;连击断了就停止再放
+    /// (已生成的自然消失完)。做出"越连越燃"的荡漾叠加感。
+    /// </summary>
+    private void UpdateComboRipples()
+    {
+        if (combo >= 5 && ringTransform != null)
+        {
+            comboRippleTimer -= Time.deltaTime;
+            if (comboRippleTimer <= 0f)
+            {
+                SpawnComboRipple();
+                comboRippleTimer = 0.45f;
+            }
+        }
+
+        for (int i = comboRipples.Count - 1; i >= 0; i--)
+        {
+            ComboRipple r = comboRipples[i];
+            if (r.tr == null)
+            {
+                comboRipples.RemoveAt(i);
+                continue;
+            }
+
+            r.age += Time.deltaTime;
+            float p = Mathf.Clamp01(r.age / r.life);
+            r.tr.localScale = ringBaseScale * Mathf.Lerp(0.9f, 2.6f, p); // 向外扩散
+            if (r.sr != null)
+            {
+                r.sr.color = new Color(1f, 0.86f, 0.3f, (1f - p) * 0.5f); // 渐隐
+            }
+
+            if (p >= 1f)
+            {
+                Destroy(r.tr.gameObject);
+                comboRipples.RemoveAt(i);
+            }
+        }
+    }
+
+    private void SpawnComboRipple()
+    {
+        GameObject go = new GameObject("连击光环");
+        go.transform.SetParent(stageRoot, false);
+        go.transform.localPosition = new Vector3(0f, 0f, -0.86f); // 圆环稍后
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = ringBaseScale;
+        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = GetSprite("battle/hit_ring_center", true);
+        sr.sortingOrder = 185; // 圆环(190)之后
+        EnsureNoteMaterials();
+        if (noteGlowMaterial != null)
+        {
+            sr.sharedMaterial = noteGlowMaterial; // 加色柔光,荡漾发光感
+        }
+
+        sr.color = new Color(1f, 0.86f, 0.3f, 0.5f);
+        spawnedObjects.Add(go);
+        comboRipples.Add(new ComboRipple { tr = go.transform, sr = sr, age = 0f, life = 0.85f });
     }
 
     /// <summary>音符类型 → 全局纹样 Prefab 名(Resources/LijiangEchoNotes/ 下)。</summary>
