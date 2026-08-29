@@ -19,6 +19,16 @@ public static class LijiangEchoChartGenerator
     internal const string ClipResourcePath = "LijiangEchoAudio/battle_music";
     internal const string OutputPath = "Assets/Resources/LijiangEchoCharts/chart_generated.txt";
     internal const string RequirementChartPath = "Assets/Resources/LijiangEchoCharts/chart_liusanjie.txt";
+    internal const string ChartFolder = "Assets/Resources/LijiangEchoCharts/";
+
+    // 战斗关卡名(与运行时 levelNames 对应:0 蛙纹 / 1 鸟纹 / 2 鱼纹)。
+    internal static readonly string[] LevelNames = { "蛙纹", "鸟纹", "鱼纹" };
+
+    /// <summary>某关卡专属谱面文件路径:chart_level{N}.txt。运行时会优先读它。</summary>
+    internal static string ChartPathForLevel(int level)
+    {
+        return ChartFolder + "chart_level" + Mathf.Clamp(level, 0, LevelNames.Length - 1) + ".txt";
+    }
 
     // —— 可调参数(菜单命令用这些默认值;预览窗口用滑条实时传参) ——
     private const float Sensitivity = 1.5f;      // 越大越"挑剔"、点越少;越小点越多
@@ -249,6 +259,12 @@ public static class LijiangEchoChartGenerator
     /// </summary>
     internal static void WriteChartExplicit(List<float> times, List<string> types)
     {
+        WriteChartExplicit(times, types, OutputPath);
+    }
+
+    /// <summary>同上,但可指定目标文件(用于"应用到某个战斗场景"→ chart_level{N}.txt)。</summary>
+    internal static void WriteChartExplicit(List<float> times, List<string> types, string targetPath)
+    {
         // 组装成对并按时间排序
         List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
         for (int i = 0; i < times.Count; i++)
@@ -270,17 +286,28 @@ public static class LijiangEchoChartGenerator
             sb.AppendLine(row.Key.ToString("F3") + "," + row.Value);
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputPath)));
-        File.WriteAllText(Path.GetFullPath(OutputPath), sb.ToString());
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath)));
+        File.WriteAllText(Path.GetFullPath(targetPath), sb.ToString());
         AssetDatabase.Refresh();
     }
 
     /// <summary>编辑器打开时:尝试读回已有 chart_generated.txt 的(时间,类型),供继续编辑。没有则返回 false。</summary>
     internal static bool TryLoadChartRows(out List<float> times, out List<string> types)
     {
+        return TryLoadChartRows(OutputPath, out times, out types);
+    }
+
+    /// <summary>从指定谱面文件读回(时间,类型),供编辑器"选源谱"载入。没有/为空返回 false。</summary>
+    internal static bool TryLoadChartRows(string sourcePath, out List<float> times, out List<string> types)
+    {
         times = new List<float>();
         types = new List<string>();
-        string full = Path.GetFullPath(OutputPath);
+        if (string.IsNullOrEmpty(sourcePath))
+        {
+            return false;
+        }
+
+        string full = Path.GetFullPath(sourcePath);
         if (!File.Exists(full))
         {
             return false;

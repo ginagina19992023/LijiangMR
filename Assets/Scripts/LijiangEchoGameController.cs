@@ -1650,10 +1650,24 @@ public class LijiangEchoGameController : MonoBehaviour
     /// </summary>
     private void LoadChartIfAvailable()
     {
-        TextAsset chart = Resources.Load<TextAsset>("LijiangEchoCharts/chart_generated");
-        if (chart == null)
+        // 谱面按优先级挑选:先本关卡专属谱(编辑器"应用到该战斗场景"写出的 chart_level{N}),
+        // 再全局生成谱 chart_generated,最后需求谱 chart_liusanjie。三关(蛙/鸟/鱼)可各配一张谱。
+        string[] candidates =
         {
-            chart = Resources.Load<TextAsset>("LijiangEchoCharts/chart_liusanjie");
+            "LijiangEchoCharts/chart_level" + selectedLevel,
+            "LijiangEchoCharts/chart_generated",
+            "LijiangEchoCharts/chart_liusanjie"
+        };
+        TextAsset chart = null;
+        string chartName = null;
+        foreach (string path in candidates)
+        {
+            chart = Resources.Load<TextAsset>(path);
+            if (chart != null && !string.IsNullOrEmpty(chart.text))
+            {
+                chartName = path;
+                break;
+            }
         }
 
         if (chart == null || string.IsNullOrEmpty(chart.text))
@@ -1720,7 +1734,7 @@ public class LijiangEchoGameController : MonoBehaviour
         doubleNoteIndices = doubles;
         swipeNoteIndices = swipes;
         chartTypesExplicit = explicitTypes;
-        Debug.Log($"[漓江回声] 已从谱面表格加载 {noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count}、挥划 {swipes.Count}、显式类型 {explicitTypes})。");
+        Debug.Log($"[漓江回声] 关卡 {selectedLevel} 采用谱面 {chartName}:{noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count}、挥划 {swipes.Count}、显式类型 {explicitTypes})。");
     }
 
     // ===== 左右手击打(对应 VR 手柄左/右手) =====
@@ -1913,14 +1927,18 @@ public class LijiangEchoGameController : MonoBehaviour
         RegisterMotion(rightWing, MotionKind.Wing, 0.026f, 2.8f, 1.4f);
         RegisterMotion(body, MotionKind.Monster, 0.018f, 1.4f, 0.6f);
         RegisterMotion(arms, MotionKind.Hand, 0.018f, 4.2f, 1.1f);
+        // 关节修复:大臂与小臂是各自独立的整帧图层,若给不同的振幅/频率/相位,
+        // 两段每帧位移/旋转量不同 → 肘关节"分开又合上"。这里让同一条手臂的
+        // 小臂与大臂共用完全相同的运动参数,两段作为刚体一起动,关节始终贴合。
+        // 各条手臂之间仍用不同相位,保持整体的错落生动。
         RegisterMotion(leftTopUpper, MotionKind.Hand, 0.022f, 4.6f, 0.2f);
-        RegisterMotion(leftTopFore, MotionKind.Hand, 0.032f, 5.4f, 0.9f);
+        RegisterMotion(leftTopFore, MotionKind.Hand, 0.022f, 4.6f, 0.2f);
         RegisterMotion(rightTopUpper, MotionKind.Hand, 0.022f, 4.7f, 1.1f);
-        RegisterMotion(rightTopFore, MotionKind.Hand, 0.032f, 5.2f, 1.8f);
+        RegisterMotion(rightTopFore, MotionKind.Hand, 0.022f, 4.7f, 1.1f);
         RegisterMotion(leftBottomUpper, MotionKind.Hand, 0.02f, 4.1f, 2.4f);
-        RegisterMotion(leftBottomFore, MotionKind.Hand, 0.028f, 5f, 2.9f);
+        RegisterMotion(leftBottomFore, MotionKind.Hand, 0.02f, 4.1f, 2.4f);
         RegisterMotion(rightBottomUpper, MotionKind.Hand, 0.02f, 4.2f, 3.2f);
-        RegisterMotion(rightBottomFore, MotionKind.Hand, 0.028f, 5.1f, 3.7f);
+        RegisterMotion(rightBottomFore, MotionKind.Hand, 0.02f, 4.2f, 3.2f);
 
         GameObject fireWide = AddLayer("battle/fire_wide", "宽火焰", new Vector3(0f, -0.42f, -0.22f), WideStripWidth, 16, 0.72f);
         GameObject fireNarrow = AddLayer("battle/fire_narrow", "火焰光", new Vector3(0f, -0.36f, -0.24f), 2.15f, 17, 0.48f);
@@ -3761,6 +3779,29 @@ public class LijiangEchoGameController : MonoBehaviour
         int top = Mathf.Clamp(Mathf.RoundToInt(topLeftCrop.y * scaleY), 0, texture.height - 1);
         int height = Mathf.Clamp(Mathf.RoundToInt(topLeftCrop.height * scaleY), 1, texture.height - top);
         int y = texture.height - top - height;
+
+        // 自愈:单一内容纹样(各自独立 PNG,图里只有一个纹样)。
+        // 早期这些裁剪坐标是针对旧的大图集(pattern/ 假定 5000×5000、frog 假定 1672×941)写的;
+        // 若美术已把它们导成独立紧图(实际贴图远小于假定源尺寸),旧裁剪会按错误比例
+        // 只切到纹样的一小条 → 横向被切窄、看着像"挤压/变形/变成别的纹样"(鸟纹就是这样)。
+        // 这种情况直接改用整张图,再由 TightenToOpaque 收紧居中,彻底避免误切。
+        bool singleContent = resourcePath == "select/fish_symbol"
+            || (resourcePath.StartsWith("pattern/") && resourcePath.EndsWith("_done"))
+            || resourcePath == "battle/frog_swipe";
+        if (singleContent && texture.width < sourceWidth * 0.6f)
+        {
+            Debug.Log($"[漓江回声] 纹样 {resourcePath} 检测为独立紧图({texture.width}x{texture.height},假定源 {sourceWidth}x{sourceHeight});" +
+                      $"改用整图+紧包围盒,避免旧图集裁剪把它切窄/挤压。");
+            x = 0;
+            y = 0;
+            width = texture.width;
+            height = texture.height;
+        }
+
+        // 收紧到不透明像素的紧包围盒:pivot 随之落在内容几何中心,
+        // 均匀缩放即天然居中(修鱼纹"往右拉伸/散射"),宽度不含透明空边,
+        // 光晕与本体天然同心。贴图未开 Read/Write 时静默保持原矩形(不报错)。
+        TightenToOpaque(texture, ref x, ref y, ref width, ref height);
         Sprite sprite = Sprite.Create(
             texture,
             new Rect(x, y, width, height),
@@ -3770,6 +3811,58 @@ public class LijiangEchoGameController : MonoBehaviour
             SpriteMeshType.FullRect);
         spriteCache[cacheKey] = sprite;
         return sprite;
+    }
+
+    /// <summary>
+    /// 把给定像素矩形(左下原点)收紧到其中不透明像素的紧包围盒,结果写回 ref。
+    /// 需要贴图可读(Read/Write);不可读或全透明时保持原矩形不变、不抛异常。
+    /// 这样精灵 pivot(0.5,0.5)恰在可见内容几何中心,避免因透明边距造成的偏移与"拉伸"错觉。
+    /// </summary>
+    private void TightenToOpaque(Texture2D texture, ref int x, ref int y, ref int width, ref int height)
+    {
+        try
+        {
+            Color32[] pixels = texture.GetPixels32(); // 未开 Read/Write 会抛异常 → 走 catch 保持原样
+            int texW = texture.width;
+            int step = Mathf.Max(1, Mathf.Max(width, height) / 512); // 大图降采样,省时
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            for (int yy = 0; yy < height; yy += step)
+            {
+                int rowBase = (y + yy) * texW + x;
+                for (int xx = 0; xx < width; xx += step)
+                {
+                    if (pixels[rowBase + xx].a < 12)
+                    {
+                        continue;
+                    }
+
+                    if (xx < minX) minX = xx;
+                    if (xx > maxX) maxX = xx;
+                    if (yy < minY) minY = yy;
+                    if (yy > maxY) maxY = yy;
+                }
+            }
+
+            if (maxX < minX || maxY < minY)
+            {
+                return; // 全透明:保持原矩形
+            }
+
+            // 放宽一个采样步长,避免降采样把边缘像素切掉。
+            minX = Mathf.Max(0, minX - step);
+            minY = Mathf.Max(0, minY - step);
+            maxX = Mathf.Min(width - 1, maxX + step);
+            maxY = Mathf.Min(height - 1, maxY + step);
+
+            x += minX;
+            y += minY;
+            width = maxX - minX + 1;
+            height = maxY - minY + 1;
+        }
+        catch
+        {
+            // 贴图不可读:保持原矩形(等同旧行为)。
+        }
     }
 
     private Sprite GetSolidSprite(Color color)

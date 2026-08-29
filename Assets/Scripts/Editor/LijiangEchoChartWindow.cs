@@ -28,6 +28,10 @@ public class LijiangEchoChartWindow : EditorWindow
     private readonly List<string> noteTypes = new List<string>();
     private int selected = -1;
 
+    // —— 源谱(从哪张读入编辑) / 目标战斗场景(保存应用到哪张) ——
+    private int sourceIndex;
+    private int targetIndex;
+
     // —— 音频 / 检测 / 波形 ——
     private AudioClip clip;
     private float clipLength;
@@ -51,6 +55,36 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private static readonly string[] TypeOptions = { "single", "double", "hold", "swipe" };
     private static readonly string[] TypeLabels = { "单击 single", "双击 double", "长按 hold", "挥划 swipe" };
+
+    // 源谱(载入编辑):三关专属谱 + 全局生成谱 + 需求谱。
+    private static readonly string[] SourceLabels =
+    {
+        "本关·蛙纹 (level0)", "本关·鸟纹 (level1)", "本关·鱼纹 (level2)",
+        "全局 chart_generated", "需求 chart_liusanjie"
+    };
+
+    // 目标战斗场景(保存应用到):三关专属谱 + 全局默认。
+    private static readonly string[] TargetLabels =
+    {
+        "蛙纹关卡 (level0)", "鸟纹关卡 (level1)", "鱼纹关卡 (level2)", "全局默认 (chart_generated)"
+    };
+
+    private static string SourcePath(int i)
+    {
+        switch (i)
+        {
+            case 0: return LijiangEchoChartGenerator.ChartPathForLevel(0);
+            case 1: return LijiangEchoChartGenerator.ChartPathForLevel(1);
+            case 2: return LijiangEchoChartGenerator.ChartPathForLevel(2);
+            case 3: return LijiangEchoChartGenerator.OutputPath;
+            default: return LijiangEchoChartGenerator.RequirementChartPath;
+        }
+    }
+
+    private static string TargetPath(int i)
+    {
+        return i <= 2 ? LijiangEchoChartGenerator.ChartPathForLevel(i) : LijiangEchoChartGenerator.OutputPath;
+    }
 
     [MenuItem("漓江回声/谱面/0. 打开预览窗口")]
     public static void Open()
@@ -129,7 +163,59 @@ public class LijiangEchoChartWindow : EditorWindow
         EditorGUILayout.Space(4f);
         DrawSelectedEditor();
         EditorGUILayout.Space(4f);
+        DrawSourceTargetBar();
         DrawBottomBar();
+    }
+
+    // ======================= 源谱 / 目标战斗场景 =======================
+    private void DrawSourceTargetBar()
+    {
+        using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+        {
+            GUILayout.Label("源谱", GUILayout.MaxWidth(30f));
+            sourceIndex = EditorGUILayout.Popup(sourceIndex, SourceLabels, GUILayout.MaxWidth(180f));
+            if (GUILayout.Button(new GUIContent("📂 载入源谱", "把所选源谱读进编辑器(替换当前音符)"), GUILayout.MaxWidth(110f)))
+            {
+                LoadFromSource();
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("应用到", GUILayout.MaxWidth(44f));
+            targetIndex = EditorGUILayout.Popup(targetIndex, TargetLabels, GUILayout.MaxWidth(180f));
+            using (new EditorGUI.DisabledScope(noteTimes.Count == 0))
+            {
+                if (GUILayout.Button(new GUIContent("💾 保存到该场景", "把当前音符表写成该战斗场景的谱面(带 types:explicit)"), GUILayout.MaxWidth(130f)))
+                {
+                    SaveToTarget();
+                }
+            }
+        }
+    }
+
+    private void LoadFromSource()
+    {
+        string path = SourcePath(sourceIndex);
+        if (LijiangEchoChartGenerator.TryLoadChartRows(path, out List<float> t, out List<string> ty))
+        {
+            noteTimes.Clear();
+            noteTypes.Clear();
+            noteTimes.AddRange(t);
+            noteTypes.AddRange(ty);
+            selected = -1;
+            status = $"已从「{SourceLabels[sourceIndex]}」载入 {noteTimes.Count} 个音符。";
+        }
+        else
+        {
+            status = $"源谱「{SourceLabels[sourceIndex]}」不存在或为空({path})。";
+        }
+    }
+
+    private void SaveToTarget()
+    {
+        SortModel();
+        string path = TargetPath(targetIndex);
+        LijiangEchoChartGenerator.WriteChartExplicit(noteTimes, noteTypes, path);
+        status = $"已把 {noteTimes.Count} 个音符保存到「{TargetLabels[targetIndex]}」({path},带 types:explicit,运行时该关卡所见即所得)。";
     }
 
     // ======================= 顶部工具条 =======================
@@ -480,17 +566,10 @@ public class LijiangEchoChartWindow : EditorWindow
 
             using (new EditorGUI.DisabledScope(noteTimes.Count == 0))
             {
-                if (GUILayout.Button("💾 保存谱面(显式类型)", GUILayout.Height(26f)))
-                {
-                    SortModel();
-                    LijiangEchoChartGenerator.WriteChartExplicit(noteTimes, noteTypes);
-                    status = $"已保存 {noteTimes.Count} 个音符到 chart_generated.txt(带 types:explicit,运行时所见即所得)。";
-                }
-
-                if (GUILayout.Button(new GUIContent("贴需求类型", "把需求表 chart_liusanjie 的类型吸附到最近音符"), GUILayout.Height(26f)))
+                if (GUILayout.Button(new GUIContent("贴需求类型", "把需求表 chart_liusanjie 的类型吸附到最近音符(写入全局 chart_generated)"), GUILayout.Height(26f)))
                 {
                     LijiangEchoChartGenerator.SnapRequirementTypes();
-                    status = "已把需求类型写入 chart_generated.txt;点「读回已有谱面」刷新。";
+                    status = "已把需求类型写入全局 chart_generated.txt;把「源谱」选为「全局」再点「载入源谱」查看。";
                 }
             }
         }
