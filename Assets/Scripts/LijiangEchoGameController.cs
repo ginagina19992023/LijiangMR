@@ -3562,6 +3562,41 @@ public class LijiangEchoGameController : MonoBehaviour
             sfxSource.spatialBlend = 0f;
             sfxSource.priority = 64;
         }
+
+        EnsureAudioListener();
+    }
+
+    /// <summary>
+    /// 兜底:场景里没有"启用的 AudioListener"时,所有游戏 AudioSource 都听不到声音
+    /// (编辑器预览走 AudioUtil 另一条路还能响,所以会出现"诊断正常但游戏没声")。
+    /// 这里保证至少有一个可用的 AudioListener:优先挂到当前游戏相机,否则挂到本控制器上。
+    /// </summary>
+    private void EnsureAudioListener()
+    {
+        AudioListener[] listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (AudioListener l in listeners)
+        {
+            if (l != null && l.enabled && l.gameObject.activeInHierarchy)
+            {
+                return; // 已有可用的
+            }
+        }
+
+        Camera cam = FindGameplayCamera();
+        GameObject host = cam != null ? cam.gameObject : gameObject;
+        AudioListener existing = host.GetComponent<AudioListener>();
+        if (existing == null)
+        {
+            existing = host.AddComponent<AudioListener>();
+        }
+
+        existing.enabled = true;
+        if (AudioListener.volume <= 0.01f)
+        {
+            AudioListener.volume = 1f; // 全局音量被设成 0 也会没声
+        }
+
+        Debug.Log("[漓江回声] 未发现可用 AudioListener,已在 " + host.name + " 上补一个,游戏音频才能听到。");
     }
 
     private AudioClip GetAudioClip(string clipName)
@@ -3679,10 +3714,14 @@ public class LijiangEchoGameController : MonoBehaviour
         battleMusicSource.Stop();
         battleMusicSource.clip = clip;
         battleMusicSource.loop = false;
+        battleMusicSource.mute = false;
         battleMusicSource.volume = 0.86f;
         battleMusicSource.time = seek;
         battleMusicSource.Play();
-        Debug.Log($"[漓江回声] 战斗音乐开始（从 {seek:F2}s 起），时长 {clip.length:F2} 秒");
+        AudioListener anyListener = FindFirstObjectByType<AudioListener>();
+        Debug.Log($"[漓江回声] 战斗音乐开始(从 {seek:F2}s 起):clip={clip.name} 采样={clip.samples} 时长={clip.length:F2}s " +
+                  $"isPlaying={battleMusicSource.isPlaying} 音量={battleMusicSource.volume} mute={battleMusicSource.mute} " +
+                  $"AudioListener={(anyListener != null ? anyListener.gameObject.name : "无!")} 全局音量={AudioListener.volume}");
     }
 
     private float GetBattleMusicTime()
