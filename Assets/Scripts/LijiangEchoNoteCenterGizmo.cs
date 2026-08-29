@@ -14,9 +14,15 @@ public class LijiangEchoNoteCenterGizmo : MonoBehaviour
     public Color color = new Color(1f, 0.2f, 0.2f, 1f);
 
 #if UNITY_EDITOR
-    // OnDrawGizmos 一直画(需 Scene 视图右上「Gizmos」开着);在 Prefab 编辑模式下也可见。
+    // 只在"编辑时"画,Play 一律不画(避免运行时每个飞行音符都在 Scene 视图冒红叉)。
+    // 需 Scene / Prefab 视图右上角「Gizmos」开关是打开的。
     private void OnDrawGizmos()
     {
+        if (Application.isPlaying)
+        {
+            return;
+        }
+
         Gizmos.color = color;
         Vector3 p = transform.position;
         Gizmos.DrawSphere(p, size * 0.35f);

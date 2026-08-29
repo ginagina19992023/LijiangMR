@@ -1789,6 +1789,25 @@ public class LijiangEchoGameController : MonoBehaviour
         pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, -sideSign * HandRestAngle); // 平时朝各自外下方甩出
         spawnedObjects.Add(pivotObject);
 
+        // 优先用可编辑手部 Prefab:Resources/LijiangEchoNotes/Hand_Left / Hand_Right。
+        // 手的位置/大小/离镜头深度全由你在 Prefab 里摆(轴心只负责旋转甩击);运行时只驱动旋转+淡入。
+        string handPrefabName = sideSign < 0f ? "Hand_Left" : "Hand_Right";
+        GameObject handPrefab = Resources.Load<GameObject>("LijiangEchoNotes/" + handPrefabName);
+        if (handPrefab != null)
+        {
+            GameObject inst = Instantiate(handPrefab, pivotObject.transform, false);
+            inst.transform.localPosition = Vector3.zero;
+            inst.transform.localRotation = Quaternion.identity;
+            handRenderer = inst.GetComponentInChildren<SpriteRenderer>();
+            if (handRenderer != null)
+            {
+                Color c0 = handRenderer.color;
+                handRenderer.color = new Color(c0.r, c0.g, c0.b, 0f); // 初始透明,击打时淡入
+            }
+
+            return pivotObject.transform;
+        }
+
         GameObject hand = AddIcon(art, handName, Vector3.zero, HandVisualHeight, 240, 0f); // 初始全透明,放大
         hand.transform.SetParent(pivotObject.transform, false);
         hand.transform.localRotation = Quaternion.identity;

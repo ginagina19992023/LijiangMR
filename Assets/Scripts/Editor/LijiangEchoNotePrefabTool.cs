@@ -190,6 +190,136 @@ public static class LijiangEchoNotePrefabTool
         return $"OK(内容 {maxX - minX + 1}x{maxY - minY + 1}px,scale {scale:F3})";
     }
 
+    private struct HandSpec
+    {
+        public string prefabName;
+        public string artRel;
+        public float reach;   // 手离轴心(肩)多远,即臂长
+        public float height;  // 手显示高度(世界单位)
+    }
+
+    private static readonly HandSpec[] Hands =
+    {
+        new HandSpec { prefabName = "Hand_Left", artRel = "battle/7左手", reach = 1.0f, height = 1.6f },
+        new HandSpec { prefabName = "Hand_Right", artRel = "battle/7右手", reach = 1.0f, height = 1.6f },
+    };
+
+    [MenuItem("漓江回声/纹样/生成左右手Prefab（可自己调位置/大小/深度）")]
+    public static void GenerateHandPrefabs()
+    {
+        if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+        {
+            AssetDatabase.CreateFolder("Assets", "Resources");
+        }
+
+        if (!AssetDatabase.IsValidFolder(OutFolder))
+        {
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoNotes");
+        }
+
+        int ok = 0;
+        System.Text.StringBuilder report = new System.Text.StringBuilder();
+        foreach (HandSpec h in Hands)
+        {
+            string msg = BuildHand(h);
+            report.AppendLine("· " + h.prefabName + ":" + msg);
+            if (msg.StartsWith("OK"))
+            {
+                ok++;
+            }
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("[漓江回声手部Prefab] 生成完成:\n" + report);
+        EditorUtility.DisplayDialog("左右手 Prefab 生成完成",
+            $"成功 {ok}/{Hands.Length},输出到 {OutFolder}/Hand_Left、Hand_Right\n\n{report}\n" +
+            "双击 Prefab → 拖里面的『Visual』改手的位置(上移=离肩更远/更靠上)、大小、深度(z=离镜头)。\n" +
+            "根上的红色中心点是『旋转轴心(肩)』。运行时只驱动旋转+淡入,样子全由你摆。", "好");
+    }
+
+    private static string BuildHand(HandSpec spec)
+    {
+        Texture2D tex = Resources.Load<Texture2D>("LijiangEchoArt/" + spec.artRel);
+        if (tex == null)
+        {
+            return "找不到贴图 LijiangEchoArt/" + spec.artRel;
+        }
+
+        string texPath = AssetDatabase.GetAssetPath(tex);
+        TextureImporter ti = AssetImporter.GetAtPath(texPath) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.SaveAndReimport();
+            tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        }
+
+        Sprite spr = AssetDatabase.LoadAssetAtPath<Sprite>(texPath);
+        if (spr == null)
+        {
+            return "贴图未生成 Sprite";
+        }
+
+        Texture2D readable = MakeReadableCopy(tex);
+        if (readable == null)
+        {
+            return "无法读取贴图像素";
+        }
+
+        Color32[] px = readable.GetPixels32();
+        int w = readable.width, h = readable.height;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        int step = Mathf.Max(1, Mathf.Max(w, h) / 512);
+        for (int y = 0; y < h; y += step)
+        {
+            int row = y * w;
+            for (int x = 0; x < w; x += step)
+            {
+                if (px[row + x].a >= AlphaThreshold)
+                {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        Object.DestroyImmediate(readable);
+        if (maxX < minX)
+        {
+            return "整张透明";
+        }
+
+        float ppu = spr.pixelsPerUnit > 0f ? spr.pixelsPerUnit : 100f;
+        float bboxHLocal = Mathf.Max(1e-4f, (maxY - minY + 1) / ppu);
+        float ccx = (minX + maxX + 1) * 0.5f;
+        float ccy = (minY + maxY + 1) * 0.5f;
+        float offX = (ccx - w * 0.5f) / ppu;
+        float offY = (ccy - h * 0.5f) / ppu;
+        float scale = spec.height / bboxHLocal; // 按高度适配到目标显示高度
+
+        GameObject root = new GameObject(spec.prefabName);
+        root.AddComponent<LijiangEchoNoteCenterGizmo>(); // 根 = 旋转轴心(肩)
+
+        GameObject visual = new GameObject("Visual");
+        visual.transform.SetParent(root.transform, false);
+        visual.transform.localScale = Vector3.one * scale;
+        // 手内容中心放到轴心正上方 reach 处
+        visual.transform.localPosition = new Vector3(-offX * scale, spec.reach - offY * scale, 0f);
+        SpriteRenderer vr = visual.AddComponent<SpriteRenderer>();
+        vr.sprite = spr;
+        vr.sortingOrder = 240;
+        vr.color = Color.white;
+
+        string prefabPath = OutFolder + "/" + spec.prefabName + ".prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+        Object.DestroyImmediate(root);
+        return saved != null ? $"OK(reach {spec.reach}, height {spec.height})" : "保存失败";
+    }
+
     [MenuItem("漓江回声/纹样/纹样Prefab → 白剪影(统一白色)")]
     public static void SetWhite()
     {
