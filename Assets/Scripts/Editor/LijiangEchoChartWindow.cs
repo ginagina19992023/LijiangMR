@@ -51,6 +51,23 @@ public class LijiangEchoChartWindow : EditorWindow
     private readonly List<NoteLayer> layers = new List<NoteLayer>();
     private int activeLayer;
 
+    // 草稿:用 JSON 保存全部图层(名/色/可见/拍点),载入时连图层一起还原。
+    [System.Serializable]
+    private class LayerJson
+    {
+        public string name;
+        public Color color;
+        public bool visible;
+        public List<float> times = new List<float>();
+        public List<string> types = new List<string>();
+    }
+
+    [System.Serializable]
+    private class LayersJson { public List<LayerJson> layers = new List<LayerJson>(); }
+
+    private const string DraftLayersPath = "Assets/Resources/LijiangEchoCharts/chart_draft.json";
+    private const int DraftSourceIndex = 5; // 「源谱」下拉里『草稿』的下标
+
     // 现有编辑逻辑都用 noteTimes/noteTypes → 指向"当前图层",零改动即作用于当前层。
     private List<float> noteTimes => layers[activeLayer].times;
     private List<string> noteTypes => layers[activeLayer].types;
@@ -350,6 +367,13 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void LoadFromSource()
     {
+        if (sourceIndex == DraftSourceIndex)
+        {
+            // 草稿:连图层一起载回
+            status = LoadDraftLayers() ? $"已连图层载回草稿({layers.Count} 个图层)。" : "还没有草稿(先点「📝 存草稿」)。";
+            return;
+        }
+
         string path = SourcePath(sourceIndex);
         if (LijiangEchoChartGenerator.TryLoadChartRows(path, out List<float> t, out List<string> ty))
         {
@@ -379,10 +403,62 @@ public class LijiangEchoChartWindow : EditorWindow
     /// <summary>先存成草稿(chart_draft),之后再「保存到该场景」应用到关卡。</summary>
     private void SaveDraft()
     {
+        // 草稿存全部图层(JSON),含名/色/可见/类型 → 载回时图层结构不丢。
+        LayersJson lj = new LayersJson();
+        foreach (NoteLayer L in layers)
+        {
+            LayerJson lay = new LayerJson { name = L.name, color = L.color, visible = L.visible };
+            lay.times.AddRange(L.times);
+            lay.types.AddRange(L.types);
+            lj.layers.Add(lay);
+        }
+
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(DraftLayersPath));
+        System.IO.File.WriteAllText(DraftLayersPath, JsonUtility.ToJson(lj, true));
+
+        // 同时写一份扁平草稿 chart_draft.txt(便于查看/给旧流程)。
         CollectVisibleNotes(out List<float> t, out List<string> ty);
-        LijiangEchoChartGenerator.BackupChartFile(LijiangEchoChartGenerator.DraftPath);
         LijiangEchoChartGenerator.WriteChartExplicit(t, ty, LijiangEchoChartGenerator.DraftPath);
-        status = $"已存为草稿({TypeCountSummary(ty)})。「源谱」选『草稿』可再载入;确定后再「保存到该场景」应用。";
+        AssetDatabase.Refresh();
+        status = $"已存草稿(含 {layers.Count} 个图层, {TypeCountSummary(ty)})。「源谱」选『草稿』可连图层一起载回。";
+    }
+
+    private bool LoadDraftLayers()
+    {
+        if (!System.IO.File.Exists(DraftLayersPath))
+        {
+            return false;
+        }
+
+        LayersJson lj = JsonUtility.FromJson<LayersJson>(System.IO.File.ReadAllText(DraftLayersPath));
+        if (lj == null || lj.layers == null || lj.layers.Count == 0)
+        {
+            return false;
+        }
+
+        RecordUndo();
+        layers.Clear();
+        foreach (LayerJson lay in lj.layers)
+        {
+            NoteLayer L = new NoteLayer { name = lay.name, color = lay.color, visible = lay.visible };
+            if (lay.times != null)
+            {
+                L.times.AddRange(lay.times);
+            }
+
+            if (lay.types != null)
+            {
+                L.types.AddRange(lay.types);
+            }
+
+            layers.Add(L);
+        }
+
+        EnsureLayers();
+        activeLayer = 0;
+        selected = -1;
+        selection.Clear();
+        return true;
     }
 
     private static string TypeCountSummary(List<string> ty)
@@ -491,6 +567,11 @@ public class LijiangEchoChartWindow : EditorWindow
                 if (GUILayout.Button(new GUIContent("合并可见图层→新层", "把所有可见图层的拍点合成一个新图层"), GUILayout.Height(20f)))
                 {
                     MergeVisibleLayers();
+                }
+
+                if (GUILayout.Button(new GUIContent("按类型拆成图层", "把当前图层的音符按 单/双/长/划 拆成各自的图层"), GUILayout.Height(20f)))
+                {
+                    SplitActiveLayerByType();
                 }
 
                 if (GUILayout.Button(new GUIContent("从文件导入→新图层", "读取 time,type 每行的拍点文件(如 Python 脚本 lijiang_beatmap.py 的输出)成一个新图层"), GUILayout.Height(20f)))
@@ -724,6 +805,51 @@ public class LijiangEchoChartWindow : EditorWindow
         selection.Clear();
         selected = -1;
         status = $"已把与(原)当前图层重叠的拍子抽出为新图层「重叠层」({nl.times.Count} 拍),原图层已删掉这些拍。";
+    }
+
+    /// <summary>把当前图层按打击类型拆成多个图层(单/双/长/划各一层)。</summary>
+    private void SplitActiveLayerByType()
+    {
+        NoteLayer src = layers[activeLayer];
+        if (src.times.Count == 0)
+        {
+            status = "当前图层没有音符。";
+            return;
+        }
+
+        RecordUndo();
+        List<NoteLayer> created = new List<NoteLayer>();
+        for (int k = 0; k < TypeOptions.Length; k++)
+        {
+            NoteLayer nl = null;
+            for (int i = 0; i < src.times.Count; i++)
+            {
+                string ty = i < src.types.Count ? src.types[i] : "single";
+                if (ty == TypeOptions[k])
+                {
+                    if (nl == null)
+                    {
+                        nl = new NoteLayer { name = TypeShort[k], color = TypeColor(TypeOptions[k]) };
+                    }
+
+                    nl.times.Add(src.times[i]);
+                    nl.types.Add(ty);
+                }
+            }
+
+            if (nl != null)
+            {
+                created.Add(nl);
+            }
+        }
+
+        layers.RemoveAt(activeLayer);
+        layers.AddRange(created);
+        EnsureLayers();
+        activeLayer = Mathf.Max(0, layers.Count - created.Count);
+        selection.Clear();
+        selected = -1;
+        status = $"已把当前图层按类型拆成 {created.Count} 个图层(单/双/长/划)。";
     }
 
     // ======================= 顶部工具条 =======================
