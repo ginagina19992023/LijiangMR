@@ -2374,8 +2374,9 @@ public class LijiangEchoGameController : MonoBehaviour
                 (holdActive && heldNote == note ? 1f + Mathf.Sin(Time.time * 8f) * 0.035f : 1f),
                 Mathf.Lerp(0.42f, 1f, eased),
                 false,   // 不镜像,朝正中心飞
-                false);  // 不再叠加质心二次居中:精灵已收紧到紧包围盒、pivot 即几何中心,
+                false,   // 不再叠加质心二次居中:精灵已收紧到紧包围盒、pivot 即几何中心,
                          // 再按 alpha 质心偏移会把不对称纹样推向一侧(鱼往右、蛇往左)。
+                true);   // 按较大边塞进圆环:横向长图(鱼纹)不再因只按高缩放而横向暴冲成拖影
 
             // 纹样纯白:渐显到全亮;进环略淡但仍清晰可见(不再淡到不可见)。
             // 长按音符另有 P3 视觉,此处不处理,避免叠加冲突。
@@ -3498,14 +3499,20 @@ public class LijiangEchoGameController : MonoBehaviour
         return spriteObject;
     }
 
-    private void SetCroppedSpritePose(SpriteRenderer renderer, Vector3 visibleCenter, float targetHeight, float alpha, bool mirrorX, bool centerOnVisual = false)
+    private void SetCroppedSpritePose(SpriteRenderer renderer, Vector3 visibleCenter, float targetHeight, float alpha, bool mirrorX, bool centerOnVisual = false, bool fitByMaxDimension = false)
     {
         if (renderer == null || renderer.sprite == null || renderer.sprite.bounds.size.y <= 0f)
         {
             return;
         }
 
-        float scale = targetHeight / renderer.sprite.bounds.size.y;
+        // fitByMaxDimension:按"较大边"适配到 targetHeight 当作方框边长(宽图按宽、高图按高),
+        // 让横向长图(如鱼纹)不会因只按高度缩放而把宽度放得过大、横向暴冲成拖影;
+        // 每个纹样都恰好塞进圆环大小。默认仍按高度缩放,兼容其他调用点。
+        float denom = fitByMaxDimension
+            ? Mathf.Max(renderer.sprite.bounds.size.x, renderer.sprite.bounds.size.y)
+            : renderer.sprite.bounds.size.y;
+        float scale = targetHeight / denom;
         Vector3 pos = visibleCenter;
         if (centerOnVisual)
         {
