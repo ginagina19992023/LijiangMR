@@ -378,6 +378,12 @@ public class LijiangEchoGameController : MonoBehaviour
         1, 33, 35, 41, 46, 47, 52, 66, 96, 98, 101, 103, 106
     };
 
+    // 编辑器谱面显式标注的挥划(swipe)音符 index。仅当谱面带「# types:explicit」头时启用,
+    // 此时关掉下面 GetNoteKind 的取模自动 swipe,做到"编辑器所见即所得"。
+    private HashSet<int> swipeNoteIndices = new HashSet<int>();
+    // 谱面是否用「显式类型」(编辑器保存的谱面带 # types:explicit 头)。true 时只认显式类型、不再取模生成 swipe。
+    private bool chartTypesExplicit;
+
     private int nextSpawnIndex;
     private int nextNoteIndex;
     private int cardPageIndex;
@@ -1655,12 +1661,19 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
+        bool explicitTypes = false;
         List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
         foreach (string rawLine in chart.text.Split('\n'))
         {
             string line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith("#"))
             {
+                // 编辑器保存的谱面带此头 → 只认显式类型,不再取模自动生成 swipe。
+                if (line.Replace(" ", string.Empty).ToLowerInvariant().Contains("types:explicit"))
+                {
+                    explicitTypes = true;
+                }
+
                 continue;
             }
 
@@ -1684,6 +1697,7 @@ public class LijiangEchoGameController : MonoBehaviour
         float[] times = new float[rows.Count];
         HashSet<int> holds = new HashSet<int>();
         HashSet<int> doubles = new HashSet<int>();
+        HashSet<int> swipes = new HashSet<int>();
         for (int i = 0; i < rows.Count; i++)
         {
             times[i] = rows[i].Key;
@@ -1695,12 +1709,18 @@ public class LijiangEchoGameController : MonoBehaviour
             {
                 doubles.Add(i);
             }
+            else if (rows[i].Value == "swipe")
+            {
+                swipes.Add(i);
+            }
         }
 
         noteTimes = times;
         holdNoteIndices = holds;
         doubleNoteIndices = doubles;
-        Debug.Log($"[漓江回声] 已从谱面表格加载 {noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count})。");
+        swipeNoteIndices = swipes;
+        chartTypesExplicit = explicitTypes;
+        Debug.Log($"[漓江回声] 已从谱面表格加载 {noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count}、挥划 {swipes.Count}、显式类型 {explicitTypes})。");
     }
 
     // ===== 左右手击打(对应 VR 手柄左/右手) =====
@@ -2287,6 +2307,18 @@ public class LijiangEchoGameController : MonoBehaviour
             return NoteKind.Double;
         }
 
+        if (swipeNoteIndices.Contains(index))
+        {
+            return NoteKind.Swipe;
+        }
+
+        // 显式类型谱面(编辑器保存):没被标注的一律单击,不再取模自动 swipe → 所见即所得。
+        if (chartTypesExplicit)
+        {
+            return NoteKind.Strike;
+        }
+
+        // 旧的检测/需求谱面:保留原有取模自动挥划,行为不变。
         return index % 8 == 3 || index % 11 == 6 ? NoteKind.Swipe : NoteKind.Strike;
     }
 

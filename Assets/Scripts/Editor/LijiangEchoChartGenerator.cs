@@ -243,6 +243,130 @@ public static class LijiangEchoChartGenerator
         return onsets.ToArray();
     }
 
+    /// <summary>
+    /// 编辑器保存:把逐个音符的(时间,类型)写成 chart_generated.txt,带「# types:explicit」头,
+    /// 运行时据此只认显式类型、不再取模自动 swipe(所见即所得)。按时间升序写出。
+    /// </summary>
+    internal static void WriteChartExplicit(List<float> times, List<string> types)
+    {
+        // 组装成对并按时间排序
+        List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
+        for (int i = 0; i < times.Count; i++)
+        {
+            string type = (types != null && i < types.Count && !string.IsNullOrWhiteSpace(types[i]))
+                ? types[i].Trim().ToLowerInvariant()
+                : "single";
+            rows.Add(new KeyValuePair<float, string>(times[i], type));
+        }
+
+        rows.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("# 漓江回声谱面(编辑器保存) —— 时间(秒),类型");
+        sb.AppendLine("# types:explicit  ← 有此头:运行时逐音符只认下面写的类型(single/double/hold/swipe),不再自动生成。");
+        sb.AppendLine("# 类型:single=单击 double=双击 hold=长按 swipe=挥划");
+        foreach (KeyValuePair<float, string> row in rows)
+        {
+            sb.AppendLine(row.Key.ToString("F3") + "," + row.Value);
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputPath)));
+        File.WriteAllText(Path.GetFullPath(OutputPath), sb.ToString());
+        AssetDatabase.Refresh();
+    }
+
+    /// <summary>编辑器打开时:尝试读回已有 chart_generated.txt 的(时间,类型),供继续编辑。没有则返回 false。</summary>
+    internal static bool TryLoadChartRows(out List<float> times, out List<string> types)
+    {
+        times = new List<float>();
+        types = new List<string>();
+        string full = Path.GetFullPath(OutputPath);
+        if (!File.Exists(full))
+        {
+            return false;
+        }
+
+        foreach (string line in File.ReadAllLines(full))
+        {
+            if (TryParseRow(line, out float t, out string type))
+            {
+                times.Add(t);
+                types.Add(type);
+            }
+        }
+
+        return times.Count > 0;
+    }
+
+    /// <summary>
+    /// 为编辑器时间轴生成波形包络:把整曲下混单声道后,按 buckets 段各取 RMS(0..1)。
+    /// 让拖动播放条时能"看到这段音乐是强是弱"。读采样失败返回 null。
+    /// </summary>
+    internal static float[] BuildWaveformEnvelope(AudioClip clip, int buckets)
+    {
+        if (clip == null || buckets <= 0)
+        {
+            return null;
+        }
+
+        int channels = Mathf.Max(1, clip.channels);
+        int totalSamples = clip.samples;
+        if (totalSamples <= 0)
+        {
+            return null;
+        }
+
+        float[] raw = new float[totalSamples * channels];
+        if (!clip.GetData(raw, 0))
+        {
+            return null;
+        }
+
+        float[] env = new float[buckets];
+        float peak = 1e-5f;
+        for (int b = 0; b < buckets; b++)
+        {
+            long s0 = (long)totalSamples * b / buckets;
+            long s1 = (long)totalSamples * (b + 1) / buckets;
+            if (s1 <= s0)
+            {
+                s1 = s0 + 1;
+            }
+
+            double sum = 0.0;
+            long count = 0;
+            // 段内降采样,最多取 ~512 个样本估 RMS,省时。
+            long stride = Mathf.Max(1, (int)((s1 - s0) / 512));
+            for (long s = s0; s < s1 && s < totalSamples; s += stride)
+            {
+                float v = 0f;
+                for (int c = 0; c < channels; c++)
+                {
+                    v += raw[s * channels + c];
+                }
+
+                v /= channels;
+                sum += (double)v * v;
+                count++;
+            }
+
+            float rms = count > 0 ? Mathf.Sqrt((float)(sum / count)) : 0f;
+            env[b] = rms;
+            if (rms > peak)
+            {
+                peak = rms;
+            }
+        }
+
+        // 归一化到 0..1
+        for (int b = 0; b < buckets; b++)
+        {
+            env[b] = Mathf.Clamp01(env[b] / peak);
+        }
+
+        return env;
+    }
+
     private static bool TryParseRow(string line, out float time, out string type)
     {
         time = 0f;
