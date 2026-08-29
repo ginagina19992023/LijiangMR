@@ -135,7 +135,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
     }
     private const float HitRingVisibleHeight = 0.62f;
-    private const float HitBlockVisibleHeight = 0.34f;
+    private const float HitBlockVisibleHeight = 0.50f; // 单击鱼纹方框边长(fitByMaxDimension:较大边=此值)
     private const float HitRingTargetX = HitRingVisibleHeight * 0.5f;
     private const float StageDistance = 2.35f;
     private const float StageWorldScale = 0.78f;
@@ -2243,23 +2243,25 @@ public class LijiangEchoGameController : MonoBehaviour
             // 会夹到整图,即用整张鱼纹(无需知道其像素尺寸)。
             string resourcePath = "select/fish_symbol";
             RectInt crop = new RectInt(0, 0, 100000, 100000);
-            float startHeight = 0.28f;
-            float targetHeight = HitBlockVisibleHeight;
+            // 各类音符占圆环的大小(fitByMaxDimension:较大边=targetHeight)。用户反馈:
+            // 蛙纹偏大、其余偏小 → 鱼/蛇/鸟放大、蛙缩小,整体更均衡。要再调就改这几个 targetHeight。
+            float startHeight = 0.40f;
+            float targetHeight = HitBlockVisibleHeight; // 鱼纹 0.50
             string objectName = "鱼纹单击_" + nextSpawnIndex;
             if (kind == NoteKind.Hold)
             {
                 resourcePath = "pattern/snake_done";
                 crop = SnakeDoneCrop;
-                startHeight = 0.34f;
-                targetHeight = 0.5f;
+                startHeight = 0.44f;
+                targetHeight = 0.60f; // 蛇纹放大
                 objectName = "蛇纹长按_" + nextSpawnIndex;
             }
             else if (kind == NoteKind.Swipe)
             {
                 resourcePath = "battle/frog_swipe";
                 crop = FrogSwipeCrop;
-                startHeight = 0.26f;
-                targetHeight = 0.37f;
+                startHeight = 0.22f;
+                targetHeight = 0.30f; // 蛙纹缩小(之前偏大)
                 objectName = "蛙纹滑动_" + nextSpawnIndex;
             }
             else if (kind == NoteKind.Double)
@@ -2268,8 +2270,8 @@ public class LijiangEchoGameController : MonoBehaviour
                 // 仅当 doubleNoteIndices 里填了 index 才会出现；输入仍按单击命中处理。
                 resourcePath = "pattern/bird_done";
                 crop = BirdDoneCrop;
-                startHeight = 0.28f;
-                targetHeight = 0.44f;
+                startHeight = 0.42f;
+                targetHeight = 0.56f; // 鸟纹放大
                 objectName = "双击纹样_" + nextSpawnIndex;
             }
 
@@ -3952,18 +3954,16 @@ public class LijiangEchoGameController : MonoBehaviour
         int height = Mathf.Clamp(Mathf.RoundToInt(topLeftCrop.height * scaleY), 1, texture.height - top);
         int y = texture.height - top - height;
 
-        // 自愈:单一内容纹样(各自独立 PNG,图里只有一个纹样)。
-        // 早期这些裁剪坐标是针对旧的大图集(pattern/ 假定 5000×5000、frog 假定 1672×941)写的;
-        // 若美术已把它们导成独立紧图(实际贴图远小于假定源尺寸),旧裁剪会按错误比例
-        // 只切到纹样的一小条 → 横向被切窄、看着像"挤压/变形/变成别的纹样"(鸟纹就是这样)。
-        // 这种情况直接改用整张图,再由 TightenToOpaque 收紧居中,彻底避免误切。
+        // 单图单纹样:这些图各自是一张独立 PNG、里面只有一个纹样(鱼/蛙/各 pattern 纹样)。
+        // 历史上的裁剪坐标是针对旧的大图集(pattern/ 假定 5000×5000、frog 假定 1672×941)写的,
+        // 对现在的独立导出图是错的:会把纹样切成一小条 / 半张(如鸟纹"右下角半张")、或横向挤压。
+        // 因此一律改用整张图,再由 TightenToOpaque 收紧到纹样紧包围盒 —— 完整、居中,
+        // 无论用在音符/光晕/右下角待描绘纹样/选关结算都一致正确。drawing_card 是卡面底,不动。
         bool singleContent = resourcePath == "select/fish_symbol"
-            || (resourcePath.StartsWith("pattern/") && resourcePath.EndsWith("_done"))
-            || resourcePath == "battle/frog_swipe";
-        if (singleContent && texture.width < sourceWidth * 0.6f)
+            || resourcePath == "battle/frog_swipe"
+            || (resourcePath.StartsWith("pattern/") && resourcePath != "pattern/drawing_card");
+        if (singleContent)
         {
-            Debug.Log($"[漓江回声] 纹样 {resourcePath} 检测为独立紧图({texture.width}x{texture.height},假定源 {sourceWidth}x{sourceHeight});" +
-                      $"改用整图+紧包围盒,避免旧图集裁剪把它切窄/挤压。");
             x = 0;
             y = 0;
             width = texture.width;
