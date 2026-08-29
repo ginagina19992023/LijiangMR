@@ -21,9 +21,60 @@ public static class LijiangEchoChartGenerator
     internal const string OutputPath = "Assets/Resources/LijiangEchoCharts/chart_generated.txt";
     internal const string RequirementChartPath = "Assets/Resources/LijiangEchoCharts/chart_liusanjie.txt";
     internal const string ChartFolder = "Assets/Resources/LijiangEchoCharts/";
+    internal const string DraftPath = "Assets/Resources/LijiangEchoCharts/chart_draft.txt"; // 草稿(先存,之后再应用到关卡)
+
+    /// <summary>保存前把已存在的谱面文件复制到 backup/ 加时间戳,避免手滑覆盖丢失。返回备份相对路径或 null。</summary>
+    internal static string BackupChartFile(string chartPath)
+    {
+        string full = Path.GetFullPath(chartPath);
+        if (!File.Exists(full))
+        {
+            return null;
+        }
+
+        string backupDir = Path.Combine(Path.GetDirectoryName(full), "backup");
+        Directory.CreateDirectory(backupDir);
+        string name = Path.GetFileNameWithoutExtension(chartPath) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+        File.Copy(full, Path.Combine(backupDir, name), true);
+        return "LijiangEchoCharts/backup/" + name;
+    }
 
     // 战斗关卡名(与运行时 levelNames 对应:0 蛙纹 / 1 鸟纹 / 2 鱼纹)。
     internal static readonly string[] LevelNames = { "蛙纹", "鸟纹", "鱼纹" };
+
+    [MenuItem("漓江回声/谱面/备份现有全部谱面(存原始版本)")]
+    public static void BackupAllCharts()
+    {
+        string dir = Path.GetFullPath(ChartFolder);
+        if (!Directory.Exists(dir))
+        {
+            EditorUtility.DisplayDialog("没有谱面", "找不到谱面目录。", "好");
+            return;
+        }
+
+        int n = 0;
+        foreach (string full in Directory.GetFiles(dir, "chart_*.txt"))
+        {
+            if (LijiangEchoChartFolderContainsBackup(full))
+            {
+                continue;
+            }
+
+            string rel = ChartFolder + Path.GetFileName(full);
+            if (BackupChartFile(rel) != null)
+            {
+                n++;
+            }
+        }
+
+        AssetDatabase.Refresh();
+        EditorUtility.DisplayDialog("已备份", $"已把 {n} 个谱面备份到 {ChartFolder}backup/(带时间戳)。以后覆盖前也会自动备份。", "好");
+    }
+
+    private static bool LijiangEchoChartFolderContainsBackup(string fullPath)
+    {
+        return fullPath.Replace('\\', '/').Contains("/backup/");
+    }
 
     /// <summary>某关卡专属谱面文件路径:chart_level{N}.txt。运行时会优先读它。</summary>
     internal static string ChartPathForLevel(int level)

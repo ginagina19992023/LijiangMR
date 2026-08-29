@@ -89,6 +89,8 @@ public class LijiangEchoChartWindow : EditorWindow
     private Vector2 scroll;
     private float playhead;        // 播放头时间(秒)
     private bool draggingPlayhead;
+    private int draggingNote = -1;         // 正在拖动的音符下标(-1=没拖)
+    private bool noteDragUndoRecorded;     // 本次拖动是否已记过一次撤销
     private bool autoPreview = true; // 松开播放头即试听
     private bool follow = true;      // 播放时视图跟随播放头
 
@@ -132,7 +134,7 @@ public class LijiangEchoChartWindow : EditorWindow
     private static readonly string[] SourceLabels =
     {
         "本关·蛙纹 (level0)", "本关·鸟纹 (level1)", "本关·鱼纹 (level2)",
-        "全局 chart_generated", "需求 chart_liusanjie"
+        "全局 chart_generated", "需求 chart_liusanjie", "草稿 chart_draft"
     };
 
     // 目标战斗场景(保存应用到):三关专属谱 + 全局默认。
@@ -149,7 +151,8 @@ public class LijiangEchoChartWindow : EditorWindow
             case 1: return LijiangEchoChartGenerator.ChartPathForLevel(1);
             case 2: return LijiangEchoChartGenerator.ChartPathForLevel(2);
             case 3: return LijiangEchoChartGenerator.OutputPath;
-            default: return LijiangEchoChartGenerator.RequirementChartPath;
+            case 4: return LijiangEchoChartGenerator.RequirementChartPath;
+            default: return LijiangEchoChartGenerator.DraftPath; // 草稿
         }
     }
 
@@ -244,6 +247,7 @@ public class LijiangEchoChartWindow : EditorWindow
         DrawToolbar();
         EditorGUILayout.Space(2f);
         DrawLayersBar();
+        DrawTimelineToolbar();
         DrawTimeline();
         EditorGUILayout.Space(4f);
         DrawSelectedEditor();
@@ -270,7 +274,12 @@ public class LijiangEchoChartWindow : EditorWindow
             targetIndex = EditorGUILayout.Popup(targetIndex, TargetLabels, GUILayout.MaxWidth(180f));
             using (new EditorGUI.DisabledScope(noteTimes.Count == 0))
             {
-                if (GUILayout.Button(new GUIContent("💾 保存到该场景", "把当前音符表写成该战斗场景的谱面(带 types:explicit)"), GUILayout.MaxWidth(130f)))
+                if (GUILayout.Button(new GUIContent("📝 存草稿", "先存成草稿(不写到关卡),之后「源谱」选『草稿』载入,确定后再保存到关卡"), GUILayout.MaxWidth(80f)))
+                {
+                    SaveDraft();
+                }
+
+                if (GUILayout.Button(new GUIContent("💾 保存到该场景", "把当前音符表写成该战斗场景的谱面(带 types:explicit);覆盖前会自动备份旧谱面"), GUILayout.MaxWidth(130f)))
                 {
                     SaveToTarget();
                 }
@@ -360,20 +369,33 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void SaveToTarget()
     {
-        // 保存 = 合并所有"可见"图层的拍点(想排除某层就把它隐藏)。
         CollectVisibleNotes(out List<float> t, out List<string> ty);
         string path = TargetPath(targetIndex);
+        string bak = LijiangEchoChartGenerator.BackupChartFile(path); // 覆盖前先备份
         LijiangEchoChartGenerator.WriteChartExplicit(t, ty, path);
-        int vis = 0;
-        foreach (NoteLayer L in layers)
+        status = $"已保存到「{TargetLabels[targetIndex]}」:{TypeCountSummary(ty)}。{(bak != null ? "旧谱面已备份→" + bak : "")}";
+    }
+
+    /// <summary>先存成草稿(chart_draft),之后再「保存到该场景」应用到关卡。</summary>
+    private void SaveDraft()
+    {
+        CollectVisibleNotes(out List<float> t, out List<string> ty);
+        LijiangEchoChartGenerator.BackupChartFile(LijiangEchoChartGenerator.DraftPath);
+        LijiangEchoChartGenerator.WriteChartExplicit(t, ty, LijiangEchoChartGenerator.DraftPath);
+        status = $"已存为草稿({TypeCountSummary(ty)})。「源谱」选『草稿』可再载入;确定后再「保存到该场景」应用。";
+    }
+
+    private static string TypeCountSummary(List<string> ty)
+    {
+        int d = 0, h = 0, sw = 0;
+        foreach (string s in ty)
         {
-            if (L.visible)
-            {
-                vis++;
-            }
+            if (s == "double") d++;
+            else if (s == "hold") h++;
+            else if (s == "swipe") sw++;
         }
 
-        status = $"已把 {t.Count} 个音符(合并 {vis} 个可见图层)保存到「{TargetLabels[targetIndex]}」({path})。";
+        return $"{ty.Count} 拍(单{ty.Count - d - h - sw} 双{d} 长{h} 划{sw})";
     }
 
     /// <summary>合并所有可见图层的拍点,按时间升序,去掉 20ms 内的重复。</summary>
@@ -1078,8 +1100,8 @@ public class LijiangEchoChartWindow : EditorWindow
         Event e = Event.current;
         if (e.type == EventType.MouseDown && e.button == 0 && content.Contains(e.mousePosition))
         {
-            // 先判是否点到某个音符句柄(优先选中音符)
-            int hit = FindNoteNear(e.mousePosition.x, 7f);
+            StopPreviewSilently(); // 任何按下先停,重播/重拖不叠旧音乐
+            int hit = FindNoteNear(e.mousePosition.x, 8f);
             bool onPlayheadTop = Mathf.Abs(e.mousePosition.x - TimeToX(playhead)) < 8f && e.mousePosition.y < content.y + 14f;
 
             if (hit >= 0 && !onPlayheadTop)
@@ -1091,19 +1113,42 @@ public class LijiangEchoChartWindow : EditorWindow
                 else
                 {
                     SelectSingle(hit);
+                    draggingNote = hit;          // 单点音符 = 可拖动它改时间
+                    noteDragUndoRecorded = false;
                 }
 
                 GUI.changed = true;
                 e.Use();
             }
-            else
+            else if (e.clickCount >= 2)
             {
-                // 否则移动播放头
-                draggingPlayhead = true;
-                playhead = XToTime(e.mousePosition.x);
-                StopPreviewSilently();
+                // 空白处双击 = 在此时间新增一个音符
+                AddNoteAt(XToTime(e.mousePosition.x));
                 e.Use();
             }
+            else
+            {
+                draggingPlayhead = true;
+                playhead = XToTime(e.mousePosition.x);
+                e.Use();
+            }
+        }
+        else if (e.type == EventType.MouseDrag && draggingNote >= 0)
+        {
+            if (!noteDragUndoRecorded)
+            {
+                RecordUndo(); // 真正开始拖了才记撤销(避免单点也记)
+                noteDragUndoRecorded = true;
+            }
+
+            if (draggingNote < noteTimes.Count)
+            {
+                noteTimes[draggingNote] = XToTime(e.mousePosition.x);
+            }
+
+            GUI.changed = true;
+            e.Use();
+            Repaint();
         }
         else if (e.type == EventType.MouseDrag && draggingPlayhead)
         {
@@ -1111,16 +1156,80 @@ public class LijiangEchoChartWindow : EditorWindow
             e.Use();
             Repaint();
         }
-        else if (e.type == EventType.MouseUp && draggingPlayhead)
+        else if (e.type == EventType.MouseUp)
         {
-            draggingPlayhead = false;
-            if (autoPreview)
+            if (draggingNote >= 0)
             {
-                PlayFrom(playhead);
+                if (noteDragUndoRecorded)
+                {
+                    status = "已拖动音符到新时间。";
+                }
+
+                draggingNote = -1;
+                e.Use();
+            }
+            else if (draggingPlayhead)
+            {
+                draggingPlayhead = false;
+                if (autoPreview)
+                {
+                    PlayFrom(playhead);
+                }
+
+                e.Use();
+            }
+        }
+    }
+
+    // ======================= 时间轴工具栏(像视频编辑器) =======================
+    private void DrawTimelineToolbar()
+    {
+        using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+        {
+            if (GUILayout.Button(new GUIContent("＋ 加音符", "在当前播放头处新增一个音符(也可在时间轴空白处双击)"), EditorStyles.toolbarButton, GUILayout.Width(80f)))
+            {
+                AddNoteAt(playhead);
             }
 
-            e.Use();
+            using (new EditorGUI.DisabledScope(selection.Count == 0 && selected < 0))
+            {
+                if (GUILayout.Button(new GUIContent("删除选中", "删除选中的音符(时间轴上点/ Ctrl 多选)"), EditorStyles.toolbarButton, GUILayout.Width(70f)))
+                {
+                    DeleteSelectedOrFocused();
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(undoStack.Count == 0))
+            {
+                if (GUILayout.Button(new GUIContent("↶ 撤销", "Ctrl+Z"), EditorStyles.toolbarButton, GUILayout.Width(58f)))
+                {
+                    Undo();
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(redoStack.Count == 0))
+            {
+                if (GUILayout.Button(new GUIContent("↷ 重做", "Ctrl+Y"), EditorStyles.toolbarButton, GUILayout.Width(58f)))
+                {
+                    Redo();
+                }
+            }
+
+            GUILayout.Space(10f);
+            GUILayout.Label("拖动音符=改时间 · 双击空白=加音符 · Ctrl点=多选 · 拖顶部=移动播放头", EditorStyles.miniLabel);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"当前层 {noteTimes.Count} 拍 · 已选 {(selection.Count > 0 ? selection.Count : (selected >= 0 ? 1 : 0))}", EditorStyles.miniLabel);
         }
+    }
+
+    private void DeleteSelectedOrFocused()
+    {
+        if (selection.Count == 0 && selected >= 0)
+        {
+            selection.Add(selected);
+        }
+
+        DeleteSelected();
     }
 
     private int FindNoteNear(float x, float pxTolerance)
@@ -1868,9 +1977,9 @@ public class LijiangEchoChartWindow : EditorWindow
         if (genSingle == null || !Mathf.Approximately(genVolume, clickVolume))
         {
             genVolume = clickVolume;
-            genSingle = MakeTick(1200f, 0.045f, clickVolume, false); // 单/双:高频脆响
-            genHold = MakeTick(600f, 0.075f, clickVolume, false);    // 长按:低一点、长一点
-            genSwipe = MakeTick(0f, 0.06f, clickVolume, true);       // 挥划:噪声"刷"
+            genSingle = MakeTickAsset("tick_single", 1200f, 0.045f, clickVolume, false);
+            genHold = MakeTickAsset("tick_hold", 600f, 0.075f, clickVolume, false);
+            genSwipe = MakeTickAsset("tick_swipe", 0f, 0.06f, clickVolume, true);
         }
 
         switch (type)
@@ -1881,23 +1990,58 @@ public class LijiangEchoChartWindow : EditorWindow
         }
     }
 
-    /// <summary>程序生成一个短"咔哒"提示音(指数衰减);noise=true 用白噪声,否则用正弦。响度 amp。</summary>
-    private static AudioClip MakeTick(float freq, float dur, float amp, bool noise)
+    /// <summary>
+    /// 生成短"咔哒"提示音并写成真实 WAV 素材再导入(运行时 AudioClip.Create 的 clip AudioUtil 播不出来,必须真素材)。
+    /// </summary>
+    private static AudioClip MakeTickAsset(string name, float freq, float dur, float amp, bool noise)
     {
         const int sr = 44100;
-        int n = Mathf.Max(1, (int)(sr * dur));
-        AudioClip c = AudioClip.Create("lijiang_tick", n, 1, sr, false);
+        int n = Mathf.Max(8, (int)(sr * dur));
         float[] data = new float[n];
-        System.Random rng = new System.Random(20260829);
+        System.Random rng = new System.Random(20260830);
         for (int i = 0; i < n; i++)
         {
-            float env = Mathf.Exp(-9f * i / n); // 快速衰减,脆
+            float env = Mathf.Exp(-9f * i / n);
             float s = noise ? (float)(rng.NextDouble() * 2.0 - 1.0) : Mathf.Sin(2f * Mathf.PI * freq * i / sr);
             data[i] = Mathf.Clamp(s * env * amp, -1f, 1f);
         }
 
-        c.SetData(data, 0);
-        return c;
+        const string dir = "Assets/Resources/LijiangEchoNotes";
+        System.IO.Directory.CreateDirectory(dir);
+        string path = dir + "/" + name + ".wav";
+        System.IO.File.WriteAllBytes(path, EncodeWavMono16(data, sr));
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+        return AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+    }
+
+    private static byte[] EncodeWavMono16(float[] data, int sampleRate)
+    {
+        int n = data.Length;
+        int dataBytes = n * 2;
+        using (System.IO.MemoryStream ms = new System.IO.MemoryStream(44 + dataBytes))
+        using (System.IO.BinaryWriter bw = new System.IO.BinaryWriter(ms))
+        {
+            bw.Write(new char[] { 'R', 'I', 'F', 'F' });
+            bw.Write(36 + dataBytes);
+            bw.Write(new char[] { 'W', 'A', 'V', 'E' });
+            bw.Write(new char[] { 'f', 'm', 't', ' ' });
+            bw.Write(16);
+            bw.Write((short)1);
+            bw.Write((short)1);
+            bw.Write(sampleRate);
+            bw.Write(sampleRate * 2);
+            bw.Write((short)2);
+            bw.Write((short)16);
+            bw.Write(new char[] { 'd', 'a', 't', 'a' });
+            bw.Write(dataBytes);
+            for (int i = 0; i < n; i++)
+            {
+                bw.Write((short)(Mathf.Clamp(data[i], -1f, 1f) * 32767f));
+            }
+
+            bw.Flush();
+            return ms.ToArray();
+        }
     }
 
     private void StopPreview()
