@@ -39,7 +39,7 @@ public static class LijiangEchoLayoutSyncTool
         public List<Item> items = new List<Item>();
     }
 
-    [MenuItem("漓江回声/场景化/布局同步/① 采集当前场景布局")]
+    [MenuItem("漓江回声/场景化/多关卡布局同步(高级)/采集本场景布局", false, 60)]
     public static void Capture()
     {
         Transform root = FindBattleRoot();
@@ -69,7 +69,7 @@ public static class LijiangEchoLayoutSyncTool
             $"已记录 {set.items.Count} 个物体的位置/旋转。\n\n打开别的关卡战斗场景 → 执行「②应用布局到当前场景」即可同步。", "好");
     }
 
-    [MenuItem("漓江回声/场景化/布局同步/② 应用布局到当前场景")]
+    [MenuItem("漓江回声/场景化/多关卡布局同步(高级)/应用布局到本场景", false, 61)]
     public static void Apply()
     {
         Transform root = FindBattleRoot();
@@ -126,7 +126,7 @@ public static class LijiangEchoLayoutSyncTool
             $"已同步 {applied} 个物体的位置/旋转。{(missing > 0 ? $"\n{missing} 个在本场景找不到(已跳过)。" : "")}\n记得 Ctrl+S 保存。", "好");
     }
 
-    [MenuItem("漓江回声/场景化/布局同步/③ 修复怪物手臂关节(重置为贴合基准姿势)")]
+    [MenuItem("漓江回声/场景化/3 修怪物手臂关节脱开", false, 21)]
     public static void FixMonsterArms()
     {
         Transform root = FindBattleRoot();

@@ -54,7 +54,7 @@ public static class LijiangEchoBattleMotionTool
         { "火焰光", new MotionSpec(LijiangEchoStageKit.MotionKind.Flame, 0.05f, 7.2f, 1.3f) },
     };
 
-    [MenuItem("漓江回声/场景化/为战斗背景补挂动效组件")]
+    [MenuItem("漓江回声/场景化/2 让烘焙的背景动起来(补动效组件)", false, 20)]
     public static void ApplyBattleMotions()
     {
         Scene scene = SceneManager.GetActiveScene();

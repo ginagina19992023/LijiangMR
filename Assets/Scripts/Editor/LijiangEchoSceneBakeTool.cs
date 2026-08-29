@@ -46,7 +46,7 @@ public static class LijiangEchoSceneBakeTool
     }
 
     // ---------- A. 捕获(Play 中) ----------
-    [MenuItem("漓江回声/场景化/通用A. 捕获当前画面(Play中)")]
+    [MenuItem("漓江回声/场景化/1 战斗场景化 · A 捕获画面(先 Play 中)", false, 1)]
     public static void CaptureCurrent()
     {
         if (!EditorApplication.isPlaying)
@@ -96,7 +96,7 @@ public static class LijiangEchoSceneBakeTool
     }
 
     // ---------- B. 烘焙(退出 Play 后) ----------
-    [MenuItem("漓江回声/场景化/通用B. 烘焙成可编辑场景(退出Play)")]
+    [MenuItem("漓江回声/场景化/1 战斗场景化 · B 烘焙成场景(退出 Play 后)", false, 2)]
     public static void BakeToScene()
     {
         if (EditorApplication.isPlaying)

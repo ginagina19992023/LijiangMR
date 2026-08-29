@@ -35,7 +35,7 @@ public static class LijiangEchoStageBakeTool
         public List<LayerRecord> layers = new List<LayerRecord>();
     }
 
-    [MenuItem("漓江回声/场景化/1. 捕获 Stage_Start 基线")]
+    [MenuItem("漓江回声/场景化/开始界面 Stage_Start(与战斗无关)/1 捕获基线", false, 80)]
     public static void CaptureBaseline()
     {
         LayerRecordSet set = BuildLayoutAndRecord(out GameObject tempRoot);
@@ -146,7 +146,7 @@ public static class LijiangEchoStageBakeTool
     private const float ScaleTolerance = 0.0005f;
     private const float AlphaTolerance = 0.002f;
 
-    [MenuItem("漓江回声/场景化/2. 烘焙 Stage_Start 场景")]
+    [MenuItem("漓江回声/场景化/开始界面 Stage_Start(与战斗无关)/2 烘焙场景", false, 81)]
     public static void BakeStageStart()
     {
         if (EditorApplication.isPlaying)
@@ -335,7 +335,7 @@ public static class LijiangEchoStageBakeTool
         }
     }
 
-    [MenuItem("漓江回声/场景化/3. 校验 Stage_Start 与基线一致")]
+    [MenuItem("漓江回声/场景化/开始界面 Stage_Start(与战斗无关)/3 校验一致", false, 82)]
     public static void VerifyAgainstBaseline()
     {
         string fullPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", BaselinePath));

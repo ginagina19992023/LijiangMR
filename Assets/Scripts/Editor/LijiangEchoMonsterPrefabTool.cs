@@ -19,7 +19,7 @@ public static class LijiangEchoMonsterPrefabTool
     private const string MarkerName = "怪物分层";
     private const string PrefabPath = "Assets/Prefabs/BattleMonster.prefab";
 
-    [MenuItem("漓江回声/场景化/怪物Prefab/① 把当前「怪物分层」存为怪物Prefab")]
+    [MenuItem("漓江回声/场景化/4 怪物做成共用Prefab(改一次全关卡同步)/A 把本场景怪物存成Prefab", false, 40)]
     public static void SaveMonsterPrefab()
     {
         Transform monster = FindMonster();
@@ -48,7 +48,7 @@ public static class LijiangEchoMonsterPrefabTool
             "其它关卡请打开后执行「② 用怪物Prefab替换本场景怪物分层」。\n记得 Ctrl+S。", "好");
     }
 
-    [MenuItem("漓江回声/场景化/怪物Prefab/② 用怪物Prefab替换本场景「怪物分层」")]
+    [MenuItem("漓江回声/场景化/4 怪物做成共用Prefab(改一次全关卡同步)/B 别的关卡用它替换本地怪物", false, 41)]
     public static void ReplaceWithPrefab()
     {
         GameObject prefabAsset = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
