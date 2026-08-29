@@ -265,10 +265,7 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
-        AudioImporterSampleSettings s = importer.defaultSampleSettings;
-        s.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
-        importer.defaultSampleSettings = s;
-        importer.SaveAndReimport();
+        ForceDecompressOnLoad(importer);
 
         clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
         if (clip != null)
@@ -279,7 +276,29 @@ public class LijiangEchoChartWindow : EditorWindow
 
         waveform = null;
         onsets = null;
-        status = "已把音频设为 Decompress On Load(可检测/试听)。点「检测拍子」开始。";
+        status = ClipReady()
+            ? "已设为 Decompress On Load(并清除各平台 Override)。点「检测拍子」开始。"
+            : "已改导入设置,但当前平台仍非 Decompress。请在音频 Inspector 顶部各平台标签页取消勾选『Override』后再 Apply。";
+    }
+
+    /// <summary>
+    /// 强制把音频设为 Decompress On Load。关键:先清掉各平台的 Override —— 用户反映"改 Default 点 Apply
+    /// 又跳回 Streaming",正是某平台标签页勾了 Override(clip.loadType 取当前平台值,Default 被覆盖)。
+    /// </summary>
+    private static void ForceDecompressOnLoad(AudioImporter importer)
+    {
+        foreach (string platform in new[]
+        {
+            "Standalone", "Android", "iPhone", "WebGL", "Windows Store Apps", "PS4", "XboxOne", "Switch", "tvOS"
+        })
+        {
+            importer.ClearSampleSettingOverride(platform);
+        }
+
+        AudioImporterSampleSettings s = importer.defaultSampleSettings;
+        s.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
+        importer.defaultSampleSettings = s;
+        importer.SaveAndReimport();
     }
 
     /// <summary>把选中音频复制成 Resources/LijiangEchoAudio/battle_music(运行时读的名字),并准备好格式。</summary>
@@ -344,10 +363,7 @@ public class LijiangEchoChartWindow : EditorWindow
         AudioImporter importer = AssetImporter.GetAtPath(dest) as AudioImporter;
         if (importer != null)
         {
-            AudioImporterSampleSettings s = importer.defaultSampleSettings;
-            s.loadType = AudioClipLoadType.DecompressOnLoad;
-            importer.defaultSampleSettings = s;
-            importer.SaveAndReimport();
+            ForceDecompressOnLoad(importer);
         }
 
         clip = AssetDatabase.LoadAssetAtPath<AudioClip>(dest);
@@ -366,10 +382,21 @@ public class LijiangEchoChartWindow : EditorWindow
     {
         EnsureClip();
         DrawAudioBar();
+        EditorGUILayout.HelpBox(
+            "流程:① 上方「音频」栏选一首音乐(mp3/wav/ogg 都行) → ② 点「检测拍子」(会自动准备格式) → " +
+            "③「用检测点重建」把拍子变成音符 → ④ 点时间轴上的音符改类型/增删 → " +
+            "⑤(可选)「贴需求类型」→ ⑥ 右下「应用到」选关卡 →「保存到该场景」。" +
+            "换游戏音乐:选好音频点「设为战斗音乐」。",
+            MessageType.None);
+        if (clip != null && !ClipReady())
+        {
+            EditorGUILayout.HelpBox($"当前音频「{clip.name}」未准备(非 Decompress On Load),暂不显示波形。" +
+                "点「准备音频」或直接「检测拍子」即可自动准备。", MessageType.Warning);
+        }
+
         if (clip == null)
         {
-            EditorGUILayout.HelpBox("在上面「音频」栏选一个项目里的音频(mp3/wav/ogg 都行),再点「准备音频」。" +
-                "检测拍子/波形/试听需要 Decompress On Load。", MessageType.Info);
+            EditorGUILayout.HelpBox("在上面「音频」栏选一个项目里的音频(mp3/wav/ogg 都行),再点「检测拍子」(会自动准备)。", MessageType.Info);
             return;
         }
 
@@ -469,9 +496,16 @@ public class LijiangEchoChartWindow : EditorWindow
         }
     }
 
+    /// <summary>音频是否已可读采样(Decompress On Load)。压缩/流式音频直接 GetData 会刷红错误,故先判断。</summary>
+    private bool ClipReady()
+    {
+        return clip != null && clip.loadType == AudioClipLoadType.DecompressOnLoad;
+    }
+
     private void DrawWaveform(Rect content)
     {
-        if (waveform == null)
+        // 未准备好(非 Decompress On Load)时绝不调 GetData,避免 Unity 刷红错误。
+        if (waveform == null && ClipReady())
         {
             waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
         }
@@ -736,7 +770,18 @@ public class LijiangEchoChartWindow : EditorWindow
         EnsureClip();
         if (clip == null)
         {
-            status = "找不到音乐。";
+            status = "找不到音乐,请在上面「音频」栏选一首。";
+            return;
+        }
+
+        if (!ClipReady())
+        {
+            PrepareAudio(); // 未准备好就自动设为 Decompress On Load(省得你先点一次)
+        }
+
+        if (!ClipReady())
+        {
+            status = "此音频仍无法读采样(格式异常),换一首或手动设 Decompress On Load。";
             return;
         }
 
