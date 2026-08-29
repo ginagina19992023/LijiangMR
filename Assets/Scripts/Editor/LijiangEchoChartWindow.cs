@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// 谱面时间轴编辑器:菜单「漓江回声/谱面/0. 打开预览窗口」。
@@ -188,8 +190,55 @@ public class LijiangEchoChartWindow : EditorWindow
                 {
                     SaveToTarget();
                 }
+
+                if (GUILayout.Button(new GUIContent("▶ 保存并试玩", "保存到该关卡 → 直接进 Play 进入战斗:边听音乐边看纹样飞入、可打点验证。停止 Play 回到编辑"), GUILayout.MaxWidth(110f)))
+                {
+                    SaveAndPlaytest();
+                }
             }
         }
+    }
+
+    /// <summary>保存当前谱面到目标关卡,并直接进入 Play 的战斗阶段试玩(真实场景+音乐+可打点)。</summary>
+    private void SaveAndPlaytest()
+    {
+        SaveToTarget();
+
+        int level = targetIndex <= 2 ? targetIndex : 0;
+        PlayerPrefs.SetInt("LJ_DebugStartStage", 4); // 4 = 战斗(见 JumpToStageForDebug)
+        PlayerPrefs.SetInt("LJ_DebugLevel", level);
+        PlayerPrefs.Save();
+
+        // 战斗只在 LijiangEchoMR_Main 里 bootstrap;若当前不是它,先(询问保存后)打开它再 Play。
+        if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+        {
+            status = "已取消(未保存当前场景)。";
+            return;
+        }
+
+        string mainPath = FindScenePath("LijiangEchoMR_Main");
+        if (!string.IsNullOrEmpty(mainPath) && SceneManager.GetActiveScene().path != mainPath)
+        {
+            EditorSceneManager.OpenScene(mainPath, OpenSceneMode.Single);
+        }
+
+        StopPreview();
+        EditorApplication.EnterPlaymode();
+        status = "已保存并进入战斗试玩:听音乐/看纹样/打点验证。停止 Play 即回到本编辑器。";
+    }
+
+    private static string FindScenePath(string sceneName)
+    {
+        foreach (string guid in AssetDatabase.FindAssets(sceneName + " t:Scene"))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (System.IO.Path.GetFileNameWithoutExtension(path) == sceneName)
+            {
+                return path;
+            }
+        }
+
+        return null;
     }
 
     private void LoadFromSource()
