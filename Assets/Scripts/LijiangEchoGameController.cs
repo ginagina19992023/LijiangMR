@@ -2376,9 +2376,8 @@ public class LijiangEchoGameController : MonoBehaviour
                 (holdActive && heldNote == note ? 1f + Mathf.Sin(Time.time * 8f) * 0.035f : 1f),
                 Mathf.Lerp(0.42f, 1f, eased),
                 false,   // 不镜像,朝正中心飞
-                false,   // 不再叠加质心二次居中:精灵已收紧到紧包围盒、pivot 即几何中心,
-                         // 再按 alpha 质心偏移会把不对称纹样推向一侧(鱼往右、蛇往左)。
-                true);   // 按较大边塞进圆环:横向长图(鱼纹)不再因只按高缩放而横向暴冲成拖影
+                false,   // 质心二次居中已停用(见下方 prefab 化改造:改为编辑器可视化摆位)
+                false);  // 暂时关闭"按较大边缩放"——它套在未收紧的整张画布上会把纹样缩到极小
 
             // 纹样纯白:渐显到全亮;进环略淡但仍清晰可见(不再淡到不可见)。
             // 长按音符另有 P3 视觉,此处不处理,避免叠加冲突。
