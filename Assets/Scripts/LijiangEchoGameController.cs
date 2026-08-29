@@ -168,6 +168,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private readonly List<IntroFocusItem> introFocusItems = new List<IntroFocusItem>();
     private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
     private readonly Dictionary<string, Texture2D> solidTextureCache = new Dictionary<string, Texture2D>();
+    // 每个精灵"不透明像素真实中心"相对 pivot 的偏移(局部单位),缓存;贴图不可读时回退到 bounds.center。
+    private readonly Dictionary<Sprite, Vector3> visibleCenterCache = new Dictionary<Sprite, Vector3>();
     private readonly Dictionary<string, AudioClip> audioCache = new Dictionary<string, AudioClip>();
 
     private Transform cameraAnchor;
@@ -1703,11 +1705,11 @@ public class LijiangEchoGameController : MonoBehaviour
 
     // ===== 左右手击打(对应 VR 手柄左/右手) =====
     private const float HandStrikeDuration = 0.26f;
-    private const float HandRestAngle = 58f;     // 平时:手臂朝各自外下方甩出(藏在画面外侧)
-    private const float HandStrikeAngle = 8f;    // 击打终点:接近竖直、手落到中心圆环上(不越过)
-    private const float HandArmLength = 1.15f;    // 臂长(手离轴心多远)
-    private const float HandPivotSide = 0.5f;     // 左右轴心离中线的横向距离
-    private const float HandPivotY = -1.15f;      // 轴心高度(越负越靠下)
+    private const float HandRestAngle = 45f;     // 平时:手臂朝各自外下方甩出(藏在画面下侧,靠透明隐藏)
+    private const float HandStrikeAngle = 8f;    // 击打终点:接近竖直略向内,手落到中心圆环上(不越过)
+    private const float HandArmLength = 1.5f;     // 臂长(手离轴心多远):加长,让手挥到圆环处
+    private const float HandPivotSide = 0.45f;    // 左右轴心离中线的横向距离
+    private const float HandPivotY = -1.3f;       // 轴心高度(屏幕下缘;挥起时手正好升到圆环)
     private const float HandVisualHeight = 2.6f;  // 手的显示高度(放大约 5 倍)
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
@@ -1729,9 +1731,13 @@ public class LijiangEchoGameController : MonoBehaviour
 
         GameObject hand = AddIcon(art, handName, Vector3.zero, HandVisualHeight, 240, 0f); // 初始全透明,放大
         hand.transform.SetParent(pivotObject.transform, false);
-        hand.transform.localPosition = new Vector3(0f, HandArmLength, 0f); // 手在轴的"手臂末端"
         hand.transform.localRotation = Quaternion.identity;
         handRenderer = hand.GetComponent<SpriteRenderer>();
+        // 关键:把手的"可见部分中心"放到手臂末端。手图不透明内容常偏在一角,
+        // 直接把 pivot 摆到臂端会让可见的手甩到画面外(之前"太偏下看不到"的原因)。
+        Vector3 handVisible = GetSpriteVisibleCenter(handRenderer.sprite);
+        Vector3 scaledVisible = Vector3.Scale(handVisible, hand.transform.localScale);
+        hand.transform.localPosition = new Vector3(0f, HandArmLength, 0f) - scaledVisible;
         return pivotObject.transform;
     }
 
@@ -1758,7 +1764,7 @@ public class LijiangEchoGameController : MonoBehaviour
             float progress = 1f - Mathf.Clamp01(timer / HandStrikeDuration);
             float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
             angle = Mathf.Lerp(rest, strike, swing);
-            alpha = Mathf.Clamp01(swing * 1.6f); // 挥起时显现,落回时淡出
+            alpha = Mathf.Clamp01(swing * 2.2f); // 挥起时更早显现、看得更清,落回时淡出
         }
 
         pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
@@ -2092,7 +2098,7 @@ public class LijiangEchoGameController : MonoBehaviour
             // 加色柔光光晕:1 层金色、加色混合、柔和外扩。
             // 关键:要以"纹样可见中心(sprite.bounds.center)"为中心放大,否则纹样原点偏移时
             // 放大的光晕会相对本体错位(鱼纹那种"散射"就是这个原因)。
-            Vector3 spriteCenter = noteRenderer.sprite != null ? noteRenderer.sprite.bounds.center : Vector3.zero;
+            Vector3 spriteCenter = GetSpriteVisibleCenter(noteRenderer.sprite);
             float[] glowScales = { 1.5f };
             float[] glowBase = { 0.42f };
             SpriteRenderer[] glowLayers = new SpriteRenderer[glowScales.Length];
@@ -3288,9 +3294,9 @@ public class LijiangEchoGameController : MonoBehaviour
         Vector3 pos = visibleCenter;
         if (centerOnVisual)
         {
-            // 精灵原点(pivot)不在可见内容中心时,把"可见中心"对齐到 visibleCenter,
+            // 精灵原点(pivot)不在可见内容中心时,把"不透明像素真实中心"对齐到 visibleCenter,
             // 否则纹样会整体偏向一侧(鱼纹往右散射就是这个原因)。
-            Vector3 c = renderer.sprite.bounds.center;
+            Vector3 c = GetSpriteVisibleCenter(renderer.sprite);
             pos -= new Vector3((mirrorX ? -scale : scale) * c.x, scale * c.y, 0f);
         }
 
@@ -3552,6 +3558,73 @@ public class LijiangEchoGameController : MonoBehaviour
             0f);
         Vector3 scaledPoint = Vector3.Scale(localPoint, itemTransform.localScale);
         itemTransform.localPosition = targetCenter - scaledPoint;
+    }
+
+    /// <summary>
+    /// 返回精灵"不透明像素真实中心"相对 pivot 的偏移(局部单位)。
+    /// FullRect 精灵的 sprite.bounds.center 恒为 0(=pivot 几何中心),无法反映内容偏心,
+    /// 会导致纹样/光晕整体偏向一侧。这里按 alpha 加权采样出真实质心。
+    /// 贴图未开 Read/Write(GetPixels32 抛异常)时回退到 bounds.center,音符照常显示、不消失。
+    /// 结果按精灵缓存,每张只算一次。
+    /// </summary>
+    private Vector3 GetSpriteVisibleCenter(Sprite sprite)
+    {
+        if (sprite == null)
+        {
+            return Vector3.zero;
+        }
+
+        if (visibleCenterCache.TryGetValue(sprite, out Vector3 cachedCenter))
+        {
+            return cachedCenter;
+        }
+
+        Vector3 result = sprite.bounds.center; // 回退:pivot 几何中心
+        try
+        {
+            Texture2D texture = sprite.texture;
+            Rect tr = sprite.textureRect; // 该精灵在贴图里的像素矩形(左下为原点)
+            int rx = Mathf.Clamp(Mathf.RoundToInt(tr.x), 0, texture.width - 1);
+            int ry = Mathf.Clamp(Mathf.RoundToInt(tr.y), 0, texture.height - 1);
+            int rw = Mathf.Clamp(Mathf.RoundToInt(tr.width), 1, texture.width - rx);
+            int rh = Mathf.Clamp(Mathf.RoundToInt(tr.height), 1, texture.height - ry);
+            Color32[] pixels = texture.GetPixels32(); // 未开 Read/Write 会抛异常 → 走 catch 回退
+            int texW = texture.width;
+            int step = Mathf.Max(1, Mathf.Max(rw, rh) / 256); // 大图降采样,省时
+            double sumA = 0.0, sumX = 0.0, sumY = 0.0;
+            for (int yy = 0; yy < rh; yy += step)
+            {
+                int rowBase = (ry + yy) * texW + rx;
+                for (int xx = 0; xx < rw; xx += step)
+                {
+                    byte a = pixels[rowBase + xx].a;
+                    if (a < 12)
+                    {
+                        continue;
+                    }
+
+                    sumA += a;
+                    sumX += (double)a * xx;
+                    sumY += (double)a * yy;
+                }
+            }
+
+            if (sumA > 0.0)
+            {
+                double cx = sumX / sumA; // 相对裁剪矩形左下角
+                double cy = sumY / sumA;
+                float offX = (float)((cx - rw * 0.5) / PixelsPerUnit);
+                float offY = (float)((cy - rh * 0.5) / PixelsPerUnit);
+                result = new Vector3(offX, offY, 0f);
+            }
+        }
+        catch
+        {
+            // 贴图不可读:保持回退值(等同旧行为,不报错、不影响显示)。
+        }
+
+        visibleCenterCache[sprite] = result;
+        return result;
     }
 
     private Font GetUiFont()
