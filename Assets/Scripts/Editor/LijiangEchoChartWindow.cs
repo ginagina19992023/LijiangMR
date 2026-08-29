@@ -1864,9 +1864,13 @@ public class LijiangEchoChartWindow : EditorWindow
                     SelectAllInLayer();
                 }
 
-                if (GUILayout.Button(new GUIContent($"选中「{TypeShort[batchFrom]}」", "选中当前图层里所有『把』左边那种类型(下方那个下拉)"), GUILayout.MaxWidth(90f)))
+                GUILayout.Label("全选类型:", GUILayout.MaxWidth(60f));
+                for (int k = 0; k < 4; k++)
                 {
-                    SelectByType(batchFrom);
+                    if (GUILayout.Button(TypeShort[k], GUILayout.MaxWidth(40f)))
+                    {
+                        SelectByType(k); // 全选 单/双/长/划
+                    }
                 }
 
                 using (new EditorGUI.DisabledScope(selection.Count == 0))
