@@ -2298,9 +2298,9 @@ public class LijiangEchoGameController : MonoBehaviour
             }
 
             // 加色柔光光晕:1 层金色、加色混合、柔和外扩。
-            // 关键:要以"纹样可见中心(sprite.bounds.center)"为中心放大,否则纹样原点偏移时
-            // 放大的光晕会相对本体错位(鱼纹那种"散射"就是这个原因)。
-            Vector3 spriteCenter = GetSpriteVisibleCenter(noteRenderer.sprite);
+            // 精灵已收紧到紧包围盒、pivot 即内容几何中心,光晕以本体原点(0)为放大中心即天然同心;
+            // 不再用 alpha 质心(那会把光晕推离本体,造成"散射")。
+            Vector3 spriteCenter = Vector3.zero;
             float[] glowScales = { 1.5f };
             float[] glowBase = { 0.42f };
             SpriteRenderer[] glowLayers = new SpriteRenderer[glowScales.Length];
@@ -2374,7 +2374,8 @@ public class LijiangEchoGameController : MonoBehaviour
                 (holdActive && heldNote == note ? 1f + Mathf.Sin(Time.time * 8f) * 0.035f : 1f),
                 Mathf.Lerp(0.42f, 1f, eased),
                 false,   // 不镜像,朝正中心飞
-                true);   // 以纹样可见中心对齐落点(修鱼纹往右散射)
+                false);  // 不再叠加质心二次居中:精灵已收紧到紧包围盒、pivot 即几何中心,
+                         // 再按 alpha 质心偏移会把不对称纹样推向一侧(鱼往右、蛇往左)。
 
             // 纹样纯白:渐显到全亮;进环略淡但仍清晰可见(不再淡到不可见)。
             // 长按音符另有 P3 视觉,此处不处理,避免叠加冲突。
@@ -3965,7 +3966,17 @@ public class LijiangEchoGameController : MonoBehaviour
         // 收紧到不透明像素的紧包围盒:pivot 随之落在内容几何中心,
         // 均匀缩放即天然居中(修鱼纹"往右拉伸/散射"),宽度不含透明空边,
         // 光晕与本体天然同心。贴图未开 Read/Write 时静默保持原矩形(不报错)。
+        int preX = x, preY = y, preW = width, preH = height;
         TightenToOpaque(texture, ref x, ref y, ref width, ref height);
+        if (singleContent)
+        {
+            // 诊断:确认贴图是否可读、收紧前后矩形。鱼/蛇/蛙纹若仍偏心/畸变,把这行发我。
+            bool tightened = x != preX || y != preY || width != preW || height != preH;
+            Debug.Log($"[漓江回声][纹样诊断] {resourcePath} tex={texture.width}x{texture.height} " +
+                      $"isReadable={texture.isReadable} 收紧前[{preX},{preY},{preW},{preH}] " +
+                      $"收紧后[{x},{y},{width},{height}] 收紧生效={tightened}");
+        }
+
         Sprite sprite = Sprite.Create(
             texture,
             new Rect(x, y, width, height),
