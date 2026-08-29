@@ -130,6 +130,7 @@ GameObject:
   - component: {fileID: 39707592}
   - component: {fileID: 39707594}
   - component: {fileID: 39707593}
+  - component: {fileID: 39707595}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5DE6\u7FFC"
   m_TagString: Untagged
@@ -145,8 +146,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 39707591}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.0007355057, w: 0.99999976}
-  m_LocalPosition: {x: 0.00025950212, y: 0.0005766714, z: -0.01}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.01}
   m_LocalScale: {x: 1.5361328, y: 1.5361328, z: 1.5361328}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -228,6 +229,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &39707595
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 39707591}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 5
+  amplitude: 0.026
+  speed: 2.8
+  phase: 0
 --- !u!1 &56895401
 GameObject:
   m_ObjectHideFlags: 0
@@ -239,6 +256,7 @@ GameObject:
   - component: {fileID: 56895402}
   - component: {fileID: 56895404}
   - component: {fileID: 56895403}
+  - component: {fileID: 56895405}
   m_Layer: 0
   m_Name: "\u706B\u7130\u5149"
   m_TagString: Untagged
@@ -256,7 +274,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: -0.36, z: -0.24}
-  m_LocalScale: {x: 0.55005664, y: 0.5551388, z: 0.54589844}
+  m_LocalScale: {x: 0.55005664, y: 0.55005664, z: 0.55005664}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 193916948}
@@ -337,6 +355,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &56895405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 56895401}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 3
+  amplitude: 0.05
+  speed: 7.2
+  phase: 1.3
 --- !u!1 &100495325
 GameObject:
   m_ObjectHideFlags: 0
@@ -457,6 +491,7 @@ GameObject:
   - component: {fileID: 104157215}
   - component: {fileID: 104157217}
   - component: {fileID: 104157216}
+  - component: {fileID: 104157218}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5DE6\u4E0A\u5927\u81C2"
   m_TagString: Untagged
@@ -472,8 +507,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 104157214}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.0028652418, w: 0.9999959}
-  m_LocalPosition: {x: 0.0008694743, y: 0.0013376529, z: -0.05}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.05}
   m_LocalScale: {x: 1.5368799, y: 1.5368799, z: 1.5368799}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -555,6 +590,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &104157218
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 104157214}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.022
+  speed: 4.6
+  phase: 0.2
 --- !u!1 &106289768
 GameObject:
   m_ObjectHideFlags: 0
@@ -784,6 +835,7 @@ GameObject:
   - component: {fileID: 190068661}
   - component: {fileID: 190068663}
   - component: {fileID: 190068662}
+  - component: {fileID: 190068664}
   m_Layer: 0
   m_Name: "\u602A\u7269\u8EAB\u4F53"
   m_TagString: Untagged
@@ -800,7 +852,7 @@ Transform:
   m_GameObject: {fileID: 190068660}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.014967843, z: -0.03}
+  m_LocalPosition: {x: 0, y: 0, z: -0.03}
   m_LocalScale: {x: 1.5514612, y: 1.5514612, z: 1.5514612}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -882,6 +934,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &190068664
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190068660}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 4
+  amplitude: 0.018
+  speed: 1.4
+  phase: 0.6
 --- !u!1 &193916947
 GameObject:
   m_ObjectHideFlags: 0
@@ -891,6 +959,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 193916948}
+  - component: {fileID: 193916949}
   m_Layer: 0
   m_Name: Battle_level1
   m_TagString: Untagged
@@ -948,6 +1017,19 @@ Transform:
   - {fileID: 799845425}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &193916949
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 193916947}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 973fa53ccc8983949ad75f8b86500fa4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BakedSceneMotionDriver
+  motionRoot: {fileID: 0}
 --- !u!1 &214972593
 GameObject:
   m_ObjectHideFlags: 0
@@ -1194,7 +1276,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: -0.02, z: -0.48}
-  m_LocalScale: {x: 0.77869225, y: 0.77869225, z: 0.77869225}
+  m_LocalScale: {x: 0.7786922, y: 0.7786922, z: 0.7786922}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 193916948}
@@ -1536,6 +1618,7 @@ GameObject:
   - component: {fileID: 505887293}
   - component: {fileID: 505887295}
   - component: {fileID: 505887294}
+  - component: {fileID: 505887296}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5DE6\u4E0B\u5C0F\u81C2"
   m_TagString: Untagged
@@ -1551,8 +1634,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 505887292}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.035108287, w: 0.99938357}
-  m_LocalPosition: {x: 0.013562164, y: 0.020864869, z: -0.1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.1}
   m_LocalScale: {x: 1.5452904, y: 1.5452904, z: 1.5452904}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1634,6 +1717,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &505887296
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 505887292}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.02
+  speed: 4.1
+  phase: 2.4
 --- !u!1 &549736818
 GameObject:
   m_ObjectHideFlags: 0
@@ -1728,6 +1827,7 @@ GameObject:
   - component: {fileID: 550851856}
   - component: {fileID: 550851858}
   - component: {fileID: 550851857}
+  - component: {fileID: 550851859}
   m_Layer: 0
   m_Name: "\u602A\u7269\u624B\u81C2\u5408\u5C42"
   m_TagString: Untagged
@@ -1743,8 +1843,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 550851855}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.022758504, w: 0.999741}
-  m_LocalPosition: {x: 0.0056510074, y: 0.008693858, z: -0.04}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.04}
   m_LocalScale: {x: 1.5420684, y: 1.5420684, z: 1.5420684}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1826,6 +1926,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &550851859
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 550851855}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.018
+  speed: 4.2
+  phase: 1.1
 --- !u!1 &618981121
 GameObject:
   m_ObjectHideFlags: 0
@@ -1946,6 +2062,7 @@ GameObject:
   - component: {fileID: 629985131}
   - component: {fileID: 629985133}
   - component: {fileID: 629985132}
+  - component: {fileID: 629985134}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5B8C\u6574\u5E95\u5C42"
   m_TagString: Untagged
@@ -1962,7 +2079,7 @@ Transform:
   m_GameObject: {fileID: 629985130}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.010628915, z: -0.005}
+  m_LocalPosition: {x: 0, y: 0, z: -0.005}
   m_LocalScale: {x: 1.5524603, y: 1.5524603, z: 1.5524603}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2044,6 +2161,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &629985134
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 629985130}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 4
+  amplitude: 0.012
+  speed: 1.2
+  phase: 0.2
 --- !u!1 &699501022
 GameObject:
   m_ObjectHideFlags: 0
@@ -2491,6 +2624,7 @@ GameObject:
   - component: {fileID: 802146260}
   - component: {fileID: 802146262}
   - component: {fileID: 802146261}
+  - component: {fileID: 802146263}
   m_Layer: 0
   m_Name: "\u602A\u7269\u53F3\u4E0B\u5C0F\u81C2"
   m_TagString: Untagged
@@ -2506,8 +2640,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 802146259}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.04328317, w: 0.99906284}
-  m_LocalPosition: {x: 0.016721876, y: 0.025725964, z: -0.12}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.12}
   m_LocalScale: {x: 1.5474238, y: 1.5474238, z: 1.5474238}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2589,6 +2723,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &802146263
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 802146259}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.02
+  speed: 4.2
+  phase: 3.2
 --- !u!1 &841680676
 GameObject:
   m_ObjectHideFlags: 0
@@ -2632,6 +2782,7 @@ GameObject:
   - component: {fileID: 875498959}
   - component: {fileID: 875498961}
   - component: {fileID: 875498960}
+  - component: {fileID: 875498962}
   m_Layer: 0
   m_Name: "\u5BBD\u706B\u7130"
   m_TagString: Untagged
@@ -2649,7 +2800,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: -0.42, z: -0.22}
-  m_LocalScale: {x: 1.5503329, y: 1.5676885, z: 1.5361328}
+  m_LocalScale: {x: 1.5503329, y: 1.5503329, z: 1.5503329}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 193916948}
@@ -2730,6 +2881,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &875498962
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 875498958}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 3
+  amplitude: 0.035
+  speed: 5.8
+  phase: 0
 --- !u!1 &910505898
 GameObject:
   m_ObjectHideFlags: 0
@@ -2850,6 +3017,7 @@ GameObject:
   - component: {fileID: 1100024688}
   - component: {fileID: 1100024690}
   - component: {fileID: 1100024689}
+  - component: {fileID: 1100024691}
   m_Layer: 0
   m_Name: "\u602A\u7269\u53F3\u7FFC"
   m_TagString: Untagged
@@ -2865,8 +3033,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1100024687}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.03253997, w: -0.9994704}
-  m_LocalPosition: {x: -0.01148282, y: -0.025517378, z: -0.02}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.02}
   m_LocalScale: {x: 1.5361328, y: 1.5361328, z: 1.5361328}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2948,6 +3116,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &1100024691
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1100024687}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 5
+  amplitude: 0.026
+  speed: 2.8
+  phase: 1.4
 --- !u!1 &1187845055
 GameObject:
   m_ObjectHideFlags: 0
@@ -3317,6 +3501,7 @@ GameObject:
   - component: {fileID: 1358198020}
   - component: {fileID: 1358198022}
   - component: {fileID: 1358198021}
+  - component: {fileID: 1358198023}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5DE6\u4E0A\u5C0F\u81C2"
   m_TagString: Untagged
@@ -3332,9 +3517,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1358198019}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.008622997, w: 0.99996287}
-  m_LocalPosition: {x: 0.0038061494, y: 0.0058556143, z: -0.06}
-  m_LocalScale: {x: 1.5383816, y: 1.5383816, z: 1.5383816}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.06}
+  m_LocalScale: {x: 1.5383815, y: 1.5383815, z: 1.5383815}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1911947162}
@@ -3415,6 +3600,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &1358198023
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1358198019}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.022
+  speed: 4.6
+  phase: 0.2
 --- !u!1 &1427654938
 GameObject:
   m_ObjectHideFlags: 0
@@ -4111,6 +4312,7 @@ GameObject:
   - component: {fileID: 1724674583}
   - component: {fileID: 1724674585}
   - component: {fileID: 1724674584}
+  - component: {fileID: 1724674586}
   m_Layer: 0
   m_Name: "\u602A\u7269\u53F3\u4E0B\u5927\u81C2"
   m_TagString: Untagged
@@ -4126,9 +4328,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1724674582}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.04709162, w: -0.9988906}
-  m_LocalPosition: {x: -0.012995893, y: -0.019993683, z: -0.11}
-  m_LocalScale: {x: 1.548418, y: 1.548418, z: 1.548418}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.11}
+  m_LocalScale: {x: 1.5484182, y: 1.5484182, z: 1.5484182}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1911947162}
@@ -4209,6 +4411,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &1724674586
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1724674582}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.02
+  speed: 4.2
+  phase: 3.2
 --- !u!1 &1798488376
 GameObject:
   m_ObjectHideFlags: 0
@@ -4360,6 +4578,7 @@ GameObject:
   - component: {fileID: 1808951351}
   - component: {fileID: 1808951353}
   - component: {fileID: 1808951352}
+  - component: {fileID: 1808951354}
   m_Layer: 0
   m_Name: "\u602A\u7269\u53F3\u4E0A\u5927\u81C2"
   m_TagString: Untagged
@@ -4375,8 +4594,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1808951350}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.04346637, w: -0.9990549}
-  m_LocalPosition: {x: -0.013194284, y: -0.0202989, z: -0.07}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.07}
   m_LocalScale: {x: 1.5474716, y: 1.5474716, z: 1.5474716}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4458,6 +4677,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &1808951354
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1808951350}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.022
+  speed: 4.7
+  phase: 1.1
 --- !u!1 &1837635299
 GameObject:
   m_ObjectHideFlags: 0
@@ -4469,6 +4704,7 @@ GameObject:
   - component: {fileID: 1837635300}
   - component: {fileID: 1837635302}
   - component: {fileID: 1837635301}
+  - component: {fileID: 1837635303}
   m_Layer: 0
   m_Name: "\u602A\u7269\u5DE6\u4E0B\u5927\u81C2"
   m_TagString: Untagged
@@ -4484,9 +4720,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1837635299}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.020924384, w: -0.9997811}
-  m_LocalPosition: {x: -0.0057727885, y: -0.008881213, z: -0.09}
-  m_LocalScale: {x: 1.5415899, y: 1.5415899, z: 1.5415899}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.09}
+  m_LocalScale: {x: 1.5415897, y: 1.5415897, z: 1.5415897}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1911947162}
@@ -4567,6 +4803,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &1837635303
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1837635299}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.02
+  speed: 4.1
+  phase: 2.4
 --- !u!1 &1838021813
 GameObject:
   m_ObjectHideFlags: 0
@@ -5089,6 +5341,7 @@ GameObject:
   - component: {fileID: 2139652770}
   - component: {fileID: 2139652772}
   - component: {fileID: 2139652771}
+  - component: {fileID: 2139652773}
   m_Layer: 0
   m_Name: "\u602A\u7269\u53F3\u4E0A\u5C0F\u81C2"
   m_TagString: Untagged
@@ -5104,8 +5357,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2139652769}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.018886952, w: 0.9998216}
-  m_LocalPosition: {x: 0.008337002, y: 0.012826157, z: -0.08}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0.08}
   m_LocalScale: {x: 1.5410584, y: 1.5410584, z: 1.5410584}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -5187,6 +5440,22 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &2139652773
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2139652769}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd3b73089f7e440dad078aec8de66fdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoMotion
+  kind: 6
+  amplitude: 0.022
+  speed: 4.7
+  phase: 1.1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
