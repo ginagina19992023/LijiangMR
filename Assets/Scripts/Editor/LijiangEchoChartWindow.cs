@@ -414,8 +414,58 @@ public class LijiangEchoChartWindow : EditorWindow
                 {
                     MergeVisibleLayers();
                 }
+
+                if (GUILayout.Button(new GUIContent("从文件导入→新图层", "读取 time,type 每行的拍点文件(如 Python 脚本 lijiang_beatmap.py 的输出)成一个新图层"), GUILayout.Height(20f)))
+                {
+                    ImportLayerFromFile();
+                }
             }
         }
+    }
+
+    private void ImportLayerFromFile()
+    {
+        string path = EditorUtility.OpenFilePanel("选择拍点文件(每行 时间,类型)", Application.dataPath, "txt");
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        List<float> t = new List<float>();
+        List<string> ty = new List<string>();
+        foreach (string line in System.IO.File.ReadAllLines(path))
+        {
+            string s = line.Trim();
+            if (s.Length == 0 || s.StartsWith("#"))
+            {
+                continue;
+            }
+
+            string[] p = s.Split(',');
+            if (p.Length < 1 || !float.TryParse(p[0].Trim(), out float tt))
+            {
+                continue;
+            }
+
+            t.Add(tt);
+            ty.Add(p.Length >= 2 && !string.IsNullOrWhiteSpace(p[1]) ? p[1].Trim().ToLowerInvariant() : "single");
+        }
+
+        if (t.Count == 0)
+        {
+            status = "文件里没有可解析的拍点(应为每行 时间,类型)。";
+            return;
+        }
+
+        NoteLayer L = AddEmptyLayer();
+        L.name = System.IO.Path.GetFileNameWithoutExtension(path);
+        for (int i = 0; i < t.Count; i++)
+        {
+            L.times.Add(t[i]);
+            L.types.Add(ty[i]);
+        }
+
+        status = $"已从「{L.name}」导入 {t.Count} 个拍子到新图层。";
     }
 
     private NoteLayer AddEmptyLayer()
