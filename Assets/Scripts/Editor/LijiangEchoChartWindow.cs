@@ -25,6 +25,18 @@ public class LijiangEchoChartWindow : EditorWindow
     private float sensitivity = 1.5f;
     private float minGap = 0.16f;
     private int targetBeatCount = 64; // 目标拍子数(按数量生成/切分)
+    private int bandIndex; // 检测频段:0全频 1低频鼓点 2中频管乐
+    private static readonly string[] BandLabels = { "全频", "低频·鼓点", "中频·管乐" };
+
+    private void BandRange(out float lowHz, out float highHz)
+    {
+        switch (bandIndex)
+        {
+            case 1: lowHz = 20f; highHz = 150f; break;   // 鼓点(底鼓/军鼓的低频冲击)
+            case 2: lowHz = 300f; highHz = 2000f; break; // 管乐/唢呐等中频谐波
+            default: lowHz = 0f; highHz = 0f; break;     // 全频
+        }
+    }
 
     // —— 数据模型:逐音符(时间, 类型) ——
     private readonly List<float> noteTimes = new List<float>();
@@ -482,8 +494,10 @@ public class LijiangEchoChartWindow : EditorWindow
 
         using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
         {
-            sensitivity = EditorGUILayout.Slider(new GUIContent("灵敏度", "越大点越少"), sensitivity, 0.5f, 4f, GUILayout.MaxWidth(260f));
-            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 1f, GUILayout.MaxWidth(260f));
+            sensitivity = EditorGUILayout.Slider(new GUIContent("灵敏度", "越大点越少"), sensitivity, 0.5f, 4f, GUILayout.MaxWidth(220f));
+            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 1f, GUILayout.MaxWidth(220f));
+            GUILayout.Label(new GUIContent("频段", "只扒某类乐器:低频≈鼓点,中频≈管乐"), GUILayout.MaxWidth(30f));
+            bandIndex = EditorGUILayout.Popup(bandIndex, BandLabels, GUILayout.MaxWidth(90f));
             if (GUILayout.Button("检测拍子", GUILayout.Height(22f)))
             {
                 Detect();
@@ -880,7 +894,8 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
-        onsets = LijiangEchoChartGenerator.DetectOnsets(clip, sensitivity, minGap, out int _);
+        BandRange(out float lowHz, out float highHz);
+        onsets = LijiangEchoChartGenerator.DetectOnsetsBand(clip, sensitivity, minGap, lowHz, highHz, out int _, out float[] _s);
         waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
         if (onsets == null)
         {
@@ -888,7 +903,7 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
-        status = $"检测到 {onsets.Length} 个拍子(浅色参考点)。可「用检测点重建」或手动加音符对齐它们。";
+        status = $"检测到 {onsets.Length} 个拍子(频段:{BandLabels[bandIndex]},浅色参考点)。可「用检测点重建」或手动加音符对齐它们。";
     }
 
     /// <summary>按时长把整曲均匀切成 targetBeatCount 个音符(全单击)。</summary>
@@ -935,7 +950,8 @@ public class LijiangEchoChartWindow : EditorWindow
             return;
         }
 
-        onsets = LijiangEchoChartGenerator.DetectTopOnsets(clip, sensitivity, minGap, targetBeatCount, out int _);
+        BandRange(out float lowHz, out float highHz);
+        onsets = LijiangEchoChartGenerator.DetectTopOnsets(clip, sensitivity, minGap, targetBeatCount, lowHz, highHz, out int _);
         waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
         if (onsets == null)
         {

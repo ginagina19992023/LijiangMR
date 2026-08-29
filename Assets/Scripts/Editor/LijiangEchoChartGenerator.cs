@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -176,6 +177,15 @@ public static class LijiangEchoChartGenerator
     /// <summary>同上,并额外输出每个起音点的强度(通量),供"取最强 N 个"排序用。</summary>
     internal static float[] DetectOnsets(AudioClip clip, float sensitivity, float minGap, out int frameCount, out float[] strengths)
     {
+        return DetectOnsetsBand(clip, sensitivity, minGap, 0f, 0f, out frameCount, out strengths);
+    }
+
+    /// <summary>
+    /// 频段起音检测:lowHz/highHz &gt; 0 时先带通滤波(只保留该频段)再检测,用来"扒某类乐器":
+    /// 低频鼓点(如 20–150Hz)、中频管乐(如 300–2000Hz);两者都传 0 = 全频(等同原检测)。
+    /// </summary>
+    internal static float[] DetectOnsetsBand(AudioClip clip, float sensitivity, float minGap, float lowHz, float highHz, out int frameCount, out float[] strengths)
+    {
         strengths = null;
         frameCount = 0;
         int channels = clip.channels;
@@ -205,7 +215,32 @@ public static class LijiangEchoChartGenerator
             mono[i] = sum / channels;
         }
 
+        // 带通:先低通(highHz)再高通(lowHz),只保留目标频段
+        if (highHz > 0f)
+        {
+            ApplyBiquad(mono, sampleRate, highHz, true);
+        }
+
+        if (lowHz > 0f)
+        {
+            ApplyBiquad(mono, sampleRate, lowHz, false);
+        }
+
+        return DetectOnsetsFromMono(mono, sampleRate, sensitivity, minGap, out frameCount, out strengths);
+    }
+
+    /// <summary>能量-通量起音检测的核心(输入已下混/滤波的单声道)。</summary>
+    private static float[] DetectOnsetsFromMono(float[] mono, int sampleRate, float sensitivity, float minGap, out int frameCount, out float[] strengths)
+    {
+        strengths = null;
+        int totalSamples = mono.Length;
         int frames = (totalSamples - FrameSize) / HopSize;
+        frameCount = frames;
+        if (frames <= 3)
+        {
+            return new float[0];
+        }
+
         frameCount = frames;
         float[] energy = new float[frames];
         for (int f = 0; f < frames; f++)
@@ -280,10 +315,10 @@ public static class LijiangEchoChartGenerator
         return t;
     }
 
-    /// <summary>检测起音后,按强度只保留最强的 topN 个(再按时间升序)。topN&lt;=0 或不足则全保留。</summary>
-    internal static float[] DetectTopOnsets(AudioClip clip, float sensitivity, float minGap, int topN, out int frameCount)
+    /// <summary>检测起音后,按强度只保留最强的 topN 个(再按时间升序)。topN&lt;=0 或不足则全保留。lowHz/highHz 指定频段(0,0=全频)。</summary>
+    internal static float[] DetectTopOnsets(AudioClip clip, float sensitivity, float minGap, int topN, float lowHz, float highHz, out int frameCount)
     {
-        float[] times = DetectOnsets(clip, sensitivity, minGap, out frameCount, out float[] strengths);
+        float[] times = DetectOnsetsBand(clip, sensitivity, minGap, lowHz, highHz, out frameCount, out float[] strengths);
         if (times == null)
         {
             return null;
@@ -309,6 +344,57 @@ public static class LijiangEchoChartGenerator
 
         kept.Sort();
         return kept.ToArray();
+    }
+
+    /// <summary>
+    /// 二阶(biquad,RBJ)滤波,就地处理:highpass=true 为高通(截止 fc 以下),false 为低通(截止 fc 以上)。Q≈0.707。
+    /// 级联"低通(highHz)+高通(lowHz)"即得带通,用于分离鼓点(低频)/管乐(中频)等。
+    /// </summary>
+    private static void ApplyBiquad(float[] x, int sampleRate, float fc, bool highpass)
+    {
+        if (x == null || x.Length == 0 || fc <= 0f || sampleRate <= 0)
+        {
+            return;
+        }
+
+        double w0 = 2.0 * Math.PI * fc / sampleRate;
+        double cos = Math.Cos(w0);
+        double sin = Math.Sin(w0);
+        const double q = 0.70710678;
+        double alpha = sin / (2.0 * q);
+
+        double b0, b1, b2;
+        if (highpass)
+        {
+            b0 = (1.0 + cos) / 2.0;
+            b1 = -(1.0 + cos);
+            b2 = (1.0 + cos) / 2.0;
+        }
+        else
+        {
+            b0 = (1.0 - cos) / 2.0;
+            b1 = 1.0 - cos;
+            b2 = (1.0 - cos) / 2.0;
+        }
+
+        double a0 = 1.0 + alpha;
+        double a1 = -2.0 * cos;
+        double a2 = 1.0 - alpha;
+
+        // 归一化
+        double nb0 = b0 / a0, nb1 = b1 / a0, nb2 = b2 / a0, na1 = a1 / a0, na2 = a2 / a0;
+
+        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (int i = 0; i < x.Length; i++)
+        {
+            double xn = x[i];
+            double yn = nb0 * xn + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2;
+            x2 = x1;
+            x1 = xn;
+            y2 = y1;
+            y1 = yn;
+            x[i] = (float)yn;
+        }
     }
 
     /// <summary>
