@@ -38,10 +38,39 @@ public class LijiangEchoChartWindow : EditorWindow
         }
     }
 
-    // —— 数据模型:逐音符(时间, 类型) ——
-    private readonly List<float> noteTimes = new List<float>();
-    private readonly List<string> noteTypes = new List<string>();
+    // —— 数据模型:图层(每层一组拍点),可分离/合并/切换可见 ——
+    private sealed class NoteLayer
+    {
+        public string name = "图层";
+        public Color color = Color.white;
+        public bool visible = true;
+        public readonly List<float> times = new List<float>();
+        public readonly List<string> types = new List<string>();
+    }
+
+    private readonly List<NoteLayer> layers = new List<NoteLayer>();
+    private int activeLayer;
+
+    // 现有编辑逻辑都用 noteTimes/noteTypes → 指向"当前图层",零改动即作用于当前层。
+    private List<float> noteTimes => layers[activeLayer].times;
+    private List<string> noteTypes => layers[activeLayer].types;
     private int selected = -1;
+
+    private static readonly Color[] LayerPalette =
+    {
+        new Color(0.95f, 0.95f, 0.95f), new Color(1f, 0.6f, 0.25f), new Color(0.4f, 0.8f, 1f),
+        new Color(0.5f, 0.9f, 0.5f), new Color(1f, 0.5f, 0.8f), new Color(0.8f, 0.7f, 1f)
+    };
+
+    private void EnsureLayers()
+    {
+        if (layers.Count == 0)
+        {
+            layers.Add(new NoteLayer { name = "主图层", color = LayerPalette[0] });
+        }
+
+        activeLayer = Mathf.Clamp(activeLayer, 0, layers.Count - 1);
+    }
 
     // —— 源谱(从哪张读入编辑) / 目标战斗场景(保存应用到哪张) ——
     private int sourceIndex;
@@ -111,6 +140,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void OnEnable()
     {
+        EnsureLayers();
         EnsureClip();
         // 尝试读回已有谱面,方便接着编辑
         if (LijiangEchoChartGenerator.TryLoadChartRows(out List<float> t, out List<string> ty))
@@ -172,8 +202,10 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void OnGUI()
     {
+        EnsureLayers();
         DrawToolbar();
         EditorGUILayout.Space(2f);
+        DrawLayersBar();
         DrawTimeline();
         EditorGUILayout.Space(4f);
         DrawSelectedEditor();
@@ -274,10 +306,185 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void SaveToTarget()
     {
-        SortModel();
+        // 保存 = 合并所有"可见"图层的拍点(想排除某层就把它隐藏)。
+        CollectVisibleNotes(out List<float> t, out List<string> ty);
         string path = TargetPath(targetIndex);
-        LijiangEchoChartGenerator.WriteChartExplicit(noteTimes, noteTypes, path);
-        status = $"已把 {noteTimes.Count} 个音符保存到「{TargetLabels[targetIndex]}」({path},带 types:explicit,运行时该关卡所见即所得)。";
+        LijiangEchoChartGenerator.WriteChartExplicit(t, ty, path);
+        int vis = 0;
+        foreach (NoteLayer L in layers)
+        {
+            if (L.visible)
+            {
+                vis++;
+            }
+        }
+
+        status = $"已把 {t.Count} 个音符(合并 {vis} 个可见图层)保存到「{TargetLabels[targetIndex]}」({path})。";
+    }
+
+    /// <summary>合并所有可见图层的拍点,按时间升序,去掉 20ms 内的重复。</summary>
+    private void CollectVisibleNotes(out List<float> times, out List<string> types)
+    {
+        List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
+        foreach (NoteLayer L in layers)
+        {
+            if (!L.visible)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < L.times.Count; i++)
+            {
+                string ty = (i < L.types.Count && !string.IsNullOrWhiteSpace(L.types[i])) ? L.types[i] : "single";
+                rows.Add(new KeyValuePair<float, string>(L.times[i], ty));
+            }
+        }
+
+        rows.Sort((a, b) => a.Key.CompareTo(b.Key));
+        times = new List<float>();
+        types = new List<string>();
+        float last = -999f;
+        foreach (KeyValuePair<float, string> r in rows)
+        {
+            if (r.Key - last < 0.02f)
+            {
+                continue; // 去重叠
+            }
+
+            times.Add(r.Key);
+            types.Add(r.Value);
+            last = r.Key;
+        }
+    }
+
+    // ======================= 图层:检测到不同图层 / 切换可见 / 分离 / 合并 =======================
+    private void DrawLayersBar()
+    {
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            for (int i = 0; i < layers.Count; i++)
+            {
+                NoteLayer layer = layers[i];
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    bool isActive = i == activeLayer;
+                    bool pick = GUILayout.Toggle(isActive, GUIContent.none, EditorStyles.radioButton, GUILayout.Width(16f));
+                    if (pick && !isActive)
+                    {
+                        activeLayer = i;
+                        selected = -1;
+                    }
+
+                    layer.color = EditorGUILayout.ColorField(GUIContent.none, layer.color, false, false, false, GUILayout.Width(38f));
+                    layer.name = EditorGUILayout.TextField(layer.name, GUILayout.Width(120f));
+                    layer.visible = GUILayout.Toggle(layer.visible, "显示", GUILayout.Width(50f));
+                    GUILayout.Label($"{layer.times.Count} 拍", GUILayout.Width(50f));
+                    if (isActive)
+                    {
+                        GUILayout.Label("← 编辑中", GUILayout.Width(60f));
+                    }
+
+                    GUILayout.FlexibleSpace();
+                    using (new EditorGUI.DisabledScope(layers.Count <= 1))
+                    {
+                        if (GUILayout.Button("删", GUILayout.Width(30f)))
+                        {
+                            layers.RemoveAt(i);
+                            activeLayer = Mathf.Clamp(activeLayer, 0, layers.Count - 1);
+                            selected = -1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("＋ 新建空图层", GUILayout.Height(20f)))
+                {
+                    AddEmptyLayer();
+                }
+
+                if (GUILayout.Button(new GUIContent("检测→新图层", "用当前频段检测,把结果放进一个新图层(不动其它层)"), GUILayout.Height(20f)))
+                {
+                    DetectToNewLayer();
+                }
+
+                if (GUILayout.Button(new GUIContent("合并可见图层→新层", "把所有可见图层的拍点合成一个新图层"), GUILayout.Height(20f)))
+                {
+                    MergeVisibleLayers();
+                }
+            }
+        }
+    }
+
+    private NoteLayer AddEmptyLayer()
+    {
+        NoteLayer L = new NoteLayer
+        {
+            name = "图层 " + (layers.Count + 1),
+            color = LayerPalette[layers.Count % LayerPalette.Length]
+        };
+        layers.Add(L);
+        activeLayer = layers.Count - 1;
+        selected = -1;
+        return L;
+    }
+
+    private void DetectToNewLayer()
+    {
+        EnsureClip();
+        if (clip == null)
+        {
+            status = "先在「音频」栏选一首音频。";
+            return;
+        }
+
+        if (!ClipReady())
+        {
+            PrepareAudio();
+        }
+
+        if (!ClipReady())
+        {
+            status = "此音频无法读采样,换一首或转 WAV。";
+            return;
+        }
+
+        BandRange(out float lowHz, out float highHz);
+        float[] t = LijiangEchoChartGenerator.DetectOnsetsBand(clip, sensitivity, minGap, lowHz, highHz, out int _, out float[] _s);
+        waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
+        if (t == null)
+        {
+            status = "读采样失败。";
+            return;
+        }
+
+        NoteLayer L = AddEmptyLayer();
+        L.name = BandLabels[bandIndex] + " 拍";
+        foreach (float x in t)
+        {
+            L.times.Add(x);
+            L.types.Add("single");
+        }
+
+        status = $"已把「{BandLabels[bandIndex]}」检测到的 {t.Length} 个拍子放进新图层。可切换到它编辑,或隐藏其它层单独看。";
+    }
+
+    private void MergeVisibleLayers()
+    {
+        CollectVisibleNotes(out List<float> t, out List<string> ty);
+        NoteLayer L = new NoteLayer { name = "合并层", color = LayerPalette[layers.Count % LayerPalette.Length] };
+        for (int i = 0; i < t.Count; i++)
+        {
+            L.times.Add(t[i]);
+            L.types.Add(ty[i]);
+        }
+
+        layers.Add(L);
+        activeLayer = layers.Count - 1;
+        selected = -1;
+        status = $"已把可见图层合并成一个新图层({t.Count} 拍)。";
     }
 
     // ======================= 顶部工具条 =======================
@@ -685,6 +892,30 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void DrawNotes(Rect content)
     {
+        // 先画其它可见图层(底层,细线,用各自图层色),便于对照不同乐器的拍点。
+        for (int li = 0; li < layers.Count; li++)
+        {
+            if (li == activeLayer || !layers[li].visible)
+            {
+                continue;
+            }
+
+            NoteLayer L = layers[li];
+            Color lc = L.color;
+            lc.a = 0.55f;
+            for (int i = 0; i < L.times.Count; i++)
+            {
+                float lx = TimeToX(L.times[i]);
+                if (lx < scroll.x - 6f || lx > scroll.x + position.width + 6f)
+                {
+                    continue;
+                }
+
+                EditorGUI.DrawRect(new Rect(lx - 0.5f, content.y + 12f, 1f, content.height - 16f), lc);
+            }
+        }
+
+        // 当前图层(可选中、按类型上色),画在最上面。
         for (int i = 0; i < noteTimes.Count; i++)
         {
             float x = TimeToX(noteTimes[i]);
