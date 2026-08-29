@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// 谱面时间轴编辑器:菜单「漓江回声/谱面/0. 打开预览窗口」。
@@ -22,6 +24,7 @@ public class LijiangEchoChartWindow : EditorWindow
     // —— 检测参数 ——
     private float sensitivity = 1.5f;
     private float minGap = 0.16f;
+    private int targetBeatCount = 64; // 目标拍子数(按数量生成/切分)
 
     // —— 数据模型:逐音符(时间, 类型) ——
     private readonly List<float> noteTimes = new List<float>();
@@ -188,8 +191,55 @@ public class LijiangEchoChartWindow : EditorWindow
                 {
                     SaveToTarget();
                 }
+
+                if (GUILayout.Button(new GUIContent("▶ 保存并试玩", "保存到该关卡 → 直接进 Play 进入战斗:边听音乐边看纹样飞入、可打点验证。停止 Play 回到编辑"), GUILayout.MaxWidth(110f)))
+                {
+                    SaveAndPlaytest();
+                }
             }
         }
+    }
+
+    /// <summary>保存当前谱面到目标关卡,并直接进入 Play 的战斗阶段试玩(真实场景+音乐+可打点)。</summary>
+    private void SaveAndPlaytest()
+    {
+        SaveToTarget();
+
+        int level = targetIndex <= 2 ? targetIndex : 0;
+        PlayerPrefs.SetInt("LJ_DebugStartStage", 4); // 4 = 战斗(见 JumpToStageForDebug)
+        PlayerPrefs.SetInt("LJ_DebugLevel", level);
+        PlayerPrefs.Save();
+
+        // 战斗只在 LijiangEchoMR_Main 里 bootstrap;若当前不是它,先(询问保存后)打开它再 Play。
+        if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+        {
+            status = "已取消(未保存当前场景)。";
+            return;
+        }
+
+        string mainPath = FindScenePath("LijiangEchoMR_Main");
+        if (!string.IsNullOrEmpty(mainPath) && SceneManager.GetActiveScene().path != mainPath)
+        {
+            EditorSceneManager.OpenScene(mainPath, OpenSceneMode.Single);
+        }
+
+        StopPreview();
+        EditorApplication.EnterPlaymode();
+        status = "已保存并进入战斗试玩:听音乐/看纹样/打点验证。停止 Play 即回到本编辑器。";
+    }
+
+    private static string FindScenePath(string sceneName)
+    {
+        foreach (string guid in AssetDatabase.FindAssets(sceneName + " t:Scene"))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (System.IO.Path.GetFileNameWithoutExtension(path) == sceneName)
+            {
+                return path;
+            }
+        }
+
+        return null;
     }
 
     private void LoadFromSource()
@@ -287,18 +337,48 @@ public class LijiangEchoChartWindow : EditorWindow
     /// </summary>
     private static void ForceDecompressOnLoad(AudioImporter importer)
     {
-        foreach (string platform in new[]
+        // 1) Default 设为 Decompress
+        AudioImporterSampleSettings def = importer.defaultSampleSettings;
+        def.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
+        importer.defaultSampleSettings = def;
+
+        // 2) 关键(用户实测):当前激活平台必须有一个"显式 Override = Decompress"才生效,光改 Default 不够。
+        //    所以主动给当前激活平台建立/设置 Override(不存在就创建),loadType 设为 Decompress。
+        string active = AudioPlatformName(EditorUserBuildSettings.activeBuildTarget);
+        if (!string.IsNullOrEmpty(active))
         {
-            "Standalone", "Android", "iPhone", "WebGL", "Windows Store Apps", "PS4", "XboxOne", "Switch", "tvOS"
-        })
-        {
-            importer.ClearSampleSettingOverride(platform);
+            AudioImporterSampleSettings o = importer.ContainsSampleSettingsOverride(active)
+                ? importer.GetOverrideSampleSettings(active)
+                : importer.defaultSampleSettings;
+            o.loadType = AudioClipLoadType.DecompressOnLoad;
+            importer.SetOverrideSampleSettings(active, o); // 建立/覆盖当前平台的 Override=Decompress
         }
 
-        AudioImporterSampleSettings s = importer.defaultSampleSettings;
-        s.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
-        importer.defaultSampleSettings = s;
+        // 3) 强制同步重导入,确保重新加载到的 AudioClip.loadType 立即刷新
+        string path = importer.assetPath;
         importer.SaveAndReimport();
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+    }
+
+    /// <summary>把 BuildTarget 映射到 AudioImporter 平台 Override 用的名字(尽量覆盖常见平台)。</summary>
+    private static string AudioPlatformName(BuildTarget target)
+    {
+        switch (target)
+        {
+            case BuildTarget.StandaloneWindows:
+            case BuildTarget.StandaloneWindows64:
+            case BuildTarget.StandaloneOSX:
+            case BuildTarget.StandaloneLinux64:
+                return "Standalone";
+            case BuildTarget.Android:
+                return "Android";
+            case BuildTarget.iOS:
+                return "iPhone";
+            case BuildTarget.WebGL:
+                return "WebGL";
+            default:
+                return target.ToString();
+        }
     }
 
     /// <summary>把选中音频复制成 Resources/LijiangEchoAudio/battle_music(运行时读的名字),并准备好格式。</summary>
@@ -403,7 +483,7 @@ public class LijiangEchoChartWindow : EditorWindow
         using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
         {
             sensitivity = EditorGUILayout.Slider(new GUIContent("灵敏度", "越大点越少"), sensitivity, 0.5f, 4f, GUILayout.MaxWidth(260f));
-            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 0.5f, GUILayout.MaxWidth(260f));
+            minGap = EditorGUILayout.Slider(new GUIContent("最小间隔", "两音符最近间隔(秒)"), minGap, 0.05f, 1f, GUILayout.MaxWidth(260f));
             if (GUILayout.Button("检测拍子", GUILayout.Height(22f)))
             {
                 Detect();
@@ -412,6 +492,21 @@ public class LijiangEchoChartWindow : EditorWindow
             if (GUILayout.Button(new GUIContent("用检测点重建", "把当前音符表替换为检测到的拍子(全设单击)"), GUILayout.Height(22f)))
             {
                 RebuildFromOnsets();
+            }
+        }
+
+        using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+        {
+            GUILayout.Label(new GUIContent("目标拍子数", "按这个数量生成音符"), GUILayout.MaxWidth(70f));
+            targetBeatCount = Mathf.Clamp(EditorGUILayout.IntField(targetBeatCount, GUILayout.MaxWidth(70f)), 1, 5000);
+            if (GUILayout.Button(new GUIContent("均匀切N个", "按时长等分成 N 个音符(不看音乐,规整节奏)"), GUILayout.Height(22f)))
+            {
+                RebuildEvenly();
+            }
+
+            if (GUILayout.Button(new GUIContent("取最强N个拍子", "检测起音后只保留最强的 N 个(跟着音乐)"), GUILayout.Height(22f)))
+            {
+                DetectTopN();
             }
         }
 
@@ -794,6 +889,70 @@ public class LijiangEchoChartWindow : EditorWindow
         }
 
         status = $"检测到 {onsets.Length} 个拍子(浅色参考点)。可「用检测点重建」或手动加音符对齐它们。";
+    }
+
+    /// <summary>按时长把整曲均匀切成 targetBeatCount 个音符(全单击)。</summary>
+    private void RebuildEvenly()
+    {
+        EnsureClip();
+        if (clip == null || clipLength <= 0f)
+        {
+            status = "先在「音频」栏选一首音频。";
+            return;
+        }
+
+        float[] t = LijiangEchoChartGenerator.EvenlySpacedBeats(clipLength, targetBeatCount);
+        noteTimes.Clear();
+        noteTypes.Clear();
+        foreach (float x in t)
+        {
+            noteTimes.Add(x);
+            noteTypes.Add("single");
+        }
+
+        selected = -1;
+        status = $"已按时长均匀切成 {noteTimes.Count} 个音符(全单击),逐个改类型后保存。";
+    }
+
+    /// <summary>检测起音,只保留最强的 targetBeatCount 个,直接生成音符(全单击)。</summary>
+    private void DetectTopN()
+    {
+        EnsureClip();
+        if (clip == null)
+        {
+            status = "先在「音频」栏选一首音频。";
+            return;
+        }
+
+        if (!ClipReady())
+        {
+            PrepareAudio();
+        }
+
+        if (!ClipReady())
+        {
+            status = "此音频无法读采样,换一首或转成 WAV。";
+            return;
+        }
+
+        onsets = LijiangEchoChartGenerator.DetectTopOnsets(clip, sensitivity, minGap, targetBeatCount, out int _);
+        waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
+        if (onsets == null)
+        {
+            status = "读采样失败:请把音频设为 Decompress On Load。";
+            return;
+        }
+
+        noteTimes.Clear();
+        noteTypes.Clear();
+        foreach (float x in onsets)
+        {
+            noteTimes.Add(x);
+            noteTypes.Add("single");
+        }
+
+        selected = -1;
+        status = $"已取最强 {noteTimes.Count} 个拍子(全单击);拍子偏少可调低灵敏度/最小间隔再试。";
     }
 
     private void RebuildFromOnsets()

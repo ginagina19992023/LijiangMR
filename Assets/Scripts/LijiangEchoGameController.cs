@@ -69,6 +69,7 @@ public class LijiangEchoGameController : MonoBehaviour
         public SpriteRenderer[] GlowLayers;   // 多层加色柔光,越外层越淡
         public float[] GlowBaseAlpha;         // 每层基础亮度
         public bool Judged;
+        public bool Cued;                     // 是否已在判定点播过类型音效(避免重复)
 
         // —— Prefab 音符(可编辑纹样 Prefab):视觉完全由 Prefab 决定,运行时只驱动根位置 + 淡入 ——
         public Transform PrefabRoot;              // 非空 = 这是 Prefab 音符
@@ -267,6 +268,10 @@ public class LijiangEchoGameController : MonoBehaviour
     private AudioSource ambienceSource;
     private AudioSource battleMusicSource;
     private AudioSource sfxSource;
+
+    // 延时音效队列(用于"双击=两声"这类需要间隔发声的情况)
+    private struct ScheduledSfx { public float Due; public string Clip; public float Volume; }
+    private readonly List<ScheduledSfx> scheduledSfx = new List<ScheduledSfx>();
     private bool battleMusicStarted;
     private float battleMusicTime;
     private float battleEndingTimer;
@@ -732,6 +737,7 @@ public class LijiangEchoGameController : MonoBehaviour
         menuObjects.Clear();
         motionItems.Clear();
         activeNotes.Clear();
+        scheduledSfx.Clear();
         introWalkItems.Clear();
         introPreLevelItems.Clear();
         introFlyItems.Clear();
@@ -1759,7 +1765,11 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float HandArmLength = 1.5f;     // 臂长(手离轴心多远):加长,让手挥到圆环处
     private const float HandPivotSide = 0.45f;    // 左右轴心离中线的横向距离
     private const float HandPivotY = -1.3f;       // 轴心高度(屏幕下缘;挥起时手正好升到圆环)
+    private const float HandPivotZ = -0.88f;      // 轴心深度:放到玩法平面(≈圆环/音符),不再"非常前面"被近裁剪切掉
     private const float HandVisualHeight = 2.6f;  // 手的显示高度(放大约 5 倍)
+    // 临时诊断:true = 左右手一直可见(不再只有击打瞬间显形),方便截图确认它们停在哪、大小对不对。
+    // 定好位置后改回 false 恢复"平时隐藏、击打才现"。
+    private const bool HandDebugAlwaysVisible = true;
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
@@ -1774,7 +1784,7 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         GameObject pivotObject = new GameObject(handName + "轴");
         pivotObject.transform.SetParent(stageRoot, false);
-        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, -0.55f); // 偏下两侧的轴心
+        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, HandPivotZ); // 偏下两侧的轴心(玩法平面深度)
         pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, -sideSign * HandRestAngle); // 平时朝各自外下方甩出
         spawnedObjects.Add(pivotObject);
 
@@ -1814,6 +1824,11 @@ public class LijiangEchoGameController : MonoBehaviour
             float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
             angle = Mathf.Lerp(rest, strike, swing);
             alpha = Mathf.Clamp01(swing * 2.2f); // 挥起时更早显现、看得更清,落回时淡出
+        }
+
+        if (HandDebugAlwaysVisible)
+        {
+            alpha = Mathf.Max(alpha, 0.7f); // 诊断:一直可见,方便看清手停在哪、多大
         }
 
         pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
@@ -2220,6 +2235,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         UpdateBattleHands();
+        UpdateScheduledSfx(); // 处理延时音效(如双击的第二声)
         UpdateRingVisual(beatTime);
         UpdatePatternProgress();
         UpdateProgressFill();
@@ -2402,6 +2418,13 @@ public class LijiangEchoGameController : MonoBehaviour
                 continue;
             }
 
+            // 到达判定点自动播该类型音效(即使没打中也响),方便"听着谱面"调试节奏对齐。
+            if (!note.Cued && beatTime >= note.HitTime)
+            {
+                PlayNoteCue(note.Kind);
+                note.Cued = true;
+            }
+
             float normalized = Mathf.Clamp01(1f - (note.HitTime - beatTime) / NoteApproachTime);
             float eased = Mathf.SmoothStep(0f, 1f, normalized);
             if (holdActive && heldNote == note)
@@ -2484,6 +2507,44 @@ public class LijiangEchoGameController : MonoBehaviour
             {
                 DestroyNoteObject(note);
                 activeNotes.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>按音符类型播放音效:单击=hit×1,双击=hit×2(隔一小段),长按=snake,挥划=swipe。</summary>
+    private void PlayNoteCue(NoteKind kind)
+    {
+        switch (kind)
+        {
+            case NoteKind.Double:
+                PlaySfx("hit", 0.7f);
+                ScheduleSfx("hit", 0.7f, 0.11f); // 第二声,凑成"双击"
+                break;
+            case NoteKind.Hold:
+                PlaySfx("snake", 0.7f);
+                break;
+            case NoteKind.Swipe:
+                PlaySfx("swipe", 0.6f);
+                break;
+            default:
+                PlaySfx("hit", 0.7f); // 单击
+                break;
+        }
+    }
+
+    private void ScheduleSfx(string clip, float volume, float delay)
+    {
+        scheduledSfx.Add(new ScheduledSfx { Due = Time.time + delay, Clip = clip, Volume = volume });
+    }
+
+    private void UpdateScheduledSfx()
+    {
+        for (int i = scheduledSfx.Count - 1; i >= 0; i--)
+        {
+            if (Time.time >= scheduledSfx[i].Due)
+            {
+                PlaySfx(scheduledSfx[i].Clip, scheduledSfx[i].Volume);
+                scheduledSfx.RemoveAt(i);
             }
         }
     }
@@ -2571,11 +2632,15 @@ public class LijiangEchoGameController : MonoBehaviour
     private void HitCurrentNote(string message, Color color)
     {
         float hitSide = nextNoteIndex % 2 == 0 ? -1f : 1f;
+        NoteKind hitKind = GetNoteKind(nextNoteIndex);
+        bool playCue = true; // 该音符若已在判定点响过(Cued),命中就不再重复响
         foreach (RhythmNote note in activeNotes)
         {
             if (!note.Judged && note.ChartIndex == nextNoteIndex)
             {
                 note.Judged = true;
+                playCue = !note.Cued;
+                note.Cued = true;
                 if (note.Renderer != null)
                 {
                     DestroyNoteObject(note);
@@ -2585,7 +2650,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         // 触发左右手挥击:双击两手一起,否则按该音符的一侧
-        TriggerHandStrike(GetNoteKind(nextNoteIndex) == NoteKind.Double ? 0f : hitSide);
+        TriggerHandStrike(hitKind == NoteKind.Double ? 0f : hitSide);
 
         nextNoteIndex++;
         holdActive = false;
@@ -2593,7 +2658,10 @@ public class LijiangEchoGameController : MonoBehaviour
         heldNote = null;
         hitFlashTimer = 0.18f;
         SetFeedback(message, color);
-        PlaySfx("hit", 0.78f);
+        if (playCue)
+        {
+            PlayNoteCue(hitKind);
+        }
         Debug.Log($"[漓江回声] 打击判定成功：{message}，分数 {score}，连击 {combo}");
         OVRInput.Controller controller = hitSide < 0f ? OVRInput.Controller.LTouch : OVRInput.Controller.RTouch;
         OVRInput.SetControllerVibration(0.55f, 0.75f, controller);
