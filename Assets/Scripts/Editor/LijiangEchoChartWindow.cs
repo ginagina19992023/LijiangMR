@@ -287,18 +287,58 @@ public class LijiangEchoChartWindow : EditorWindow
     /// </summary>
     private static void ForceDecompressOnLoad(AudioImporter importer)
     {
-        foreach (string platform in new[]
+        // 1) Default 设为 Decompress
+        AudioImporterSampleSettings def = importer.defaultSampleSettings;
+        def.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
+        importer.defaultSampleSettings = def;
+
+        // 2) 各平台 Override:能清就清;清不掉(名字对不上)就显式把它的 loadType 也改成 Decompress。
+        //    clip.loadType 取当前平台的有效值,所以当前激活平台一定要处理到。
+        string[] platforms =
         {
-            "Standalone", "Android", "iPhone", "WebGL", "Windows Store Apps", "PS4", "XboxOne", "Switch", "tvOS"
-        })
+            AudioPlatformName(EditorUserBuildSettings.activeBuildTarget),
+            "Standalone", "Android", "iPhone", "iOS", "WebGL", "Windows Store Apps", "PS4", "PS5", "XboxOne", "Switch", "tvOS"
+        };
+        foreach (string platform in platforms)
         {
-            importer.ClearSampleSettingOverride(platform);
+            if (string.IsNullOrEmpty(platform))
+            {
+                continue;
+            }
+
+            if (importer.ContainsSampleSettingsOverride(platform))
+            {
+                AudioImporterSampleSettings o = importer.GetOverrideSampleSettings(platform);
+                o.loadType = AudioClipLoadType.DecompressOnLoad;
+                importer.SetOverrideSampleSettings(platform, o); // 改成 Decompress(比清除更稳,避免名字不匹配)
+            }
         }
 
-        AudioImporterSampleSettings s = importer.defaultSampleSettings;
-        s.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
-        importer.defaultSampleSettings = s;
+        // 3) 强制同步重导入,确保重新加载到的 AudioClip.loadType 立即刷新
+        string path = importer.assetPath;
         importer.SaveAndReimport();
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+    }
+
+    /// <summary>把 BuildTarget 映射到 AudioImporter 平台 Override 用的名字(尽量覆盖常见平台)。</summary>
+    private static string AudioPlatformName(BuildTarget target)
+    {
+        switch (target)
+        {
+            case BuildTarget.StandaloneWindows:
+            case BuildTarget.StandaloneWindows64:
+            case BuildTarget.StandaloneOSX:
+            case BuildTarget.StandaloneLinux64:
+                return "Standalone";
+            case BuildTarget.Android:
+                return "Android";
+            case BuildTarget.iOS:
+                return "iPhone";
+            case BuildTarget.WebGL:
+                return "WebGL";
+            default:
+                return target.ToString();
+        }
     }
 
     /// <summary>把选中音频复制成 Resources/LijiangEchoAudio/battle_music(运行时读的名字),并准备好格式。</summary>
