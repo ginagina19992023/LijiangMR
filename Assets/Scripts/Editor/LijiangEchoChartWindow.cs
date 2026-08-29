@@ -99,6 +99,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     // —— 节拍试听:播放/拖动时播放头经过音符就叠一声(按类型),不进 Play 也能听谱对齐 ——
     private bool metronome; // 默认关(叠音走 AudioUtil,可能干扰音乐;需要时手动开)
+    private bool musicMuted; // 只放拍子(静音音乐)——不放音乐、只按拍点响,避免音乐/点击叠音冲突
     private float lastClickPlayhead = -1f;
     private float clickVolume = 0.9f; // 提示音响度
     private AudioClip genSingle, genHold, genSwipe; // 程序生成的清脆"咔哒",响度可控
@@ -222,7 +223,7 @@ public class LijiangEchoChartWindow : EditorWindow
         }
 
         playhead = Mathf.Clamp(newHead, 0f, clipLength);
-        if (metronome)
+        if (metronome || musicMuted) // 只放拍子模式下始终响拍
         {
             PlayMetronomeClicks(lastClickPlayhead >= 0f ? lastClickPlayhead : prev, playhead);
             lastClickPlayhead = playhead;
@@ -631,6 +632,12 @@ public class LijiangEchoChartWindow : EditorWindow
                     SetAsBattleMusic();
                 }
             }
+
+            if (GUILayout.Button(new GUIContent("诊断音频", "检查编辑器音频接口(播放/停止/节拍声)是否可用"), GUILayout.MaxWidth(70f)))
+            {
+                status = "音频接口:" + AudioPreview.Diag();
+                Debug.Log("[漓江回声] " + status);
+            }
         }
     }
 
@@ -866,6 +873,7 @@ public class LijiangEchoChartWindow : EditorWindow
             GUILayout.Label($"播放头 {playhead:F2}s / {clipLength:F1}s", GUILayout.MaxWidth(160f));
             autoPreview = GUILayout.Toggle(autoPreview, "松手即试听", GUILayout.MaxWidth(90f));
             metronome = GUILayout.Toggle(metronome, new GUIContent("节拍声", "播放时播放头经过音符就叠一声(按类型)。若音乐被打断请关掉"), GUILayout.MaxWidth(60f));
+            musicMuted = GUILayout.Toggle(musicMuted, new GUIContent("只放拍子", "静音音乐、只按拍点响——避免音乐/点击叠音冲突,最可靠"), GUILayout.MaxWidth(70f));
             using (new EditorGUI.DisabledScope(!metronome))
             {
                 GUILayout.Label(new GUIContent("响度", "拍子提示音的音量"), GUILayout.MaxWidth(30f));
@@ -1816,8 +1824,12 @@ public class LijiangEchoChartWindow : EditorWindow
         }
 
         AudioPreview.Stop(); // 先停掉一切(上一次音乐 + 残留节拍声),避免重叠
-        int startSample = Mathf.Clamp(Mathf.RoundToInt(t * sampleRate), 0, Mathf.Max(0, clip.samples - 1));
-        AudioPreview.Play(clip, startSample);
+        if (!musicMuted)
+        {
+            int startSample = Mathf.Clamp(Mathf.RoundToInt(t * sampleRate), 0, Mathf.Max(0, clip.samples - 1));
+            AudioPreview.Play(clip, startSample);
+        }
+
         isPlaying = true;
         playStartHead = Mathf.Clamp(t, 0f, clipLength);
         playStartRealtime = EditorApplication.timeSinceStartup;
@@ -1917,16 +1929,40 @@ public class LijiangEchoChartWindow : EditorWindow
                 return null;
             }
 
+            const BindingFlags F = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (string n in names)
             {
-                MethodInfo m = Util.GetMethod(n, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, sig, null);
+                MethodInfo m = Util.GetMethod(n, F, null, sig, null);
                 if (m != null)
                 {
                     return m;
                 }
             }
 
+            // 兜底:忽略签名,按名字找(不同 Unity 版本参数可能不同)。
+            foreach (string n in names)
+            {
+                try
+                {
+                    MethodInfo m = Util.GetMethod(n, F);
+                    if (m != null)
+                    {
+                        return m;
+                    }
+                }
+                catch
+                {
+                    // AmbiguousMatchException:有多个重载,跳过按名兜底。
+                }
+            }
+
             return null;
+        }
+
+        public static string Diag()
+        {
+            return $"AudioUtil={(Util != null)}  Play3={(Play3 != null)}  Play1={(Play1 != null)}  " +
+                   $"StopAll={(StopAll != null)}  Pos={(PosM != null)}  Playing={(PlayingM != null)}";
         }
 
         public static void Play(AudioClip c, int startSample)
