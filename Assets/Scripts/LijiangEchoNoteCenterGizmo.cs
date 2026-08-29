@@ -8,17 +8,18 @@ using UnityEngine;
 public class LijiangEchoNoteCenterGizmo : MonoBehaviour
 {
     [Tooltip("十字/点的大小(世界单位)")]
-    public float size = 0.04f;
+    public float size = 0.09f;
 
     [Tooltip("颜色")]
-    public Color color = new Color(1f, 0.25f, 0.25f, 1f);
+    public Color color = new Color(1f, 0.2f, 0.2f, 1f);
 
 #if UNITY_EDITOR
+    // OnDrawGizmos 一直画(需 Scene 视图右上「Gizmos」开着);在 Prefab 编辑模式下也可见。
     private void OnDrawGizmos()
     {
         Gizmos.color = color;
         Vector3 p = transform.position;
-        Gizmos.DrawSphere(p, size * 0.3f);
+        Gizmos.DrawSphere(p, size * 0.35f);
         Gizmos.DrawLine(p - transform.right * size, p + transform.right * size);
         Gizmos.DrawLine(p - transform.up * size, p + transform.up * size);
     }

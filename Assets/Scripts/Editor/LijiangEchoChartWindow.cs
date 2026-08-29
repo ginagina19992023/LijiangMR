@@ -95,6 +95,11 @@ public class LijiangEchoChartWindow : EditorWindow
     // —— 播放状态 ——
     private bool isPlaying;
 
+    // —— 节拍试听:播放/拖动时播放头经过音符就叠一声(按类型),不进 Play 也能听谱对齐 ——
+    private bool metronome = true;
+    private float lastClickPlayhead = -1f;
+    private AudioClip clickHit, clickSnake, clickSwipe;
+
     private string status = "点「检测拍子」或「读回已有谱面」开始。";
 
     private static readonly string[] TypeOptions = { "single", "double", "hold", "swipe" };
@@ -185,7 +190,14 @@ public class LijiangEchoChartWindow : EditorWindow
 
         if (AudioPreview.Playing())
         {
+            float prev = playhead;
             playhead = Mathf.Clamp(AudioPreview.Pos() / (float)sampleRate, 0f, clipLength);
+            if (metronome)
+            {
+                PlayMetronomeClicks(lastClickPlayhead >= 0f ? lastClickPlayhead : prev, playhead);
+                lastClickPlayhead = playhead;
+            }
+
             if (follow)
             {
                 EnsureVisible(playhead);
@@ -818,6 +830,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
             GUILayout.Label($"播放头 {playhead:F2}s / {clipLength:F1}s", GUILayout.MaxWidth(160f));
             autoPreview = GUILayout.Toggle(autoPreview, "松手即试听", GUILayout.MaxWidth(90f));
+            metronome = GUILayout.Toggle(metronome, new GUIContent("节拍声", "播放时播放头经过音符就叠一声(按类型)。若音乐被打断请关掉"), GUILayout.MaxWidth(70f));
             follow = GUILayout.Toggle(follow, "跟随", GUILayout.MaxWidth(55f));
             GUILayout.FlexibleSpace();
             GUILayout.Label("缩放", GUILayout.MaxWidth(32f));
@@ -1371,6 +1384,58 @@ public class LijiangEchoChartWindow : EditorWindow
         int startSample = Mathf.Clamp(Mathf.RoundToInt(t * sampleRate), 0, Mathf.Max(0, clip.samples - 1));
         AudioPreview.Play(clip, startSample);
         isPlaying = true;
+        lastClickPlayhead = t; // 从这里开始记节拍,避免把之前的音符一次性响出来
+    }
+
+    /// <summary>播放头从 from 走到 to 之间,每个(可见图层的)音符叠一声点击,按类型选音效。</summary>
+    private void PlayMetronomeClicks(float from, float to)
+    {
+        if (to <= from)
+        {
+            return;
+        }
+
+        foreach (NoteLayer L in layers)
+        {
+            if (!L.visible)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < L.times.Count; i++)
+            {
+                float t = L.times[i];
+                if (t > from && t <= to)
+                {
+                    AudioPreview.PlayOverlay(ClickClip(i < L.types.Count ? L.types[i] : "single"));
+                }
+            }
+        }
+    }
+
+    private AudioClip ClickClip(string type)
+    {
+        if (clickHit == null)
+        {
+            clickHit = Resources.Load<AudioClip>("LijiangEchoAudio/hit");
+        }
+
+        if (clickSnake == null)
+        {
+            clickSnake = Resources.Load<AudioClip>("LijiangEchoAudio/snake");
+        }
+
+        if (clickSwipe == null)
+        {
+            clickSwipe = Resources.Load<AudioClip>("LijiangEchoAudio/swipe");
+        }
+
+        switch (type)
+        {
+            case "hold": return clickSnake != null ? clickSnake : clickHit;
+            case "swipe": return clickSwipe != null ? clickSwipe : clickHit;
+            default: return clickHit; // 单击/双击
+        }
     }
 
     private void StopPreview()
@@ -1430,6 +1495,30 @@ public class LijiangEchoChartWindow : EditorWindow
             catch
             {
                 // 反射失败:静默(不同版本接口不一致时不至于崩窗口)
+            }
+        }
+
+        /// <summary>叠加播放一个短音(节拍声):不 StopAll,尽量与音乐同时响(部分 Unity 版本支持多路预览)。</summary>
+        public static void PlayOverlay(AudioClip c)
+        {
+            if (c == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (Play3 != null)
+                {
+                    Play3.Invoke(null, new object[] { c, 0, false });
+                }
+                else if (Play1 != null)
+                {
+                    Play1.Invoke(null, new object[] { c });
+                }
+            }
+            catch
+            {
             }
         }
 
