@@ -1,0 +1,33 @@
+# 漓江回声谱面(编辑器保存) —— 时间(秒),类型
+# types:explicit  ← 有此头:运行时逐音符只认下面写的类型(single/double/hold/swipe),不再自动生成。
+# 类型:single=单击 double=双击 hold=长按 swipe=挥划
+19.365,double
+19.795,double
+25.600,single
+25.855,double
+26.064,double
+27.191,double
+34.888,single
+35.294,double
+36.455,double
+41.471,single
+43.410,single
+44.176,single
+47.276,single
+47.659,single
+48.820,single
+50.759,single
+56.262,double
+56.970,double
+57.144,double
+62.764,double
+63.205,double
+64.714,double
+66.444,double
+67.849,double
+75.163,double
+84.393,double
+87.876,single
+90.709,double
+97.350,double
+99.985,double
