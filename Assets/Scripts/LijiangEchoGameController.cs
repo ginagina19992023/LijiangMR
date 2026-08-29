@@ -2288,7 +2288,7 @@ public class LijiangEchoGameController : MonoBehaviour
             // 可编辑纹样 Prefab 优先:Resources/LijiangEchoNotes/Note_鱼/鸟/蛇/蛙 存在就用它。
             // 视觉(贴图/裁剪/大小/居中/光晕)完全由 Prefab 决定 —— 你在编辑器里怎么摆,游戏里就怎么显示;
             // 运行时只驱动根节点飞入位置 + 整体淡入,不再有任何运行时裁剪/居中/读像素。
-            GameObject notePrefab = Resources.Load<GameObject>("LijiangEchoNotes/" + NotePrefabName(kind));
+            GameObject notePrefab = LoadNotePrefab(kind);
             if (notePrefab != null)
             {
                 GameObject inst = Instantiate(notePrefab, stageRoot, false);
@@ -2573,7 +2573,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
     }
 
-    /// <summary>音符类型 → 可编辑纹样 Prefab 名(Resources/LijiangEchoNotes/ 下)。</summary>
+    /// <summary>音符类型 → 全局纹样 Prefab 名(Resources/LijiangEchoNotes/ 下)。</summary>
     private string NotePrefabName(NoteKind kind)
     {
         switch (kind)
@@ -2583,6 +2583,32 @@ public class LijiangEchoGameController : MonoBehaviour
             case NoteKind.Double: return "Note_Bird";
             default: return "Note_Fish";
         }
+    }
+
+    private string NoteTypeKey(NoteKind kind)
+    {
+        switch (kind)
+        {
+            case NoteKind.Hold: return "hold";
+            case NoteKind.Swipe: return "swipe";
+            case NoteKind.Double: return "double";
+            default: return "single";
+        }
+    }
+
+    /// <summary>
+    /// 加载音符纹样 Prefab:优先本关专属 Note_level{关卡}_{类型}(可在单个关卡里把某类型统一换成别的纹样),
+    /// 没有则用全局 Note_鱼/鸟/蛇/蛙,再没有则回退代码生成。
+    /// </summary>
+    private GameObject LoadNotePrefab(NoteKind kind)
+    {
+        GameObject perLevel = Resources.Load<GameObject>("LijiangEchoNotes/Note_level" + selectedLevel + "_" + NoteTypeKey(kind));
+        if (perLevel != null)
+        {
+            return perLevel;
+        }
+
+        return Resources.Load<GameObject>("LijiangEchoNotes/" + NotePrefabName(kind));
     }
 
     /// <summary>Prefab 音符每帧驱动:根节点到飞入位置 + 整体淡入(保持各精灵在 Prefab 里的相对透明)。</summary>

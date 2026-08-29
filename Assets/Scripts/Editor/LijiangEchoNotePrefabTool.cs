@@ -291,6 +291,117 @@ public static class LijiangEchoNotePrefabTool
         return AssetDatabase.LoadAssetAtPath<Sprite>(path);
     }
 
+    /// <summary>
+    /// 从任意贴图生成一个"规格化"纹样 Prefab:紧包围盒居中 + 按较大边适配到统一 size(所以不同纹样大小一致)。
+    /// prefabName 决定用途:全局 Note_鱼/鸟/蛇/蛙,或本关专属 Note_level{N}_{类型}。white=true 用白剪影材质。
+    /// 供"纹样绑定"窗口调用。返回 "OK..." 或错误说明。
+    /// </summary>
+    internal static string BuildNoteFromTexture(Texture2D tex, string prefabName, float size, bool white)
+    {
+        if (tex == null)
+        {
+            return "贴图为空";
+        }
+
+        if (!AssetDatabase.IsValidFolder(OutFolder))
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoNotes");
+        }
+
+        string texPath = AssetDatabase.GetAssetPath(tex);
+        TextureImporter ti = AssetImporter.GetAtPath(texPath) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.SaveAndReimport();
+            tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        }
+
+        Sprite spr = AssetDatabase.LoadAssetAtPath<Sprite>(texPath);
+        if (spr == null)
+        {
+            return "取不到 Sprite(贴图导入异常)";
+        }
+
+        Texture2D readable = MakeReadableCopy(tex);
+        if (readable == null)
+        {
+            return "无法读取贴图像素";
+        }
+
+        Color32[] px = readable.GetPixels32();
+        int w = readable.width, h = readable.height;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        int step = Mathf.Max(1, Mathf.Max(w, h) / 512);
+        for (int y = 0; y < h; y += step)
+        {
+            int row = y * w;
+            for (int x = 0; x < w; x += step)
+            {
+                if (px[row + x].a >= AlphaThreshold)
+                {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        Object.DestroyImmediate(readable);
+        if (maxX < minX)
+        {
+            return "整张透明,无内容";
+        }
+
+        float ppu = spr.pixelsPerUnit > 0f ? spr.pixelsPerUnit : 100f;
+        float contentMax = Mathf.Max((maxX - minX + 1) / ppu, (maxY - minY + 1) / ppu, 1e-4f);
+        float offX = ((minX + maxX + 1) * 0.5f - w * 0.5f) / ppu;
+        float offY = ((minY + maxY + 1) * 0.5f - h * 0.5f) / ppu;
+        float scale = size / contentMax; // 按较大边适配 → 各纹样大小统一
+
+        GameObject root = new GameObject(prefabName);
+        root.AddComponent<LijiangEchoNoteCenterGizmo>();
+
+        GameObject visual = new GameObject("Visual");
+        visual.transform.SetParent(root.transform, false);
+        visual.transform.localScale = Vector3.one * scale;
+        visual.transform.localPosition = new Vector3(-offX * scale, -offY * scale, 0f);
+        SpriteRenderer vr = visual.AddComponent<SpriteRenderer>();
+        vr.sprite = spr;
+        vr.sortingOrder = 230;
+        vr.color = Color.white;
+        if (white)
+        {
+            Material wm = GetOrCreateNoteMaterial("LijiangEcho/WhiteSilhouette", "NoteWhite");
+            if (wm != null)
+            {
+                vr.sharedMaterial = wm;
+            }
+        }
+
+        GameObject glow = new GameObject("Glow");
+        glow.transform.SetParent(root.transform, false);
+        float gs = scale * 1.35f;
+        glow.transform.localScale = Vector3.one * gs;
+        glow.transform.localPosition = new Vector3(-offX * gs, -offY * gs, 0.01f);
+        SpriteRenderer gr = glow.AddComponent<SpriteRenderer>();
+        gr.sprite = spr;
+        gr.sortingOrder = 229;
+        gr.color = new Color(1f, 0.86f, 0.42f, 0.35f);
+
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, OutFolder + "/" + prefabName + ".prefab");
+        Object.DestroyImmediate(root);
+        AssetDatabase.SaveAssets();
+        return saved != null ? $"OK({prefabName},内容 {maxX - minX + 1}x{maxY - minY + 1}px)" : "保存失败";
+    }
+
     private struct HandSpec
     {
         public string prefabName;
