@@ -1,14 +1,18 @@
 # 漓江回声 战斗谱面 · 刘三姐 —— 依据《刘三姐音乐游戏内容需求》文档
+# types:explicit  ← 有此头:运行时逐音符只认下面写的类型,不再取模自动撒挥划(所见即所得)。
 # 格式:  时间(秒),类型
-#   类型:  single = 单击(鱼纹)   double = 双击(蛙纹)   hold = 长按(蛇纹)
+#   类型:  single = 单击(鱼纹)   double = 双击(鸟纹)   hold = 长按(蛇纹)   swipe = 挥划(蛙纹/青蛙纹)
 # 以 # 开头的行是注释,空行忽略。时间为该拍子的命中时间点。
+#
+# 说明:早期需求把「蛙纹」画在了双击拍上;现分成四类后,蛙纹=挥划(swipe),鸟纹=双击(double)。
+#   故这里把当年标为蛙纹的几处双击(19/45/53/64/85/96)改回 swipe(挥划),其余双击保留为鸟纹。
 #
 # 注:符号滑动段属"描绘阶段"、不是战斗音符,故不在此表内:
 #   铜钱纹 32-37s   蛇纹 57-60s   巨鸟纹 1:37-1:43(97-103s)
 #
 # 想改谱面直接改这张表即可(改完在 Unity 里让它重新读)。特殊/例外打击可另行手摆打击点。
 
-19,double
+19,swipe
 21,single
 23,single
 26,hold
@@ -16,17 +20,17 @@
 41,double
 42,double
 44,single
-45,double
+45,swipe
 46,single
 48,single
 49,double
 50,double
 51,single
-53,double
+53,swipe
 54,single
 55,single
 62,single
-64,double
+64,swipe
 66,hold
 70,single
 72,hold
@@ -34,10 +38,10 @@
 80,single
 82,double
 84,single
-85,double
+85,swipe
 88,single
 89,double
 90,double
 93,single
 95,single
-96,double
+96,swipe
