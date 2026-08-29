@@ -190,6 +190,107 @@ public static class LijiangEchoNotePrefabTool
         return $"OK(内容 {maxX - minX + 1}x{maxY - minY + 1}px,scale {scale:F3})";
     }
 
+    [MenuItem("漓江回声/纹样/生成4个空纹样Prefab（占位圆点·自己填art）")]
+    public static void GenerateEmptyNotePrefabs()
+    {
+        if (!EditorUtility.DisplayDialog("生成空纹样Prefab",
+            "会用『占位圆点』重建 Note_Fish/Bird/Snake/Frog 四个 Prefab(覆盖现有的)。\n" +
+            "之后把你的美术拖到每个 Prefab 的 Visual 上即可。是否继续?", "继续", "取消"))
+        {
+            return;
+        }
+
+        if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+        {
+            AssetDatabase.CreateFolder("Assets", "Resources");
+        }
+
+        if (!AssetDatabase.IsValidFolder(OutFolder))
+        {
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoNotes");
+        }
+
+        Sprite dot = EnsureDotSprite();
+        if (dot == null)
+        {
+            EditorUtility.DisplayDialog("失败", "无法生成占位圆点。", "好");
+            return;
+        }
+
+        Color[] cols =
+        {
+            new Color(1f, 1f, 1f), new Color(1f, 0.6f, 0.25f), new Color(0.7f, 0.45f, 1f), new Color(0.35f, 0.9f, 0.7f)
+        };
+        for (int i = 0; i < Specs.Length; i++)
+        {
+            BuildEmptyOne(Specs[i].prefabName, dot, cols[i % cols.Length], Specs[i].targetSize);
+        }
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        EditorUtility.DisplayDialog("完成",
+            "已生成 4 个空纹样 Prefab(中间是可见占位圆点,颜色可在 Visual 的 SpriteRenderer 上改)。\n" +
+            "把你的 Sprite 拖到 Visual 即可换成真纹样;红点是对齐中心(仅编辑时可见)。", "好");
+    }
+
+    private static void BuildEmptyOne(string prefabName, Sprite dot, Color col, float size)
+    {
+        GameObject root = new GameObject(prefabName);
+        root.AddComponent<LijiangEchoNoteCenterGizmo>();
+
+        GameObject visual = new GameObject("Visual");
+        visual.transform.SetParent(root.transform, false);
+        float dotWorld = Mathf.Max(1e-4f, dot.bounds.size.y);
+        visual.transform.localScale = Vector3.one * (size / dotWorld);
+        visual.transform.localPosition = Vector3.zero;
+        SpriteRenderer vr = visual.AddComponent<SpriteRenderer>();
+        vr.sprite = dot;
+        vr.sortingOrder = 230;
+        vr.color = col; // 占位圆点颜色,可自行改
+
+        PrefabUtility.SaveAsPrefabAsset(root, OutFolder + "/" + prefabName + ".prefab");
+        Object.DestroyImmediate(root);
+    }
+
+    /// <summary>确保有一张占位"实心白圆点"精灵(note_dot.png)。没有就程序生成一张。</summary>
+    private static Sprite EnsureDotSprite()
+    {
+        string path = OutFolder + "/note_dot.png";
+        if (!System.IO.File.Exists(path))
+        {
+            const int n = 64;
+            Texture2D t = new Texture2D(n, n, TextureFormat.RGBA32, false);
+            Color32[] px = new Color32[n * n];
+            float r = n * 0.5f - 1.5f;
+            float cx = n * 0.5f, cy = n * 0.5f;
+            for (int y = 0; y < n; y++)
+            {
+                for (int x = 0; x < n; x++)
+                {
+                    float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                    byte a = (dx * dx + dy * dy) <= r * r ? (byte)255 : (byte)0;
+                    px[y * n + x] = new Color32(255, 255, 255, a);
+                }
+            }
+
+            t.SetPixels32(px);
+            t.Apply();
+            System.IO.File.WriteAllBytes(path, t.EncodeToPNG());
+            Object.DestroyImmediate(t);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+        }
+
+        TextureImporter ti = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.SaveAndReimport();
+        }
+
+        return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+    }
+
     private struct HandSpec
     {
         public string prefabName;
