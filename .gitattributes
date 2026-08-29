@@ -53,3 +53,8 @@
 *.avi filter=lfs diff=lfs merge=lfs -text
 *.ttf filter=lfs diff=lfs merge=lfs -text
 *.otf filter=lfs diff=lfs merge=lfs -text
+
+# 调试截图专用:debug/ 下的图片不走 LFS,直接内联进 git,
+# 方便远端 Claude 会话用 Read 工具直接读取(LFS 那条 token 没有读权限)。
+debug/** !filter !diff !merge
+debug/** binary
