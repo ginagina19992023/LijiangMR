@@ -106,6 +106,15 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private static readonly string[] TypeOptions = { "single", "double", "hold", "swipe" };
     private static readonly string[] TypeLabels = { "单击 single", "双击 double", "长按 hold", "挥划 swipe" };
+    private static readonly string[] TypeShort = { "单击", "双击", "长按", "挥划" };
+
+    // —— 批量/自动类型 面板(作用于当前图层) ——
+    private bool showBatch = true;
+    private int batchAllType;               // "整层全设为"的目标类型
+    private int batchFrom = 1;              // 替换/删除的源类型(默认双击)
+    private int batchTo;                    // 替换目标类型
+    private readonly bool[] ratioOn = { true, true, true, false };  // 比例分配勾选哪些类型
+    private readonly float[] ratioWeight = { 6f, 3f, 1f, 1f };      // 各类型相对权重
 
     // 源谱(载入编辑):三关专属谱 + 全局生成谱 + 需求谱。
     private static readonly string[] SourceLabels =
@@ -223,6 +232,7 @@ public class LijiangEchoChartWindow : EditorWindow
         DrawTimeline();
         EditorGUILayout.Space(4f);
         DrawSelectedEditor();
+        DrawBatchTools();
         EditorGUILayout.Space(4f);
         DrawSourceTargetBar();
         DrawBottomBar();
@@ -1147,6 +1157,156 @@ public class LijiangEchoChartWindow : EditorWindow
                 AddNoteAt(playhead);
             }
         }
+    }
+
+    // ======================= 批量 / 自动类型(作用于当前图层) =======================
+    private void DrawBatchTools()
+    {
+        showBatch = EditorGUILayout.Foldout(showBatch, "批量 / 自动类型（作用于当前图层）", true);
+        if (!showBatch)
+        {
+            return;
+        }
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            // 1) 整层全设为某类型(如:鼓点层→全双击)
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label("整层全设为", GUILayout.MaxWidth(70f));
+                batchAllType = EditorGUILayout.Popup(batchAllType, TypeLabels, GUILayout.MaxWidth(130f));
+                if (GUILayout.Button("应用", GUILayout.MaxWidth(60f)))
+                {
+                    SetAllType(batchAllType);
+                }
+
+                GUILayout.Label("← 例:把鼓点层整层设成双击", EditorStyles.miniLabel);
+            }
+
+            // 2) 按比例随机分配类型(勾选类型 + 权重)
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label("按比例分配", GUILayout.MaxWidth(70f));
+                for (int t = 0; t < 4; t++)
+                {
+                    ratioOn[t] = GUILayout.Toggle(ratioOn[t], TypeShort[t], GUILayout.MaxWidth(46f));
+                    using (new EditorGUI.DisabledScope(!ratioOn[t]))
+                    {
+                        ratioWeight[t] = Mathf.Max(0f, EditorGUILayout.FloatField(ratioWeight[t], GUILayout.MaxWidth(40f)));
+                    }
+                }
+
+                if (GUILayout.Button("随机分配到当前图层", GUILayout.MaxWidth(150f)))
+                {
+                    DistributeByRatio();
+                }
+            }
+
+            // 3) 按类型批量替换 / 删除
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label("把", GUILayout.MaxWidth(18f));
+                batchFrom = EditorGUILayout.Popup(batchFrom, TypeLabels, GUILayout.MaxWidth(110f));
+                GUILayout.Label("→", GUILayout.MaxWidth(16f));
+                batchTo = EditorGUILayout.Popup(batchTo, TypeLabels, GUILayout.MaxWidth(110f));
+                if (GUILayout.Button("批量替换", GUILayout.MaxWidth(80f)))
+                {
+                    ReplaceType(batchFrom, batchTo);
+                }
+
+                if (GUILayout.Button(new GUIContent("批量删除该类型", "删除当前图层里所有『把』左边那种类型的音符"), GUILayout.MaxWidth(120f)))
+                {
+                    DeleteType(batchFrom);
+                }
+            }
+        }
+    }
+
+    private void SetAllType(int typeIdx)
+    {
+        string ty = TypeOptions[Mathf.Clamp(typeIdx, 0, 3)];
+        for (int i = 0; i < noteTypes.Count; i++)
+        {
+            noteTypes[i] = ty;
+        }
+
+        status = $"当前图层 {noteTypes.Count} 个音符已全设为「{TypeShort[typeIdx]}」。";
+    }
+
+    private void DistributeByRatio()
+    {
+        List<int> en = new List<int>();
+        float sum = 0f;
+        for (int t = 0; t < 4; t++)
+        {
+            if (ratioOn[t] && ratioWeight[t] > 0f)
+            {
+                en.Add(t);
+                sum += ratioWeight[t];
+            }
+        }
+
+        if (en.Count == 0 || sum <= 0f)
+        {
+            status = "至少勾一个类型且权重>0。";
+            return;
+        }
+
+        System.Random rng = new System.Random();
+        for (int i = 0; i < noteTypes.Count; i++)
+        {
+            double r = rng.NextDouble() * sum;
+            double acc = 0;
+            int chosen = en[0];
+            foreach (int t in en)
+            {
+                acc += ratioWeight[t];
+                if (r <= acc)
+                {
+                    chosen = t;
+                    break;
+                }
+            }
+
+            noteTypes[i] = TypeOptions[chosen];
+        }
+
+        status = $"已按比例随机分配当前图层 {noteTypes.Count} 个音符的类型。再点一次会重新随机。";
+    }
+
+    private void ReplaceType(int from, int to)
+    {
+        string f = TypeOptions[from];
+        string t = TypeOptions[to];
+        int n = 0;
+        for (int i = 0; i < noteTypes.Count; i++)
+        {
+            if (noteTypes[i] == f)
+            {
+                noteTypes[i] = t;
+                n++;
+            }
+        }
+
+        status = $"已把当前图层 {n} 个「{TypeShort[from]}」替换为「{TypeShort[to]}」。";
+    }
+
+    private void DeleteType(int typeIdx)
+    {
+        string f = TypeOptions[typeIdx];
+        int n = 0;
+        for (int i = noteTimes.Count - 1; i >= 0; i--)
+        {
+            if (i < noteTypes.Count && noteTypes[i] == f)
+            {
+                noteTimes.RemoveAt(i);
+                noteTypes.RemoveAt(i);
+                n++;
+            }
+        }
+
+        selected = -1;
+        status = $"已删除当前图层 {n} 个「{TypeShort[typeIdx]}」音符。";
     }
 
     // ======================= 底部:保存 / 贴类型 =======================
