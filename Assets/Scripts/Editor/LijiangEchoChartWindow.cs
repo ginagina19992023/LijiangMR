@@ -236,22 +236,36 @@ public class LijiangEchoChartWindow : EditorWindow
                     SaveToTarget();
                 }
 
-                if (GUILayout.Button(new GUIContent("▶ 保存并试玩", "保存到该关卡 → 直接进 Play 进入战斗:边听音乐边看纹样飞入、可打点验证。停止 Play 回到编辑"), GUILayout.MaxWidth(110f)))
+                if (GUILayout.Button(new GUIContent("▶ 保存并试玩", "保存到该关卡 → 直接进 Play 进入战斗(从头):边听音乐边看纹样飞入、可打点验证。停止 Play 回到编辑"), GUILayout.MaxWidth(110f)))
                 {
                     SaveAndPlaytest();
+                }
+
+                if (GUILayout.Button(new GUIContent($"▶ 从播放头({playhead:F1}s)试玩", "保存 → 进 Play 战斗并从当前播放头时间起播(跳过倒计时),直接看该时刻的打击效果"), GUILayout.MaxWidth(150f)))
+                {
+                    SaveAndPlaytest(playhead);
                 }
             }
         }
     }
 
-    /// <summary>保存当前谱面到目标关卡,并直接进入 Play 的战斗阶段试玩(真实场景+音乐+可打点)。</summary>
-    private void SaveAndPlaytest()
+    /// <summary>保存当前谱面到目标关卡,并直接进入 Play 的战斗阶段试玩;startTime&gt;=0 时从该秒起播(跳过倒计时)。</summary>
+    private void SaveAndPlaytest(float startTime = -1f)
     {
         SaveToTarget();
 
         int level = targetIndex <= 2 ? targetIndex : 0;
         PlayerPrefs.SetInt("LJ_DebugStartStage", 4); // 4 = 战斗(见 JumpToStageForDebug)
         PlayerPrefs.SetInt("LJ_DebugLevel", level);
+        if (startTime >= 0f)
+        {
+            PlayerPrefs.SetFloat("LJ_DebugBattleStartTime", startTime); // 从播放头起播
+        }
+        else
+        {
+            PlayerPrefs.DeleteKey("LJ_DebugBattleStartTime");
+        }
+
         PlayerPrefs.Save();
 
         // 战斗只在 LijiangEchoMR_Main 里 bootstrap;若当前不是它,先(询问保存后)打开它再 Play。

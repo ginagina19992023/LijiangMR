@@ -274,6 +274,7 @@ public class LijiangEchoGameController : MonoBehaviour
     private readonly List<ScheduledSfx> scheduledSfx = new List<ScheduledSfx>();
     private bool battleMusicStarted;
     private float battleMusicTime;
+    private float battleSeekTime = -1f; // >=0 时战斗从该秒起播(编辑器"从播放头试玩");跳过倒计时
     private float battleEndingTimer;
     private bool holdActive;
     private float holdProgress;
@@ -1863,6 +1864,10 @@ public class LijiangEchoGameController : MonoBehaviour
         nextSpawnIndex = 0;
         nextNoteIndex = 0;
 
+        // 编辑器"从播放头试玩":从指定秒起播、跳过倒计时(用一次即清)。
+        battleSeekTime = PlayerPrefs.GetFloat("LJ_DebugBattleStartTime", -1f);
+        PlayerPrefs.DeleteKey("LJ_DebugBattleStartTime");
+
         // Path B 第 1 步:优先采用已烘焙的可编辑战斗背景;没有则运行时构建(视觉不变)。
         if (!TryAdoptBakedBattleBackground())
         {
@@ -2142,7 +2147,7 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         UpdateControllerMotion();
         float countdownTime = stageTimer - 3f;
-        if (countdownTime < 0f)
+        if (countdownTime < 0f && battleSeekTime < 0f) // 从播放头试玩时跳过倒计时,直接起播
         {
             if (countdownRenderer != null)
             {
@@ -3520,13 +3525,29 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
+        // 从播放头试玩:定位到指定秒起播,并跳过该时间点之前的音符(不让它们一次性涌出/漏判)。
+        float seek = battleSeekTime >= 0f ? Mathf.Clamp(battleSeekTime, 0f, Mathf.Max(0f, clip.length - 0.05f)) : 0f;
+        battleMusicTime = seek;
+        if (seek > 0f)
+        {
+            while (nextSpawnIndex < noteTimes.Length && noteTimes[nextSpawnIndex] < seek - NoteApproachTime)
+            {
+                nextSpawnIndex++;
+            }
+
+            while (nextNoteIndex < noteTimes.Length && noteTimes[nextNoteIndex] < seek - 0.05f)
+            {
+                nextNoteIndex++;
+            }
+        }
+
         battleMusicSource.Stop();
         battleMusicSource.clip = clip;
         battleMusicSource.loop = false;
         battleMusicSource.volume = 0.86f;
-        battleMusicSource.time = 0f;
+        battleMusicSource.time = seek;
         battleMusicSource.Play();
-        Debug.Log($"[漓江回声] 战斗音乐开始，时长 {clip.length:F2} 秒");
+        Debug.Log($"[漓江回声] 战斗音乐开始（从 {seek:F2}s 起），时长 {clip.length:F2} 秒");
     }
 
     private float GetBattleMusicTime()
