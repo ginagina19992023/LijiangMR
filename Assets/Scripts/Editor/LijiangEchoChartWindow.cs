@@ -126,6 +126,7 @@ public class LijiangEchoChartWindow : EditorWindow
 
     // —— 播放状态(播放头按真实时间推进,不依赖会被节拍声污染的 AudioUtil.Pos()) ——
     private bool isPlaying;
+    private bool syncingToGame; // 试玩(Play)战斗中:时间轴跟随游戏进度,禁用编辑器自己的播放键
     private double playStartRealtime;
     private float playStartHead;
 
@@ -240,6 +241,32 @@ public class LijiangEchoChartWindow : EditorWindow
 
     private void OnEditorUpdate()
     {
+        // 试玩(Play)战斗时:时间轴跟随游戏进度(只保留游戏声,编辑器不放自己的声/节拍);
+        // 游戏暂停 → 游戏 EditorBattleTime 不再变 → 编辑器播放头也停(自然同步)。
+        if (EditorApplication.isPlaying)
+        {
+            float gt = LijiangEchoGameController.EditorBattleTime;
+            if (gt >= 0f)
+            {
+                if (isPlaying)
+                {
+                    StopPreview(); // 停掉编辑器自己的播放/声音
+                }
+
+                syncingToGame = true;
+                playhead = clipLength > 0f ? Mathf.Clamp(gt, 0f, clipLength) : gt;
+                if (follow)
+                {
+                    EnsureVisible(playhead);
+                }
+
+                Repaint();
+                return;
+            }
+        }
+
+        syncingToGame = false;
+
         if (!isPlaying)
         {
             return;
@@ -1357,15 +1384,22 @@ public class LijiangEchoChartWindow : EditorWindow
 
         using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
         {
-            if (GUILayout.Button(isPlaying ? "⏸ 停止" : "▶ 从播放头播放", GUILayout.Height(22f), GUILayout.MaxWidth(150f)))
+            if (syncingToGame)
             {
-                if (isPlaying)
+                GUILayout.Label("● 跟随游戏进度中(游戏暂停即同步暂停)", GUILayout.MaxWidth(240f));
+            }
+            else
+            {
+                if (GUILayout.Button(isPlaying ? "⏸ 停止" : "▶ 从播放头播放", GUILayout.Height(22f), GUILayout.MaxWidth(150f)))
                 {
-                    StopPreview();
-                }
-                else
-                {
-                    PlayFrom(playhead);
+                    if (isPlaying)
+                    {
+                        StopPreview();
+                    }
+                    else
+                    {
+                        PlayFrom(playhead);
+                    }
                 }
             }
 
@@ -1830,9 +1864,13 @@ public class LijiangEchoChartWindow : EditorWindow
                     SelectAllInLayer();
                 }
 
-                if (GUILayout.Button(new GUIContent($"选中「{TypeShort[batchFrom]}」", "选中当前图层里所有『把』左边那种类型(下方那个下拉)"), GUILayout.MaxWidth(90f)))
+                GUILayout.Label("全选类型:", GUILayout.MaxWidth(60f));
+                for (int k = 0; k < 4; k++)
                 {
-                    SelectByType(batchFrom);
+                    if (GUILayout.Button(TypeShort[k], GUILayout.MaxWidth(40f)))
+                    {
+                        SelectByType(k); // 全选 单/双/长/划
+                    }
                 }
 
                 using (new EditorGUI.DisabledScope(selection.Count == 0))

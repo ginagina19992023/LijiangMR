@@ -169,6 +169,9 @@ public class LijiangEchoGameController : MonoBehaviour
     // 跳过运行时构建;其余玩法照旧在其上构建。ExternalBattleSceneName 指定要附加加载的战斗场景
     // (需加入 Build Settings);留空则用默认名。
     public static string ExternalBattleSceneName;
+
+    // 供谱面编辑器时间轴"跟随游戏进度":战斗进行中=当前 beatTime(秒),不在战斗=-1。
+    public static float EditorBattleTime = -1f;
     private const string DefaultBattleSceneName = "Battle_level1";
     private const string BattleBackgroundMarkerName = "怪物分层";
     private Transform adoptedBattleRoot; // 采用的烘焙背景根;不加入 spawnedObjects,跨重入保留
@@ -746,6 +749,7 @@ public class LijiangEchoGameController : MonoBehaviour
         scheduledSfx.Clear();
         comboRipples.Clear();
         comboRippleTimer = 0f;
+        EditorBattleTime = -1f; // 离开战斗:编辑器不再跟随
         introWalkItems.Clear();
         introPreLevelItems.Clear();
         introFlyItems.Clear();
@@ -2208,6 +2212,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         float beatTime = GetBattleMusicTime();
+        EditorBattleTime = beatTime; // 供编辑器时间轴跟随
 
         if (countdownRenderer != null)
         {
@@ -3557,6 +3562,41 @@ public class LijiangEchoGameController : MonoBehaviour
             sfxSource.spatialBlend = 0f;
             sfxSource.priority = 64;
         }
+
+        EnsureAudioListener();
+    }
+
+    /// <summary>
+    /// 兜底:场景里没有"启用的 AudioListener"时,所有游戏 AudioSource 都听不到声音
+    /// (编辑器预览走 AudioUtil 另一条路还能响,所以会出现"诊断正常但游戏没声")。
+    /// 这里保证至少有一个可用的 AudioListener:优先挂到当前游戏相机,否则挂到本控制器上。
+    /// </summary>
+    private void EnsureAudioListener()
+    {
+        AudioListener[] listeners = FindObjectsByType<AudioListener>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (AudioListener l in listeners)
+        {
+            if (l != null && l.enabled && l.gameObject.activeInHierarchy)
+            {
+                return; // 已有可用的
+            }
+        }
+
+        Camera cam = FindGameplayCamera();
+        GameObject host = cam != null ? cam.gameObject : gameObject;
+        AudioListener existing = host.GetComponent<AudioListener>();
+        if (existing == null)
+        {
+            existing = host.AddComponent<AudioListener>();
+        }
+
+        existing.enabled = true;
+        if (AudioListener.volume <= 0.01f)
+        {
+            AudioListener.volume = 1f; // 全局音量被设成 0 也会没声
+        }
+
+        Debug.Log("[漓江回声] 未发现可用 AudioListener,已在 " + host.name + " 上补一个,游戏音频才能听到。");
     }
 
     private AudioClip GetAudioClip(string clipName)
@@ -3674,10 +3714,14 @@ public class LijiangEchoGameController : MonoBehaviour
         battleMusicSource.Stop();
         battleMusicSource.clip = clip;
         battleMusicSource.loop = false;
+        battleMusicSource.mute = false;
         battleMusicSource.volume = 0.86f;
         battleMusicSource.time = seek;
         battleMusicSource.Play();
-        Debug.Log($"[漓江回声] 战斗音乐开始（从 {seek:F2}s 起），时长 {clip.length:F2} 秒");
+        AudioListener anyListener = FindFirstObjectByType<AudioListener>();
+        Debug.Log($"[漓江回声] 战斗音乐开始(从 {seek:F2}s 起):clip={clip.name} 采样={clip.samples} 时长={clip.length:F2}s " +
+                  $"isPlaying={battleMusicSource.isPlaying} 音量={battleMusicSource.volume} mute={battleMusicSource.mute} " +
+                  $"AudioListener={(anyListener != null ? anyListener.gameObject.name : "无!")} 全局音量={AudioListener.volume}");
     }
 
     private float GetBattleMusicTime()
