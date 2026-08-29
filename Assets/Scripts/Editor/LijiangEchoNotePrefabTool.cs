@@ -157,6 +157,7 @@ public static class LijiangEchoNotePrefabTool
 
         // 组装 Prefab:根(飞入时被驱动)→ Visual(本体)+ Glow(柔光)
         GameObject root = new GameObject(spec.prefabName);
+        root.AddComponent<LijiangEchoNoteCenterGizmo>(); // Scene 视图中心对齐点(游戏里不显示)
 
         GameObject visual = new GameObject("Visual");
         visual.transform.SetParent(root.transform, false);
@@ -187,6 +188,82 @@ public static class LijiangEchoNotePrefabTool
         }
 
         return $"OK(内容 {maxX - minX + 1}x{maxY - minY + 1}px,scale {scale:F3})";
+    }
+
+    [MenuItem("漓江回声/纹样/纹样Prefab → 白剪影(统一白色)")]
+    public static void SetWhite()
+    {
+        ApplyVisualMaterial(true);
+    }
+
+    [MenuItem("漓江回声/纹样/纹样Prefab → 原彩色")]
+    public static void SetColor()
+    {
+        ApplyVisualMaterial(false);
+    }
+
+    /// <summary>给 4 个纹样 Prefab 的 Visual 换材质:白剪影(LijiangEcho/WhiteSilhouette)或原彩色(默认材质);顺带补上中心点。</summary>
+    private static void ApplyVisualMaterial(bool white)
+    {
+        Material whiteMat = white ? GetOrCreateNoteMaterial("LijiangEcho/WhiteSilhouette", "NoteWhite") : null;
+        if (white && whiteMat == null)
+        {
+            EditorUtility.DisplayDialog("缺少着色器", "找不到 LijiangEcho/WhiteSilhouette。请确认 Assets/Shaders/WhiteSilhouette.shader 存在。", "好");
+            return;
+        }
+
+        int n = 0;
+        foreach (Spec spec in Specs)
+        {
+            string prefabPath = OutFolder + "/" + spec.prefabName + ".prefab";
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) == null)
+            {
+                continue;
+            }
+
+            GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+            Transform visual = root.transform.Find("Visual");
+            if (visual != null)
+            {
+                SpriteRenderer sr = visual.GetComponent<SpriteRenderer>();
+                if (sr != null)
+                {
+                    sr.sharedMaterial = whiteMat; // null = 默认精灵材质(原彩色)
+                }
+            }
+
+            if (root.GetComponent<LijiangEchoNoteCenterGizmo>() == null)
+            {
+                root.AddComponent<LijiangEchoNoteCenterGizmo>();
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+            PrefabUtility.UnloadPrefabContents(root);
+            n++;
+        }
+
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[漓江回声纹样Prefab] 已把 {n} 个纹样设为{(white ? "白剪影" : "原彩色")}。");
+        EditorUtility.DisplayDialog("完成", $"已把 {n} 个纹样 Prefab 的本体设为{(white ? "白剪影(统一白色)" : "原彩色")}。", "好");
+    }
+
+    private static Material GetOrCreateNoteMaterial(string shaderName, string matName)
+    {
+        string path = OutFolder + "/" + matName + ".mat";
+        Material m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (m == null)
+        {
+            Shader sh = Shader.Find(shaderName);
+            if (sh == null)
+            {
+                return null;
+            }
+
+            m = new Material(sh) { name = matName };
+            AssetDatabase.CreateAsset(m, path);
+        }
+
+        return m;
     }
 
     /// <summary>
