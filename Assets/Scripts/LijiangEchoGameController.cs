@@ -163,7 +163,7 @@ public class LijiangEchoGameController : MonoBehaviour
     // 跳过运行时构建;其余玩法照旧在其上构建。ExternalBattleSceneName 指定要附加加载的战斗场景
     // (需加入 Build Settings);留空则用默认名。
     public static string ExternalBattleSceneName;
-    private const string DefaultBattleSceneName = "Battle_Background";
+    private const string DefaultBattleSceneName = "Battle_level1";
     private const string BattleBackgroundMarkerName = "怪物分层";
     private Transform adoptedBattleRoot; // 采用的烘焙背景根;不加入 spawnedObjects,跨重入保留
 
