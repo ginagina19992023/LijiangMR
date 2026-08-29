@@ -341,26 +341,16 @@ public class LijiangEchoChartWindow : EditorWindow
         def.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
         importer.defaultSampleSettings = def;
 
-        // 2) 各平台 Override:能清就清;清不掉(名字对不上)就显式把它的 loadType 也改成 Decompress。
-        //    clip.loadType 取当前平台的有效值,所以当前激活平台一定要处理到。
-        string[] platforms =
+        // 2) 关键(用户实测):当前激活平台必须有一个"显式 Override = Decompress"才生效,光改 Default 不够。
+        //    所以主动给当前激活平台建立/设置 Override(不存在就创建),loadType 设为 Decompress。
+        string active = AudioPlatformName(EditorUserBuildSettings.activeBuildTarget);
+        if (!string.IsNullOrEmpty(active))
         {
-            AudioPlatformName(EditorUserBuildSettings.activeBuildTarget),
-            "Standalone", "Android", "iPhone", "iOS", "WebGL", "Windows Store Apps", "PS4", "PS5", "XboxOne", "Switch", "tvOS"
-        };
-        foreach (string platform in platforms)
-        {
-            if (string.IsNullOrEmpty(platform))
-            {
-                continue;
-            }
-
-            if (importer.ContainsSampleSettingsOverride(platform))
-            {
-                AudioImporterSampleSettings o = importer.GetOverrideSampleSettings(platform);
-                o.loadType = AudioClipLoadType.DecompressOnLoad;
-                importer.SetOverrideSampleSettings(platform, o); // 改成 Decompress(比清除更稳,避免名字不匹配)
-            }
+            AudioImporterSampleSettings o = importer.ContainsSampleSettingsOverride(active)
+                ? importer.GetOverrideSampleSettings(active)
+                : importer.defaultSampleSettings;
+            o.loadType = AudioClipLoadType.DecompressOnLoad;
+            importer.SetOverrideSampleSettings(active, o); // 建立/覆盖当前平台的 Override=Decompress
         }
 
         // 3) 强制同步重导入,确保重新加载到的 AudioClip.loadType 立即刷新

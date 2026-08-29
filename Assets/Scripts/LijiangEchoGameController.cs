@@ -1759,7 +1759,11 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float HandArmLength = 1.5f;     // 臂长(手离轴心多远):加长,让手挥到圆环处
     private const float HandPivotSide = 0.45f;    // 左右轴心离中线的横向距离
     private const float HandPivotY = -1.3f;       // 轴心高度(屏幕下缘;挥起时手正好升到圆环)
+    private const float HandPivotZ = -0.88f;      // 轴心深度:放到玩法平面(≈圆环/音符),不再"非常前面"被近裁剪切掉
     private const float HandVisualHeight = 2.6f;  // 手的显示高度(放大约 5 倍)
+    // 临时诊断:true = 左右手一直可见(不再只有击打瞬间显形),方便截图确认它们停在哪、大小对不对。
+    // 定好位置后改回 false 恢复"平时隐藏、击打才现"。
+    private const bool HandDebugAlwaysVisible = true;
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
@@ -1774,7 +1778,7 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         GameObject pivotObject = new GameObject(handName + "轴");
         pivotObject.transform.SetParent(stageRoot, false);
-        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, -0.55f); // 偏下两侧的轴心
+        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, HandPivotZ); // 偏下两侧的轴心(玩法平面深度)
         pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, -sideSign * HandRestAngle); // 平时朝各自外下方甩出
         spawnedObjects.Add(pivotObject);
 
@@ -1814,6 +1818,11 @@ public class LijiangEchoGameController : MonoBehaviour
             float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
             angle = Mathf.Lerp(rest, strike, swing);
             alpha = Mathf.Clamp01(swing * 2.2f); // 挥起时更早显现、看得更清,落回时淡出
+        }
+
+        if (HandDebugAlwaysVisible)
+        {
+            alpha = Mathf.Max(alpha, 0.7f); // 诊断:一直可见,方便看清手停在哪、多大
         }
 
         pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
