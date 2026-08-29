@@ -158,6 +158,15 @@ public class LijiangEchoGameController : MonoBehaviour
     // 双手镜像绘制开关:null/true = 左右对称双手画(把描绘镜像到对侧);false = 单手画全程。
     public static bool? ExternalTraceMirror;
 
+    // 战斗背景场景化(Path B 第 1 步):进战斗时若某个已加载场景里存在烘焙的战斗背景根
+    // (以子节点「怪物分层」为标志),就采用它(挂到 stageRoot 下 + 驱动其 LijiangEchoMotion 动效),
+    // 跳过运行时构建;其余玩法照旧在其上构建。ExternalBattleSceneName 指定要附加加载的战斗场景
+    // (需加入 Build Settings);留空则用默认名。
+    public static string ExternalBattleSceneName;
+    private const string DefaultBattleSceneName = "Battle_Background";
+    private const string BattleBackgroundMarkerName = "怪物分层";
+    private Transform adoptedBattleRoot; // 采用的烘焙背景根;不加入 spawnedObjects,跨重入保留
+
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
@@ -444,6 +453,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         PrepareStageRoot(true);
+        yield return PreloadBattleSceneIfConfigured();
         int debugStage = ReadDebugStartStage();
         if (debugStage >= 0)
         {
@@ -1833,7 +1843,11 @@ public class LijiangEchoGameController : MonoBehaviour
         nextSpawnIndex = 0;
         nextNoteIndex = 0;
 
-        BuildBattleBackground();
+        // Path B 第 1 步:优先采用已烘焙的可编辑战斗背景;没有则运行时构建(视觉不变)。
+        if (!TryAdoptBakedBattleBackground())
+        {
+            BuildBattleBackground();
+        }
 
         AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.38f), 0.24f, 70, 0.9f);
         GameObject centerRingObject = AddIcon(
@@ -1879,9 +1893,159 @@ public class LijiangEchoGameController : MonoBehaviour
     }
 
     /// <summary>
+    /// 启动时若配置了战斗背景场景(ExternalBattleSceneName 或默认名),且已加入 Build Settings,
+    /// 就附加加载它,进入战斗时会被 TryAdoptBakedBattleBackground 自动采用。找不到则静默跳过
+    /// (战斗改用运行时构建背景)。
+    /// </summary>
+    private IEnumerator PreloadBattleSceneIfConfigured()
+    {
+        string sceneName = string.IsNullOrEmpty(ExternalBattleSceneName) ? DefaultBattleSceneName : ExternalBattleSceneName;
+        if (string.IsNullOrEmpty(sceneName) || SceneManager.GetSceneByName(sceneName).isLoaded)
+        {
+            yield break;
+        }
+
+        if (!Application.CanStreamedLevelBeLoaded(sceneName))
+        {
+            Debug.Log($"[漓江回声] 未在 Build Settings 找到战斗背景场景「{sceneName}」;战斗将用运行时构建背景(如需用烘焙场景,把它加入 Build Settings)。");
+            yield break;
+        }
+
+        yield return SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
+        DisablePreviewCamerasInScene(SceneManager.GetSceneByName(sceneName)); // 立即关预览相机,免得抢 XR 相机
+        Debug.Log($"[漓江回声] 已附加加载战斗背景场景「{sceneName}」,进入战斗时将自动采用。");
+    }
+
+    /// <summary>
+    /// 双模式采用:在已加载的任意场景里查找烘焙的战斗背景根(以子节点「怪物分层」为标志),
+    /// 采用则挂到 stageRoot 下、驱动其 LijiangEchoMotion 动效、把怪物抖动锚到它;返回 true。
+    /// 采用的根不加入 spawnedObjects,故 ResetStage 不会销毁它,可跨重入复用。找不到返回 false。
+    /// </summary>
+    private bool TryAdoptBakedBattleBackground()
+    {
+        if (adoptedBattleRoot == null)
+        {
+            adoptedBattleRoot = FindBakedBattleRoot();
+            if (adoptedBattleRoot == null)
+            {
+                return false;
+            }
+
+            DisablePreviewCamerasInScene(adoptedBattleRoot.gameObject.scene);
+        }
+
+        // 烘焙时各层 localPosition/scale 是相对 stageRoot 记录后在根下重建的,
+        // 故把根挂到 stageRoot 下并置为单位变换,子层即回到原本相对位置。
+        if (adoptedBattleRoot.parent != stageRoot)
+        {
+            adoptedBattleRoot.SetParent(stageRoot, false);
+            adoptedBattleRoot.localPosition = Vector3.zero;
+            adoptedBattleRoot.localRotation = Quaternion.identity;
+            adoptedBattleRoot.localScale = Vector3.one;
+        }
+
+        int motionCount = 0;
+        foreach (LijiangEchoMotion motion in adoptedBattleRoot.GetComponentsInChildren<LijiangEchoMotion>(true))
+        {
+            RegisterMotion(motion.gameObject, MapStageKitMotionKind(motion.kind), motion.amplitude, motion.speed, motion.phase);
+            motionCount++;
+        }
+
+        Transform monster = FindDeepChildByName(adoptedBattleRoot, BattleBackgroundMarkerName);
+        if (monster != null)
+        {
+            monsterRoot = monster;
+        }
+
+        Debug.Log($"[漓江回声] 战斗采用已烘焙背景「{adoptedBattleRoot.name}」,动效层 {motionCount} 个" +
+                  (motionCount == 0 ? "(未挂 LijiangEchoMotion → 背景静止;跑菜单「为战斗背景补挂动效组件」即可让它动)。" : "。"));
+        return true;
+    }
+
+    /// <summary>在所有已加载场景的根物体里,找出含「怪物分层」子节点的烘焙战斗背景根;排除本控制器 stageRoot 自身子树。</summary>
+    private Transform FindBakedBattleRoot()
+    {
+        for (int s = 0; s < SceneManager.sceneCount; s++)
+        {
+            Scene scene = SceneManager.GetSceneAt(s);
+            if (!scene.isLoaded)
+            {
+                continue;
+            }
+
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                if (stageRoot != null && (root.transform == stageRoot || root.transform.IsChildOf(stageRoot)))
+                {
+                    continue; // 跳过运行时自建内容
+                }
+
+                if (FindDeepChildByName(root.transform, BattleBackgroundMarkerName) != null)
+                {
+                    return root.transform;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Transform FindDeepChildByName(Transform current, string targetName)
+    {
+        if (current.name == targetName)
+        {
+            return current;
+        }
+
+        for (int i = 0; i < current.childCount; i++)
+        {
+            Transform found = FindDeepChildByName(current.GetChild(i), targetName);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>关掉烘焙场景里带的预览相机,避免和 XR 相机冲突。</summary>
+    private void DisablePreviewCamerasInScene(Scene scene)
+    {
+        if (!scene.IsValid())
+        {
+            return;
+        }
+
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            foreach (Camera cam in root.GetComponentsInChildren<Camera>(true))
+            {
+                cam.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    /// <summary>把 StageKit 的 MotionKind 映射到本控制器的 MotionKind(两枚举同序同名)。</summary>
+    private MotionKind MapStageKitMotionKind(LijiangEchoStageKit.MotionKind kind)
+    {
+        switch (kind)
+        {
+            case LijiangEchoStageKit.MotionKind.FloatY: return MotionKind.FloatY;
+            case LijiangEchoStageKit.MotionKind.FloatX: return MotionKind.FloatX;
+            case LijiangEchoStageKit.MotionKind.Pulse: return MotionKind.Pulse;
+            case LijiangEchoStageKit.MotionKind.Flame: return MotionKind.Flame;
+            case LijiangEchoStageKit.MotionKind.Monster: return MotionKind.Monster;
+            case LijiangEchoStageKit.MotionKind.Wing: return MotionKind.Wing;
+            case LijiangEchoStageKit.MotionKind.Hand: return MotionKind.Hand;
+            default: return MotionKind.FloatY;
+        }
+    }
+
+    /// <summary>
     /// 战斗静态舞台背景(远山/人群/怪物/火焰/祭坛/装饰手/边框)。抽成独立方法,
     /// 为后续"战斗场景化"(把这块烘焙成可在场景里直接摆位的物体)做准备。
-    /// 目前仍在 ShowBattle 里运行时构建,视觉与之前完全一致。
+    /// 未采用烘焙背景时(TryAdoptBakedBattleBackground 返回 false)运行时构建,视觉与之前完全一致。
     /// </summary>
     private void BuildBattleBackground()
     {
