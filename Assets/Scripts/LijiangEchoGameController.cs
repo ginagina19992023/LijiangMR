@@ -1781,7 +1781,7 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float HandVisualHeight = 3.3f;  // 手的显示高度(再放大些,击打时更醒目)
     // 临时诊断:true = 左右手一直可见(不再只有击打瞬间显形),方便截图确认它们停在哪、大小对不对。
     // 定好位置后改回 false 恢复"平时隐藏、击打才现"。
-    private const bool HandDebugAlwaysVisible = true;
+    private const bool HandDebugAlwaysVisible = false;
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
