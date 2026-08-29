@@ -69,6 +69,11 @@ public class LijiangEchoGameController : MonoBehaviour
         public SpriteRenderer[] GlowLayers;   // 多层加色柔光,越外层越淡
         public float[] GlowBaseAlpha;         // 每层基础亮度
         public bool Judged;
+
+        // —— Prefab 音符(可编辑纹样 Prefab):视觉完全由 Prefab 决定,运行时只驱动根位置 + 淡入 ——
+        public Transform PrefabRoot;              // 非空 = 这是 Prefab 音符
+        public SpriteRenderer[] AllRenderers;     // Prefab 里所有精灵(本体+光晕),用于统一淡入
+        public float[] AllRenderersBaseAlpha;     // 各精灵在 Prefab 里的基础透明度(保持相对关系)
     }
 
     private sealed class IntroFadeItem
@@ -2239,6 +2244,45 @@ public class LijiangEchoGameController : MonoBehaviour
             float startX = side * 2.26f;
             float targetX = 0f; // 用户反馈:音符最终飞到中心原点圆点(不再停在一侧)
             NoteKind kind = GetNoteKind(nextSpawnIndex);
+
+            // 可编辑纹样 Prefab 优先:Resources/LijiangEchoNotes/Note_鱼/鸟/蛇/蛙 存在就用它。
+            // 视觉(贴图/裁剪/大小/居中/光晕)完全由 Prefab 决定 —— 你在编辑器里怎么摆,游戏里就怎么显示;
+            // 运行时只驱动根节点飞入位置 + 整体淡入,不再有任何运行时裁剪/居中/读像素。
+            GameObject notePrefab = Resources.Load<GameObject>("LijiangEchoNotes/" + NotePrefabName(kind));
+            if (notePrefab != null)
+            {
+                GameObject inst = Instantiate(notePrefab, stageRoot, false);
+                inst.name = NotePrefabName(kind) + "_" + nextSpawnIndex;
+                inst.transform.localPosition = new Vector3(startX, 0f, -0.94f);
+                inst.transform.localRotation = Quaternion.identity;
+                spawnedObjects.Add(inst); // 交给 ResetStage 统一清理
+
+                SpriteRenderer[] rends = inst.GetComponentsInChildren<SpriteRenderer>(true);
+                float[] baseA = new float[rends.Length];
+                for (int r = 0; r < rends.Length; r++)
+                {
+                    baseA[r] = rends[r] != null ? rends[r].color.a : 1f;
+                }
+
+                RhythmNote prefabNote = new RhythmNote
+                {
+                    ChartIndex = nextSpawnIndex,
+                    HitTime = noteTimes[nextSpawnIndex],
+                    StartX = startX,
+                    TargetX = targetX,
+                    Side = side,
+                    Kind = kind,
+                    PrefabRoot = inst.transform,
+                    AllRenderers = rends,
+                    AllRenderersBaseAlpha = baseA,
+                    Renderer = rends.Length > 0 ? rends[0] : null,
+                    Judged = false
+                };
+                activeNotes.Add(prefabNote);
+                nextSpawnIndex++;
+                continue; // 用 Prefab,跳过下面的运行时代码生成
+            }
+
             // 用户反馈:单击用鱼纹。select/fish_symbol 是独立整图,传超范围矩形 → GetCroppedSprite
             // 会夹到整图,即用整张鱼纹(无需知道其像素尺寸)。
             string resourcePath = "select/fish_symbol";
@@ -2352,7 +2396,7 @@ public class LijiangEchoGameController : MonoBehaviour
         for (int i = activeNotes.Count - 1; i >= 0; i--)
         {
             RhythmNote note = activeNotes[i];
-            if (note.Renderer == null)
+            if (note.PrefabRoot == null && note.Renderer == null)
             {
                 activeNotes.RemoveAt(i);
                 continue;
@@ -2369,6 +2413,19 @@ public class LijiangEchoGameController : MonoBehaviour
                 Mathf.Lerp(note.StartX, note.TargetX, eased),
                 Mathf.Sin((normalized + note.HitTime) * Mathf.PI * 2f) * 0.022f * (1f - eased),
                 -0.94f);
+            if (note.PrefabRoot != null)
+            {
+                // Prefab 音符:视觉全由 Prefab 决定,只驱动根位置 + 整体淡入。
+                UpdatePrefabNote(note, visibleCenter, eased);
+                if (!holdActive && beatTime - note.HitTime > 0.55f)
+                {
+                    DestroyNoteObject(note);
+                    activeNotes.RemoveAt(i);
+                }
+
+                continue;
+            }
+
             SetCroppedSpritePose(
                 note.Renderer,
                 visibleCenter,
@@ -2425,9 +2482,73 @@ public class LijiangEchoGameController : MonoBehaviour
 
             if (!holdActive && beatTime - note.HitTime > 0.55f)
             {
-                Destroy(note.Renderer.gameObject);
+                DestroyNoteObject(note);
                 activeNotes.RemoveAt(i);
             }
+        }
+    }
+
+    /// <summary>音符类型 → 可编辑纹样 Prefab 名(Resources/LijiangEchoNotes/ 下)。</summary>
+    private string NotePrefabName(NoteKind kind)
+    {
+        switch (kind)
+        {
+            case NoteKind.Hold: return "Note_Snake";
+            case NoteKind.Swipe: return "Note_Frog";
+            case NoteKind.Double: return "Note_Bird";
+            default: return "Note_Fish";
+        }
+    }
+
+    /// <summary>Prefab 音符每帧驱动:根节点到飞入位置 + 整体淡入(保持各精灵在 Prefab 里的相对透明)。</summary>
+    private void UpdatePrefabNote(RhythmNote note, Vector3 pos, float eased)
+    {
+        if (note.PrefabRoot == null)
+        {
+            return;
+        }
+
+        note.PrefabRoot.localPosition = pos;
+        float appear = Mathf.Clamp01(eased / 0.6f);
+        float ringFade = Mathf.InverseLerp(0.80f, 1f, eased);
+        float mul = Mathf.Lerp(appear, 0.9f, ringFade); // 出现→进环略淡但清晰
+        if (note.AllRenderers != null)
+        {
+            for (int k = 0; k < note.AllRenderers.Length; k++)
+            {
+                SpriteRenderer sr = note.AllRenderers[k];
+                if (sr == null)
+                {
+                    continue;
+                }
+
+                float baseA = (note.AllRenderersBaseAlpha != null && k < note.AllRenderersBaseAlpha.Length)
+                    ? note.AllRenderersBaseAlpha[k]
+                    : 1f;
+                Color c = sr.color;
+                c.a = Mathf.Clamp01(baseA * mul);
+                sr.color = c;
+            }
+        }
+    }
+
+    /// <summary>销毁一个音符对象:Prefab 音符销毁整棵根,代码生成音符销毁其渲染物。</summary>
+    private void DestroyNoteObject(RhythmNote note)
+    {
+        if (note == null)
+        {
+            return;
+        }
+
+        if (note.PrefabRoot != null)
+        {
+            Destroy(note.PrefabRoot.gameObject);
+            return;
+        }
+
+        if (note.Renderer != null)
+        {
+            Destroy(note.Renderer.gameObject);
         }
     }
 
@@ -2457,7 +2578,7 @@ public class LijiangEchoGameController : MonoBehaviour
                 note.Judged = true;
                 if (note.Renderer != null)
                 {
-                    Destroy(note.Renderer.gameObject);
+                    DestroyNoteObject(note);
                 }
                 break;
             }
