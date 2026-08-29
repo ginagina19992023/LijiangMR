@@ -219,13 +219,157 @@ public class LijiangEchoChartWindow : EditorWindow
     }
 
     // ======================= 顶部工具条 =======================
+    // ======================= 音频:选择 / 准备格式 / 设为战斗音乐 =======================
+    private void DrawAudioBar()
+    {
+        using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+        {
+            GUILayout.Label("音频", GUILayout.MaxWidth(30f));
+            AudioClip picked = (AudioClip)EditorGUILayout.ObjectField(clip, typeof(AudioClip), false, GUILayout.MaxWidth(240f));
+            if (picked != clip)
+            {
+                clip = picked;
+                waveform = null;
+                onsets = null;
+                if (clip != null)
+                {
+                    clipLength = clip.length;
+                    sampleRate = Mathf.Max(1, clip.frequency);
+                    status = $"已选音频「{clip.name}」。若检测/试听没采样,点「准备音频」。";
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(clip == null))
+            {
+                if (GUILayout.Button(new GUIContent("准备音频", "设为 Decompress On Load + 预加载;mp3/其它格式都能检测/试听"), GUILayout.MaxWidth(80f)))
+                {
+                    PrepareAudio();
+                }
+
+                if (GUILayout.Button(new GUIContent("设为战斗音乐", "复制到 Resources/LijiangEchoAudio/battle_music,让运行时用这首"), GUILayout.MaxWidth(100f)))
+                {
+                    SetAsBattleMusic();
+                }
+            }
+        }
+    }
+
+    /// <summary>把选中音频的导入设置改成 Decompress On Load + 预加载,让 GetData(检测/波形/试听)能读采样。</summary>
+    private void PrepareAudio()
+    {
+        string path = AssetDatabase.GetAssetPath(clip);
+        AudioImporter importer = AssetImporter.GetAtPath(path) as AudioImporter;
+        if (importer == null)
+        {
+            status = "这不是项目里的可导入音频资源。";
+            return;
+        }
+
+        AudioImporterSampleSettings s = importer.defaultSampleSettings;
+        s.loadType = AudioClipLoadType.DecompressOnLoad; // GetData(检测/波形/试听)需要整段解码
+        importer.defaultSampleSettings = s;
+        importer.SaveAndReimport();
+
+        clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+        if (clip != null)
+        {
+            clipLength = clip.length;
+            sampleRate = Mathf.Max(1, clip.frequency);
+        }
+
+        waveform = null;
+        onsets = null;
+        status = "已把音频设为 Decompress On Load(可检测/试听)。点「检测拍子」开始。";
+    }
+
+    /// <summary>把选中音频复制成 Resources/LijiangEchoAudio/battle_music(运行时读的名字),并准备好格式。</summary>
+    private void SetAsBattleMusic()
+    {
+        string src = AssetDatabase.GetAssetPath(clip);
+        if (string.IsNullOrEmpty(src))
+        {
+            status = "音频不是项目资源,无法设为战斗音乐。";
+            return;
+        }
+
+        const string destDir = "Assets/Resources/LijiangEchoAudio";
+        if (!AssetDatabase.IsValidFolder(destDir))
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoAudio");
+        }
+
+        string ext = System.IO.Path.GetExtension(src);
+        string destDirNorm = destDir + "/";
+        if (System.IO.Path.GetFileNameWithoutExtension(src) == "battle_music" && src.Replace("\\", "/").StartsWith(destDirNorm))
+        {
+            status = "这已经是战斗音乐了(battle_music)。";
+            return;
+        }
+
+        List<string> existing = new List<string>();
+        foreach (string guid in AssetDatabase.FindAssets("battle_music t:AudioClip", new[] { destDir }))
+        {
+            string p = AssetDatabase.GUIDToAssetPath(guid);
+            if (System.IO.Path.GetFileNameWithoutExtension(p) == "battle_music")
+            {
+                existing.Add(p);
+            }
+        }
+
+        if (!EditorUtility.DisplayDialog("设为战斗音乐",
+            $"把「{clip.name}{ext}」复制成 Resources/LijiangEchoAudio/battle_music{ext},让运行时用这首。" +
+            (existing.Count > 0 ? "\n\n会先删除现有的 battle_music。" : ""), "确定", "取消"))
+        {
+            return;
+        }
+
+        foreach (string p in existing)
+        {
+            AssetDatabase.DeleteAsset(p);
+        }
+
+        string dest = destDir + "/battle_music" + ext;
+        if (!AssetDatabase.CopyAsset(src, dest))
+        {
+            status = "复制失败,请看 Console。";
+            return;
+        }
+
+        AssetDatabase.Refresh();
+        AudioImporter importer = AssetImporter.GetAtPath(dest) as AudioImporter;
+        if (importer != null)
+        {
+            AudioImporterSampleSettings s = importer.defaultSampleSettings;
+            s.loadType = AudioClipLoadType.DecompressOnLoad;
+            importer.defaultSampleSettings = s;
+            importer.SaveAndReimport();
+        }
+
+        clip = AssetDatabase.LoadAssetAtPath<AudioClip>(dest);
+        if (clip != null)
+        {
+            clipLength = clip.length;
+            sampleRate = Mathf.Max(1, clip.frequency);
+        }
+
+        waveform = null;
+        onsets = null;
+        status = $"已设为战斗音乐 battle_music{ext}(并准备好格式)。运行时会用这首;记得据它重新检测/编辑谱面。";
+    }
+
     private void DrawToolbar()
     {
         EnsureClip();
+        DrawAudioBar();
         if (clip == null)
         {
-            EditorGUILayout.HelpBox("找不到 Resources/" + LijiangEchoChartGenerator.ClipResourcePath +
-                "。请确认战斗音乐存在,并设为 Decompress On Load。", MessageType.Error);
+            EditorGUILayout.HelpBox("在上面「音频」栏选一个项目里的音频(mp3/wav/ogg 都行),再点「准备音频」。" +
+                "检测拍子/波形/试听需要 Decompress On Load。", MessageType.Info);
             return;
         }
 
