@@ -170,6 +170,13 @@ public static class LijiangEchoChartGenerator
     /// <summary>能量-通量起音检测:返回按时间升序的起音时间点(秒)。sensitivity/minGap 可由预览窗口传入。</summary>
     internal static float[] DetectOnsets(AudioClip clip, float sensitivity, float minGap, out int frameCount)
     {
+        return DetectOnsets(clip, sensitivity, minGap, out frameCount, out _);
+    }
+
+    /// <summary>同上,并额外输出每个起音点的强度(通量),供"取最强 N 个"排序用。</summary>
+    internal static float[] DetectOnsets(AudioClip clip, float sensitivity, float minGap, out int frameCount, out float[] strengths)
+    {
+        strengths = null;
         frameCount = 0;
         int channels = clip.channels;
         int sampleRate = clip.frequency;
@@ -224,6 +231,7 @@ public static class LijiangEchoChartGenerator
 
         // 局部自适应阈值 + 峰值挑选 + 最小间隔
         List<float> onsets = new List<float>();
+        List<float> str = new List<float>();
         const int meanWin = 20;
         float lastOnset = -10f;
         for (int f = 2; f < frames - 1; f++)
@@ -245,12 +253,62 @@ public static class LijiangEchoChartGenerator
                 if (t - lastOnset >= minGap)
                 {
                     onsets.Add(t);
+                    str.Add(flux[f]);
                     lastOnset = t;
                 }
             }
         }
 
+        strengths = str.ToArray();
         return onsets.ToArray();
+    }
+
+    /// <summary>把整曲时长等分成 count 个拍子(居中于每段),不看音乐内容。"按数量切分"。</summary>
+    internal static float[] EvenlySpacedBeats(float clipLength, int count)
+    {
+        if (clipLength <= 0f || count <= 0)
+        {
+            return new float[0];
+        }
+
+        float[] t = new float[count];
+        for (int i = 0; i < count; i++)
+        {
+            t[i] = clipLength * (i + 0.5f) / count;
+        }
+
+        return t;
+    }
+
+    /// <summary>检测起音后,按强度只保留最强的 topN 个(再按时间升序)。topN&lt;=0 或不足则全保留。</summary>
+    internal static float[] DetectTopOnsets(AudioClip clip, float sensitivity, float minGap, int topN, out int frameCount)
+    {
+        float[] times = DetectOnsets(clip, sensitivity, minGap, out frameCount, out float[] strengths);
+        if (times == null)
+        {
+            return null;
+        }
+
+        if (topN <= 0 || times.Length <= topN || strengths == null || strengths.Length != times.Length)
+        {
+            return times;
+        }
+
+        List<KeyValuePair<float, float>> pairs = new List<KeyValuePair<float, float>>(); // (时间, 强度)
+        for (int i = 0; i < times.Length; i++)
+        {
+            pairs.Add(new KeyValuePair<float, float>(times[i], strengths[i]));
+        }
+
+        pairs.Sort((x, y) => y.Value.CompareTo(x.Value)); // 强度降序
+        List<float> kept = new List<float>();
+        for (int i = 0; i < topN && i < pairs.Count; i++)
+        {
+            kept.Add(pairs[i].Key);
+        }
+
+        kept.Sort();
+        return kept.ToArray();
     }
 
     /// <summary>

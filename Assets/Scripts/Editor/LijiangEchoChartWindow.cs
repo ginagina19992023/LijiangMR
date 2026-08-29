@@ -24,6 +24,7 @@ public class LijiangEchoChartWindow : EditorWindow
     // —— 检测参数 ——
     private float sensitivity = 1.5f;
     private float minGap = 0.16f;
+    private int targetBeatCount = 64; // 目标拍子数(按数量生成/切分)
 
     // —— 数据模型:逐音符(时间, 类型) ——
     private readonly List<float> noteTimes = new List<float>();
@@ -496,6 +497,21 @@ public class LijiangEchoChartWindow : EditorWindow
 
         using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
         {
+            GUILayout.Label(new GUIContent("目标拍子数", "按这个数量生成音符"), GUILayout.MaxWidth(70f));
+            targetBeatCount = Mathf.Clamp(EditorGUILayout.IntField(targetBeatCount, GUILayout.MaxWidth(70f)), 1, 5000);
+            if (GUILayout.Button(new GUIContent("均匀切N个", "按时长等分成 N 个音符(不看音乐,规整节奏)"), GUILayout.Height(22f)))
+            {
+                RebuildEvenly();
+            }
+
+            if (GUILayout.Button(new GUIContent("取最强N个拍子", "检测起音后只保留最强的 N 个(跟着音乐)"), GUILayout.Height(22f)))
+            {
+                DetectTopN();
+            }
+        }
+
+        using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+        {
             if (GUILayout.Button(isPlaying ? "⏸ 停止" : "▶ 从播放头播放", GUILayout.Height(22f), GUILayout.MaxWidth(150f)))
             {
                 if (isPlaying)
@@ -873,6 +889,70 @@ public class LijiangEchoChartWindow : EditorWindow
         }
 
         status = $"检测到 {onsets.Length} 个拍子(浅色参考点)。可「用检测点重建」或手动加音符对齐它们。";
+    }
+
+    /// <summary>按时长把整曲均匀切成 targetBeatCount 个音符(全单击)。</summary>
+    private void RebuildEvenly()
+    {
+        EnsureClip();
+        if (clip == null || clipLength <= 0f)
+        {
+            status = "先在「音频」栏选一首音频。";
+            return;
+        }
+
+        float[] t = LijiangEchoChartGenerator.EvenlySpacedBeats(clipLength, targetBeatCount);
+        noteTimes.Clear();
+        noteTypes.Clear();
+        foreach (float x in t)
+        {
+            noteTimes.Add(x);
+            noteTypes.Add("single");
+        }
+
+        selected = -1;
+        status = $"已按时长均匀切成 {noteTimes.Count} 个音符(全单击),逐个改类型后保存。";
+    }
+
+    /// <summary>检测起音,只保留最强的 targetBeatCount 个,直接生成音符(全单击)。</summary>
+    private void DetectTopN()
+    {
+        EnsureClip();
+        if (clip == null)
+        {
+            status = "先在「音频」栏选一首音频。";
+            return;
+        }
+
+        if (!ClipReady())
+        {
+            PrepareAudio();
+        }
+
+        if (!ClipReady())
+        {
+            status = "此音频无法读采样,换一首或转成 WAV。";
+            return;
+        }
+
+        onsets = LijiangEchoChartGenerator.DetectTopOnsets(clip, sensitivity, minGap, targetBeatCount, out int _);
+        waveform = LijiangEchoChartGenerator.BuildWaveformEnvelope(clip, WaveformBuckets);
+        if (onsets == null)
+        {
+            status = "读采样失败:请把音频设为 Decompress On Load。";
+            return;
+        }
+
+        noteTimes.Clear();
+        noteTypes.Clear();
+        foreach (float x in onsets)
+        {
+            noteTimes.Add(x);
+            noteTypes.Add("single");
+        }
+
+        selected = -1;
+        status = $"已取最强 {noteTimes.Count} 个拍子(全单击);拍子偏少可调低灵敏度/最小间隔再试。";
     }
 
     private void RebuildFromOnsets()
