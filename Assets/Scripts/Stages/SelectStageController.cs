@@ -14,8 +14,9 @@ using UnityEngine.InputSystem;
 public class SelectStageController : MonoBehaviour
 {
     private const int LevelCount = 3;
-    private const float CardSpacing = 2.2f;   // 相邻卡片中心的水平间距
-    private const float CardWidth = 1.9f;      // 单张卡片(及其纹样)拟合宽度
+    private const float CardWidth = 6.05f;      // 单张卡片(及其纹样)拟合宽度——与旧版一致,基本铺满画面
+    private const float CardSpacing = 5.6f;     // 卡片布局间距(≈一张卡宽,一次基本只居中一张,邻卡在边缘微露)
+    private const float DragUnit = 2.0f;         // 拖动灵敏度:拖约 2 个单位 = 换一张卡(和布局间距解耦,避免大卡拖起来迟钝)
     private const float GroupBaseZ = -0.12f;
     private const float NumberInCardY = -0.34f;
 
@@ -108,7 +109,7 @@ public class SelectStageController : MonoBehaviour
 
                 if (dragging)
                 {
-                    scroll -= dx / CardSpacing; // 指针右移 → 卡片右移 → scroll 减小
+                    scroll -= dx / DragUnit; // 指针右移 → 卡片右移 → scroll 减小
                 }
 
                 lastPointerX = pointer.x;
@@ -241,9 +242,9 @@ public class SelectStageController : MonoBehaviour
 
             Transform g = cardGroups[i];
             g.localPosition = new Vector3(v * CardSpacing, -0.02f, GroupBaseZ - focus * 0.03f);
-            g.localScale = Vector3.one * Mathf.Lerp(0.8f, 1.12f, focus); // 中心放大
+            g.localScale = Vector3.one * Mathf.Lerp(0.9f, 1f, focus); // 大卡:中心足尺,侧卡略缩(避免放大溢出画面)
 
-            float alpha = edge * Mathf.Lerp(0.72f, 1f, focus);
+            float alpha = edge * Mathf.Lerp(0.5f, 1f, focus);
             int lift = Mathf.RoundToInt(focus * 30f);          // 中心卡整体抬到侧卡之上
             SpriteRenderer[] rends = groupRenderers[i];
             int[] baseO = groupBaseOrders[i];
