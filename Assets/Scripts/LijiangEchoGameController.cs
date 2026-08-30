@@ -118,7 +118,10 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float MainCanvasWidth = 5.65f;
     private const float WideStripWidth = 6.05f;
     private const float IntroWalkDuration = 38.85f;
-    private const float IntroTotalDuration = 57f;
+    // 视频段(悬浮过场之后的入关动画)推进:优先等视频真正播完(不再被总时长硬砍断);
+    // 视频迟迟没开始播(坏/无资源)= 判定跳过,避免长时间黑屏;再加一个绝对上限兜底。
+    private const float PreLevelNoVideoSkip = 2.5f;  // 进入视频段 2.5s 还没开始播 → 跳过(短黑屏)
+    private const float PreLevelSafetyCap = 60f;     // 视频段绝对上限,防异常长视频卡住
     private const float NoteApproachTime = 1.22f;
     // 用户反馈:纹样音符整体做小一些的缩放系数。
     private const float NoteSizeScale = 0.72f;
@@ -1060,9 +1063,21 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         UpdateIntroPreLevelStage();
-        if (introPreLevelFinished || stageTimer > IntroTotalDuration)
+
+        float videoElapsed = stageTimer - IntroWalkDuration;                 // 进入视频段的时长
+        bool videoPlaying = introVideoPlayer != null && introVideoPlayer.isPlaying;
+
+        if (introPreLevelFinished)
         {
-            ShowTrace();
+            ShowTrace();                                                     // 视频正常播完 → 进关(完整播放,不砍断)
+        }
+        else if (!videoPlaying && videoElapsed > PreLevelNoVideoSkip)
+        {
+            ShowTrace();                                                     // 视频没能开始播(坏/无资源)→ 短暂黑屏后跳过,不再长时间黑屏
+        }
+        else if (videoElapsed > PreLevelSafetyCap)
+        {
+            ShowTrace();                                                     // 极端兜底
         }
     }
 
