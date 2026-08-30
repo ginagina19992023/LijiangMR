@@ -75,6 +75,12 @@ public class LijiangEchoGameController : MonoBehaviour
         public Transform PrefabRoot;              // 非空 = 这是 Prefab 音符
         public SpriteRenderer[] AllRenderers;     // Prefab 里所有精灵(本体+光晕),用于统一淡入
         public float[] AllRenderersBaseAlpha;     // 各精灵在 Prefab 里的基础透明度(保持相对关系)
+
+        // —— 双击「镜像汇合」分身(仅 doubleNoteMirrorConverge=true 时存在):从对侧镜像飞入的纯视觉副本,
+        //    不参与判定;和本体同步淡入、对称移动,在圆心与本体汇合。 ——
+        public Transform MirrorTwin;
+        public SpriteRenderer[] MirrorTwinRenderers;
+        public float[] MirrorTwinBaseAlpha;
     }
 
     private sealed class IntroFadeItem
@@ -450,6 +456,14 @@ public class LijiangEchoGameController : MonoBehaviour
         instance = this;
         DontDestroyOnLoad(gameObject);
         EnsureAudioSources();
+
+        // 读战斗选项资源(Resources/LijiangEchoBattleSettings)。审核组员在该资源上勾选即可生效,
+        // 无需改代码;资源不存在时保持代码默认值。
+        LijiangEchoBattleSettings settings = LijiangEchoBattleSettings.Load();
+        if (settings != null)
+        {
+            doubleNoteMirrorConverge = settings.doubleNoteMirrorConverge;
+        }
     }
 
     private IEnumerator Start()
@@ -1783,6 +1797,14 @@ public class LijiangEchoGameController : MonoBehaviour
     // 定好位置后改回 false 恢复"平时隐藏、击打才现"。
     private const bool HandDebugAlwaysVisible = false;
 
+    // 双击(鸟纹)飞入样式:
+    //   false = 沿用单侧飞入(默认,和其它音符一致:从左或右一侧飞到圆心)
+    //   true  = 「镜像汇合」:本体从一侧飞入,另生成一只对侧镜像分身,两只对称飞向圆心汇合,强化"双击成对"意象
+    // 审核组员【不用改代码】:在 Resources/LijiangEchoBattleSettings 资源上勾选即可(见 LijiangEchoBattleSettings)。
+    // 找不到该资源时用这里的默认值兜底。
+    private const bool DoubleNoteMirrorConvergeDefault = false;
+    private bool doubleNoteMirrorConverge = DoubleNoteMirrorConvergeDefault;
+
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
     {
@@ -1833,11 +1855,15 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private void UpdateBattleHands()
     {
-        UpdateBattleHand(leftHandPivot, leftHandRenderer, ref leftHandStrikeTimer, -1f);
-        UpdateBattleHand(rightHandPivot, rightHandRenderer, ref rightHandStrikeTimer, 1f);
+        // 长按期间,对应一侧的手要"停留在击打顶点"直到松手/时长到 —— 由当前 holdActive + 该音符所在侧
+        // 派生(松手/完成后 holdActive 变 false,手自然落回),无需在各处手动清标志。
+        bool holdingLeft = holdActive && heldNote != null && heldNote.Side <= 0f;
+        bool holdingRight = holdActive && heldNote != null && heldNote.Side > 0f;
+        UpdateBattleHand(leftHandPivot, leftHandRenderer, ref leftHandStrikeTimer, holdingLeft, -1f);
+        UpdateBattleHand(rightHandPivot, rightHandRenderer, ref rightHandStrikeTimer, holdingRight, 1f);
     }
 
-    private void UpdateBattleHand(Transform pivot, SpriteRenderer hand, ref float timer, float sideSign)
+    private void UpdateBattleHand(Transform pivot, SpriteRenderer hand, ref float timer, bool holding, float sideSign)
     {
         if (pivot == null)
         {
@@ -1850,9 +1876,21 @@ public class LijiangEchoGameController : MonoBehaviour
         float alpha = 0f; // 平时全透明(VR 里镜头外也看得见,靠透明来隐藏)
         if (timer > 0f)
         {
-            timer -= Time.deltaTime;
+            // 普通击打:progress 0→1,swing = sin(progress·π) = 0→1→0(升起→落回)。
+            // 长按:升到顶点(progress=0.5,swing=1)后把 timer 冻结在半程,让手停在圆环上;
+            //       松手/时长到 → holding=false → timer 继续走完后半程 → 手落回并淡出。
             float progress = 1f - Mathf.Clamp01(timer / HandStrikeDuration);
-            float swing = Mathf.Sin(progress * Mathf.PI); // 0→1→0:向上击打再落回
+            if (holding && progress >= 0.5f)
+            {
+                timer = HandStrikeDuration * 0.5f; // 钉在顶点保持
+                progress = 0.5f;
+            }
+            else
+            {
+                timer -= Time.deltaTime;
+            }
+
+            float swing = Mathf.Sin(progress * Mathf.PI);
             angle = Mathf.Lerp(rest, strike, swing);
             alpha = Mathf.Clamp01(swing * 2.2f); // 挥起时更早显现、看得更清,落回时淡出
         }
@@ -2346,6 +2384,31 @@ public class LijiangEchoGameController : MonoBehaviour
                     Renderer = rends.Length > 0 ? rends[0] : null,
                     Judged = false
                 };
+
+                // 双击「镜像汇合」:再生成一只对侧、水平镜像的纯视觉分身,和本体对称飞向圆心。
+                // 只是视觉,不进 activeNotes、不参与判定;随本体一起淡入、一起销毁。
+                if (doubleNoteMirrorConverge && kind == NoteKind.Double)
+                {
+                    GameObject twin = Instantiate(notePrefab, stageRoot, false);
+                    twin.name = inst.name + "_镜像分身";
+                    twin.transform.localPosition = new Vector3(-startX, 0f, -0.94f);
+                    twin.transform.localRotation = Quaternion.identity;
+                    Vector3 ts = twin.transform.localScale;
+                    twin.transform.localScale = new Vector3(-Mathf.Abs(ts.x), ts.y, ts.z); // 水平镜像
+                    spawnedObjects.Add(twin);
+
+                    SpriteRenderer[] twinRends = twin.GetComponentsInChildren<SpriteRenderer>(true);
+                    float[] twinBaseA = new float[twinRends.Length];
+                    for (int r = 0; r < twinRends.Length; r++)
+                    {
+                        twinBaseA[r] = twinRends[r] != null ? twinRends[r].color.a : 1f;
+                    }
+
+                    prefabNote.MirrorTwin = twin.transform;
+                    prefabNote.MirrorTwinRenderers = twinRends;
+                    prefabNote.MirrorTwinBaseAlpha = twinBaseA;
+                }
+
                 activeNotes.Add(prefabNote);
                 nextSpawnIndex++;
                 continue; // 用 Prefab,跳过下面的运行时代码生成
@@ -2731,6 +2794,30 @@ public class LijiangEchoGameController : MonoBehaviour
                 sr.color = c;
             }
         }
+
+        // 双击镜像分身:对称位置(x 取反),同步淡入。
+        if (note.MirrorTwin != null)
+        {
+            note.MirrorTwin.localPosition = new Vector3(-pos.x, pos.y, pos.z);
+            if (note.MirrorTwinRenderers != null)
+            {
+                for (int k = 0; k < note.MirrorTwinRenderers.Length; k++)
+                {
+                    SpriteRenderer sr = note.MirrorTwinRenderers[k];
+                    if (sr == null)
+                    {
+                        continue;
+                    }
+
+                    float baseA = (note.MirrorTwinBaseAlpha != null && k < note.MirrorTwinBaseAlpha.Length)
+                        ? note.MirrorTwinBaseAlpha[k]
+                        : 1f;
+                    Color c = sr.color;
+                    c.a = Mathf.Clamp01(baseA * mul);
+                    sr.color = c;
+                }
+            }
+        }
     }
 
     /// <summary>销毁一个音符对象:Prefab 音符销毁整棵根,代码生成音符销毁其渲染物。</summary>
@@ -2739,6 +2826,11 @@ public class LijiangEchoGameController : MonoBehaviour
         if (note == null)
         {
             return;
+        }
+
+        if (note.MirrorTwin != null)
+        {
+            Destroy(note.MirrorTwin.gameObject); // 双击镜像分身随本体一起清理
         }
 
         if (note.PrefabRoot != null)
@@ -2789,8 +2881,13 @@ public class LijiangEchoGameController : MonoBehaviour
             }
         }
 
-        // 触发左右手挥击:双击两手一起,否则按该音符的一侧
-        TriggerHandStrike(hitKind == NoteKind.Double ? 0f : hitSide);
+        // 触发左右手挥击:双击两手一起,否则按该音符的一侧。
+        // 长按完成不再重挥 —— 让长按期间钉在顶点的手自然落回(见 UpdateBattleHand),
+        // 避免"顶点→重新起挥"的跳变。
+        if (hitKind != NoteKind.Hold)
+        {
+            TriggerHandStrike(hitKind == NoteKind.Double ? 0f : hitSide);
+        }
 
         nextNoteIndex++;
         holdActive = false;
@@ -3208,11 +3305,9 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private bool BattleSwipePerformed()
     {
+        // 蛙纹标准动作已定为「上挑」:无头显调试时用 ↑ 键代表向上挥。
         bool keyboardSwipe = Keyboard.current != null &&
-                             (Keyboard.current.leftArrowKey.wasPressedThisFrame ||
-                              Keyboard.current.rightArrowKey.wasPressedThisFrame ||
-                              Keyboard.current.upArrowKey.wasPressedThisFrame ||
-                              Keyboard.current.downArrowKey.wasPressedThisFrame);
+                             Keyboard.current.upArrowKey.wasPressedThisFrame;
         bool mouseSwipe = Mouse.current != null && Mouse.current.leftButton.isPressed &&
                           Mouse.current.delta.ReadValue().sqrMagnitude >= 64f;
         if (keyboardSwipe || mouseSwipe)
@@ -3280,9 +3375,9 @@ public class LijiangEchoGameController : MonoBehaviour
         float inwardVelocity = noteSide < 0f ? localVelocity.x : -localVelocity.x;
         if (strictSwipe)
         {
-            return inwardVelocity >= 0.28f ||
-                   Mathf.Abs(localVelocity.y) >= 0.52f ||
-                   Mathf.Abs(localVelocity.z) >= 0.52f;
+            // 蛙纹(挥划)标准动作 = 上挑(向上挥),对应「青蛙上跳」意象:只认明显向上的挥动,
+            // 不再吃向下/向内/前后,让动作唯一、直观。(整体速度已由上面的 minimumSpeed 把关。)
+            return localVelocity.y >= 0.50f;
         }
 
         return inwardVelocity >= 0.12f ||
