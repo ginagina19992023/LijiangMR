@@ -436,6 +436,40 @@ public static class LijiangEchoStageKit
         return leftHover || rightHover;
     }
 
+    /// <summary>取当前「活动指针」在 stageRoot 局部平面上的落点 + 是否处于按住状态(扳机/鼠标左键)。
+    /// 哪只手扳机压得深就用哪只;编辑器下退回鼠标。供选关滚轮做「摁住左右拖滑」。</summary>
+    public static bool TryGetActivePointer(Transform stageRoot, out Vector3 localPoint, out bool held)
+    {
+        bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
+                        (!leftControllerTracked && rightControllerTracked);
+        Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = useRight ? rightControllerTracked : leftControllerTracked;
+        held = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.35f;
+
+        if (tracked && controller != null && TryProjectControllerRay(stageRoot, controller, out localPoint))
+        {
+            return true;
+        }
+
+        if (Mouse.current != null && stageRoot != null)
+        {
+            Camera cam = FindGameplayCamera();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                if (TryProjectRay(stageRoot, ray, out localPoint))
+                {
+                    held = Mouse.current.leftButton.isPressed;
+                    return true;
+                }
+            }
+        }
+
+        localPoint = Vector3.zero;
+        held = false;
+        return false;
+    }
+
     public static bool NonPointerConfirmPressed()
     {
         bool keyboardPressed = Keyboard.current != null &&

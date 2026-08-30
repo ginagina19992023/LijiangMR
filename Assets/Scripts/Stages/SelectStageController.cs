@@ -4,12 +4,21 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// 选关阶段场景（Stage_Select）的控制器，对应旧 LijiangEchoGameController 里的
-/// ShowSelect/UpdateSelect/UpdateSelectedCardVisual。确认选中的关卡后，
-/// 通过 LijiangEchoGameFlow 桥接进入尚未拆分的旧版流程（从过场动画开始）。
+/// 选关阶段场景（Stage_Select）的控制器。选关做成「三槽轮换」的无缝循环滚轮：
+///   · 三张满屏关卡背景图(蛙/鸟/鱼)按与中心的距离交叉淡入,中心那关最亮;
+///   · 下方一排数字 token 就是滚轮上的三个「槽」,随滚动量 scroll 连续左右移动;
+///   · 首尾相接循环——鱼纹再往右滑就接回蛙纹,滑过边缝时 token 已淡出,看不出接缝;
+///   · 交互:摁住扳机(或鼠标)左右拖滑连续滚动,松手吸附到最近一关;轻点/按 A/空格/回车 = 确认中心关;
+///     推杆/方向键 = 步进一关;键盘 1/2/3 = 直选。
+/// 满屏大图只做 alpha 交叉淡入、不做位移缩放,避免 VR 里畸变。确认后经 LijiangEchoGameFlow 进旧版流程。
 /// </summary>
 public class SelectStageController : MonoBehaviour
 {
+    private const int LevelCount = 3;
+    private const float SlotSpacing = 1.33f;   // 相邻槽的水平间距(与旧版 1/2/3 位置一致)
+    private const float TokenY = -0.46f;
+    private const float TokenZ = -0.18f;
+
     private static readonly string[] LevelNames = { "蛙纹", "鸟纹", "鱼纹" };
 
     private static readonly string[] LevelCardPaths =
@@ -33,21 +42,28 @@ public class SelectStageController : MonoBehaviour
         "ui/number_3"
     };
 
-    private static readonly Vector3[] SelectNumberPositions =
-    {
-        new Vector3(-1.33f, -0.46f, -0.18f),
-        new Vector3(0f, -0.46f, -0.18f),
-        new Vector3(1.33f, -0.46f, -0.18f)
-    };
-
     private Transform stageRoot;
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<LijiangEchoStageKit.MotionItem> motionItems = new List<LijiangEchoStageKit.MotionItem>();
+
     private SpriteRenderer[] selectCards;
+    private SpriteRenderer[] selectSymbols;
     private SpriteRenderer[] selectNumbers;
+    private Transform[] numberTokens;
+    private Vector3[] numberTokenBaseScale;
+
     private int selectedLevel;
-    private float selectMoveCooldown;
     private bool confirmed;
+
+    // —— 滚轮状态 ——
+    private float scroll;         // 连续滚动量(单位:关卡);Mod(round(scroll),3) 即中心关
+    private float scrollTarget;   // 松手/步进后要缓动吸附到的整数目标
+    private float stepCooldown;
+    private bool pressActive;     // 本次按住是否已开始
+    private bool dragging;        // 本次按住是否已判定为「拖动」(而非轻点)
+    private float lastPointerX;
+    private float dragDistance;
+    private int lastCenteredLevel = -1;
 
     private IEnumerator Start()
     {
@@ -67,68 +83,102 @@ public class SelectStageController : MonoBehaviour
             return;
         }
 
-        selectMoveCooldown -= Time.deltaTime;
+        float dt = Time.deltaTime;
+        stepCooldown -= dt;
         LijiangEchoStageKit.UpdateControllerInput(stageRoot);
         LijiangEchoStageKit.UpdateMotions(motionItems);
 
-        for (int i = 0; i < SelectNumberPositions.Length; i++)
+        // —— 摁住左右拖滑 ——
+        bool hasPointer = LijiangEchoStageKit.TryGetActivePointer(stageRoot, out Vector3 pointer, out bool held);
+        if (hasPointer && held)
         {
-            Rect cardBounds = new Rect(SelectNumberPositions[i].x - 0.58f, -0.82f, 1.16f, 1.48f);
-            if (!LijiangEchoStageKit.TryGetControllerHover(stageRoot, cardBounds, out bool pointerPressed))
+            if (!pressActive)
             {
-                continue;
+                pressActive = true;
+                dragging = false;
+                dragDistance = 0f;
+                lastPointerX = pointer.x;
             }
-
-            if (selectedLevel != i)
+            else
             {
-                selectedLevel = i;
-                UpdateSelectedCardVisual();
-            }
+                float dx = pointer.x - lastPointerX;
+                dragDistance += Mathf.Abs(dx);
+                if (dragDistance > 0.06f)
+                {
+                    dragging = true;
+                }
 
-            if (pointerPressed)
-            {
-                Confirm();
-                return;
+                if (dragging)
+                {
+                    scroll -= dx / SlotSpacing; // 指针右移 → 内容右移 → scroll 减小
+                }
+
+                lastPointerX = pointer.x;
             }
         }
-
-        int direction = LijiangEchoStageKit.ReadHorizontalStep();
-        if (direction != 0 && selectMoveCooldown <= 0f)
+        else
         {
-            selectedLevel = Mathf.Clamp(selectedLevel + direction, 0, LevelNames.Length - 1);
-            selectMoveCooldown = 0.25f;
-            LijiangEchoStageKit.PlaySfx("swipe", 0.34f);
-            UpdateSelectedCardVisual();
+            if (pressActive)
+            {
+                if (!dragging)
+                {
+                    Confirm(); // 轻点(按下即松、没拖动)= 确认中心关
+                    return;
+                }
+
+                scrollTarget = Mathf.Round(scroll); // 拖动结束 → 吸附到最近一关
+            }
+
+            pressActive = false;
+            dragging = false;
+            scroll = Mathf.Lerp(scroll, scrollTarget, 1f - Mathf.Exp(-14f * dt)); // 非拖动时缓动吸附
         }
 
+        // —— 推杆 / 方向键:步进一关(可越界循环) ——
+        int dir = LijiangEchoStageKit.ReadHorizontalStep();
+        if (dir != 0 && stepCooldown <= 0f)
+        {
+            scrollTarget = Mathf.Round(scrollTarget) + dir;
+            stepCooldown = 0.22f;
+        }
+
+        // —— 键盘 1/2/3:直选,并走最近方向(保持循环观感) ——
         if (Keyboard.current != null)
         {
-            if (Keyboard.current.digit1Key.wasPressedThisFrame)
+            int digit = Keyboard.current.digit1Key.wasPressedThisFrame ? 0
+                : Keyboard.current.digit2Key.wasPressedThisFrame ? 1
+                : Keyboard.current.digit3Key.wasPressedThisFrame ? 2 : -1;
+            if (digit >= 0)
             {
-                selectedLevel = 0;
-                UpdateSelectedCardVisual();
-            }
-            else if (Keyboard.current.digit2Key.wasPressedThisFrame)
-            {
-                selectedLevel = 1;
-                UpdateSelectedCardVisual();
-            }
-            else if (Keyboard.current.digit3Key.wasPressedThisFrame)
-            {
-                selectedLevel = 2;
-                UpdateSelectedCardVisual();
+                int cur = Mod(Mathf.RoundToInt(scroll), LevelCount);
+                int diff = Mod(digit - cur + 1, LevelCount) - 1; // -1 / 0 / +1
+                scrollTarget = Mathf.Round(scroll) + diff;
             }
         }
 
-        if (LijiangEchoStageKit.NonPointerConfirmPressed())
+        // —— A键 / 空格 / 回车 / 鼠标(非拖动时):确认中心关 ——
+        if (!pressActive && LijiangEchoStageKit.NonPointerConfirmPressed())
         {
             Confirm();
+            return;
         }
+
+        // 中心关变化 → 更新选中 + 轻音效
+        int centered = Mod(Mathf.RoundToInt(scroll), LevelCount);
+        if (centered != lastCenteredLevel)
+        {
+            lastCenteredLevel = centered;
+            LijiangEchoStageKit.PlaySfx("swipe", 0.3f);
+        }
+
+        selectedLevel = centered;
+        LayoutWheel();
     }
 
     private void Confirm()
     {
         confirmed = true;
+        selectedLevel = Mod(Mathf.RoundToInt(scroll), LevelCount);
         LijiangEchoStageKit.PlaySfx("button", 0.62f);
         LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
     }
@@ -141,18 +191,21 @@ public class SelectStageController : MonoBehaviour
         AddLayer("select/select_line", "选关连接线", new Vector3(0f, -0.02f, -0.03f), LijiangEchoStageKit.WideStripWidth, -6, 0.92f);
         AddLayer("select/select_edge", "选关两侧色块", new Vector3(0f, -0.02f, -0.04f), LijiangEchoStageKit.WideStripWidth, -5, 0.72f);
 
-        selectCards = new SpriteRenderer[LevelCardPaths.Length];
-        selectNumbers = new SpriteRenderer[LevelNumberPaths.Length];
-        for (int i = 0; i < LevelCardPaths.Length; i++)
+        selectCards = new SpriteRenderer[LevelCount];
+        selectSymbols = new SpriteRenderer[LevelCount];
+        selectNumbers = new SpriteRenderer[LevelCount];
+        numberTokens = new Transform[LevelCount];
+        numberTokenBaseScale = new Vector3[LevelCount];
+
+        // 满屏关卡背景 + 纹样:都摆在 x=0,靠 alpha 交叉淡入(不做位移/缩放,VR 安全)。
+        for (int i = 0; i < LevelCount; i++)
         {
             GameObject card = AddLayer(LevelCardPaths[i], "选关卡片_" + LevelNames[i], new Vector3(0f, -0.02f, -0.08f - i * 0.01f), LijiangEchoStageKit.WideStripWidth, 2 + i);
             selectCards[i] = card.GetComponent<SpriteRenderer>();
 
             GameObject symbol = AddLayer(LevelSymbolPaths[i], "选关纹样_" + LevelNames[i], new Vector3(0f, -0.02f, -0.13f - i * 0.01f), LijiangEchoStageKit.WideStripWidth, 8 + i, 0.92f);
+            selectSymbols[i] = symbol.GetComponent<SpriteRenderer>();
             RegisterMotion(symbol, LijiangEchoStageKit.MotionKind.FloatY, 0.018f, 1.6f, i * 1.3f);
-
-            GameObject number = AddIcon(LevelNumberPaths[i], "关卡数字_" + (i + 1), SelectNumberPositions[i], 0.18f, 18);
-            selectNumbers[i] = number.GetComponent<SpriteRenderer>();
         }
 
         AddLayer("select/bird_left_symbol", "左侧鸟纹装饰", new Vector3(0f, -0.02f, -0.16f), LijiangEchoStageKit.WideStripWidth, 13, 0.78f);
@@ -162,27 +215,71 @@ public class SelectStageController : MonoBehaviour
         AddLayer("select/select_border", "选关外框", new Vector3(0f, -0.02f, -0.2f), LijiangEchoStageKit.WideStripWidth, 20, 0.92f);
         AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.25f), 0.24f, 30, 0.88f);
 
-        UpdateSelectedCardVisual();
+        // 滚轮上的数字 token:随 scroll 连续在三个槽间移动、循环。
+        for (int i = 0; i < LevelCount; i++)
+        {
+            GameObject number = AddIcon(LevelNumberPaths[i], "关卡数字_" + (i + 1), new Vector3(0f, TokenY, TokenZ), 0.2f, 24);
+            numberTokens[i] = number.transform;
+            numberTokenBaseScale[i] = number.transform.localScale;
+            selectNumbers[i] = number.GetComponent<SpriteRenderer>();
+        }
+
+        LayoutWheel();
     }
 
-    private void UpdateSelectedCardVisual()
+    private void LayoutWheel()
     {
         if (selectCards == null)
         {
             return;
         }
 
-        for (int i = 0; i < selectCards.Length; i++)
+        for (int i = 0; i < LevelCount; i++)
         {
-            bool selected = i == selectedLevel;
-            selectCards[i].color = selected ? Color.white : new Color(1f, 1f, 1f, 0.52f);
+            // v ∈ (-1.5, 1.5]:关卡 i 相对中心的「槽偏移」,首尾相接(循环)。
+            float v = Mathf.Repeat((i - scroll) + 1.5f, LevelCount) - 1.5f;
+            float av = Mathf.Abs(v);
+            float focus = 1f - Mathf.Clamp01(av);                 // 1=正中心, 0=一个槽以外
+            float edge = Mathf.InverseLerp(1.5f, 1.05f, av);      // 接近边缝(±1.5)时淡出,循环无缝
 
-            if (selectNumbers != null && i < selectNumbers.Length && selectNumbers[i] != null)
+            // 满屏背景 + 纹样:交叉淡入(中心关最亮)
+            float cardAlpha = Mathf.Lerp(0.26f, 1f, focus);
+            SetAlpha(selectCards[i], cardAlpha);
+            if (selectSymbols != null && i < selectSymbols.Length)
             {
-                selectNumbers[i].color = selected ? Color.white : new Color(1f, 1f, 1f, 0.35f);
-                selectNumbers[i].transform.localScale = Vector3.one * (selected ? 0.23f : 0.18f);
+                SetAlpha(selectSymbols[i], cardAlpha * 0.95f);
+            }
+
+            // 数字 token:随 v 连续平移 + 中心放大 + 边缝淡出
+            if (numberTokens != null && numberTokens[i] != null)
+            {
+                numberTokens[i].localPosition = new Vector3(v * SlotSpacing, TokenY, TokenZ);
+                numberTokens[i].localScale = numberTokenBaseScale[i] * Mathf.Lerp(0.72f, 1.18f, focus);
+            }
+
+            if (selectNumbers != null && i < selectNumbers.Length)
+            {
+                SetAlpha(selectNumbers[i], Mathf.Lerp(0.4f, 1f, focus) * edge);
             }
         }
+    }
+
+    private static void SetAlpha(SpriteRenderer renderer, float alpha)
+    {
+        if (renderer == null)
+        {
+            return;
+        }
+
+        Color c = renderer.color;
+        c.a = alpha;
+        renderer.color = c;
+    }
+
+    private static int Mod(int value, int modulus)
+    {
+        int r = value % modulus;
+        return r < 0 ? r + modulus : r;
     }
 
     private GameObject AddLayer(string resourcePath, string objectName, Vector3 localPosition, float targetWidth, int order, float alpha = 1f)
