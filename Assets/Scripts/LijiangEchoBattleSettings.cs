@@ -35,6 +35,11 @@ public class LijiangEchoBattleSettings : ScriptableObject
     [Tooltip("鸟纹(双击)参与自动镜像(注意:若已开启上面的『双击=镜像汇合』,汇合本体固定从右进入,不受此项影响)")]
     public bool mirrorDouble = false;
 
+    [Header("命中判定(灵敏度)")]
+    [Tooltip("命中窗口(秒):按下时,与音符目标时间差在此范围内算命中;越大越宽松/灵敏(音符边缘碰到圆环就更容易算命中)。\n完美窗口 = 此值×0.4。默认 0.5(原来偏窄约 0.31,容易『太早』)。")]
+    [Range(0.15f, 0.9f)]
+    public float hitWindowSeconds = 0.5f;
+
     private static LijiangEchoBattleSettings cached;
 
     /// <summary>运行时/编辑器读取:优先 Resources 里的资源;没有就用一份默认值实例(不落盘、不报错)。</summary>

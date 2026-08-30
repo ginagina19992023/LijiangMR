@@ -282,6 +282,16 @@ public static class LijiangEchoStageKit
         return value;
     }
 
+    /// <summary>隐藏 StageKit 的手柄射线/落点(它们挂在持久根上,进入不调用 UpdateControllerInput 的场景(如旧战斗场景)
+    /// 后会停留在最后位置变成"残留射线")。进这类场景时调一次即可;之后再次调用 UpdateControllerInput 会自动恢复。</summary>
+    public static void HideControllerPointers()
+    {
+        if (leftControllerRay != null) { leftControllerRay.enabled = false; }
+        if (rightControllerRay != null) { rightControllerRay.enabled = false; }
+        if (leftControllerReticle != null) { leftControllerReticle.gameObject.SetActive(false); }
+        if (rightControllerReticle != null) { rightControllerReticle.gameObject.SetActive(false); }
+    }
+
     private static void EnsureControllerPointerVisuals()
     {
         if (leftControllerRay == null)

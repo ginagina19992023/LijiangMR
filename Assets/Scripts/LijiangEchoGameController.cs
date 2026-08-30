@@ -194,6 +194,9 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
+    private bool menuPaused;      // 菜单打开时是否已暂停(冻结进度+音频)
+    private bool menuPressPrev;   // 上一帧是否在按住(菜单点击的上升沿检测)
+    private bool menuMuted;       // 菜单「音乐」开关:是否静音
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
     private readonly List<RhythmNote> activeNotes = new List<RhythmNote>();
     private readonly List<IntroFadeItem> introWalkItems = new List<IntroFadeItem>();
@@ -503,12 +506,16 @@ public class LijiangEchoGameController : MonoBehaviour
             mirrorHold = settings.mirrorHold;
             mirrorSwipe = settings.mirrorSwipe;
             mirrorDouble = settings.mirrorDouble;
+            hitWindowSeconds = Mathf.Clamp(settings.hitWindowSeconds, 0.15f, 0.9f);
         }
     }
 
     private IEnumerator Start()
     {
         HidePrototypeObjects();
+        // 隐藏上一阶段(选关等 StageKit 场景)留下的手柄射线残影 —— 旧场景不调用 StageKit 输入,
+        // 它的射线会停在最后位置变成"残留射线";本场景用自己的射线系统。
+        LijiangEchoStageKit.HideControllerPointers();
 
         // 等待头显位姿生效，避免误用场景里的普通 Main Camera 高度。
         float trackingWaitDeadline = Time.realtimeSinceStartup + 2f;
@@ -580,9 +587,6 @@ public class LijiangEchoGameController : MonoBehaviour
 
         headPoseWasTracked = headPoseTracked;
 
-        stageTimer += Time.deltaTime;
-        selectMoveCooldown -= Time.deltaTime;
-        swipeCooldown -= Time.deltaTime;
         UpdateControllerInput();
 
 #if UNITY_EDITOR
@@ -597,6 +601,29 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             ToggleMenuOverlay();
         }
+
+        // 菜单打开 = 暂停:冻结进度 + 音频,只处理菜单点击;关闭后恢复。
+        if (menuObjects.Count > 0)
+        {
+            if (!menuPaused)
+            {
+                AudioListener.pause = true;
+                menuPaused = true;
+            }
+
+            UpdateMenuInteraction();
+            return;
+        }
+
+        if (menuPaused)
+        {
+            AudioListener.pause = false;
+            menuPaused = false;
+        }
+
+        stageTimer += Time.deltaTime;
+        selectMoveCooldown -= Time.deltaTime;
+        swipeCooldown -= Time.deltaTime;
 
         UpdateMotions();
 
@@ -816,6 +843,12 @@ public class LijiangEchoGameController : MonoBehaviour
         selectCards = null;
         selectNumbers = null;
         menuObjects.Clear();
+        if (menuPaused)
+        {
+            AudioListener.pause = false; // 换阶段时若菜单还开着,确保恢复音频/暂停状态
+            menuPaused = false;
+        }
+        menuPressPrev = false;
         motionItems.Clear();
         activeNotes.Clear();
         scheduledSfx.Clear();
@@ -1115,6 +1148,7 @@ public class LijiangEchoGameController : MonoBehaviour
         const float horizonY = 0.30f;    // 地平线再往上抬
         const float mtnHeight = 0.025f;  // 再缩到上一版的 1/4,很小
         float mtnCenterY = horizonY + mtnHeight * 0.5f; // 让山底贴地平线
+        const float horizonRowZ = 3.0f;  // 静止远山这一排的深度(越大越远,约放到 4 米开外)。想更远/更近改这个(原 0.44)
         string[] horizonMtnArt =
         {
             "start/back_mountain_1", "start/back_mountain_2", "start/back_mountain_3",
@@ -1130,12 +1164,12 @@ public class LijiangEchoGameController : MonoBehaviour
             AddIcon(
                 horizonMtnArt[m % horizonMtnArt.Length],
                 "地平线小远山_" + m,
-                new Vector3(hx, mtnCenterY, 0.44f),
+                new Vector3(hx, mtnCenterY, horizonRowZ),
                 mtnHeight,
                 -50 + (m % 5),
                 0.85f);
         }
-        AddLayer("ui/mountain_background", "地平线天幕", new Vector3(0f, horizonY - 0.04f, 0.5f), WideStripWidth, -52, 0.45f);
+        AddLayer("ui/mountain_background", "地平线天幕", new Vector3(0f, horizonY - 0.04f, horizonRowZ + 0.2f), WideStripWidth, -52, 0.45f);
 
         AddIntroFlyItem("transition/mountain_1", "近景山一", new RectInt(127, 197, 490, 260), new Vector3(-3.25f, -0.18f, -0.16f), new Vector3(3.15f, -0.05f, -0.16f), 0.42f, 0.78f, 0.0f, 5.8f, 12, 0.88f);
         AddIntroFlyItem("transition/mountain_4", "近景山二", new RectInt(1390, 219, 373, 197), new Vector3(3.20f, -0.34f, -0.18f), new Vector3(-3.10f, -0.20f, -0.18f), 0.38f, 0.74f, 0.3f, 6.1f, 13, 0.84f);
@@ -2082,6 +2116,7 @@ public class LijiangEchoGameController : MonoBehaviour
     private bool mirrorHold = false;    // 蛇纹(长按)
     private bool mirrorSwipe = false;   // 蛙纹(滑动)
     private bool mirrorDouble = false;  // 鸟纹(双击)
+    private float hitWindowSeconds = 0.5f; // 命中窗口(秒),战斗选项可调;完美窗口=×0.4
 
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
@@ -2567,7 +2602,7 @@ public class LijiangEchoGameController : MonoBehaviour
 
         ProcessHoldNote(beatTime);
 
-        while (!holdActive && nextNoteIndex < noteTimes.Length && beatTime - noteTimes[nextNoteIndex] > 0.34f)
+        while (!holdActive && nextNoteIndex < noteTimes.Length && beatTime - noteTimes[nextNoteIndex] > hitWindowSeconds)
         {
             combo = 0;
             MarkPassedNote(nextNoteIndex);
@@ -2581,7 +2616,7 @@ public class LijiangEchoGameController : MonoBehaviour
             float diff = Mathf.Abs(beatTime - noteTimes[nextNoteIndex]);
             if (kind == NoteKind.Hold)
             {
-                if (diff <= 0.3f && BattleHoldHeld())
+                if (diff <= hitWindowSeconds && BattleHoldHeld())
                 {
                     BeginHoldNote();
                 }
@@ -2593,13 +2628,13 @@ public class LijiangEchoGameController : MonoBehaviour
                     : BattleStrikePressed();
                 if (performed)
                 {
-                    if (diff <= 0.16f)
+                    if (diff <= hitWindowSeconds * 0.4f)
                     {
                         score += kind == NoteKind.Swipe ? 150 : 120;
                         combo++;
                         HitCurrentNote(kind == NoteKind.Swipe ? "挥划完美" : "完美", new Color(1f, 0.96f, 0.45f));
                     }
-                    else if (diff <= 0.31f)
+                    else if (diff <= hitWindowSeconds)
                     {
                         score += kind == NoteKind.Swipe ? 95 : 70;
                         combo++;
@@ -3999,6 +4034,101 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         menuObjects.Clear();
+    }
+
+    // 菜单点击处理:手柄射线 / 编辑器鼠标点到某个图标(主页/音乐/跳过/返回)→ 执行对应动作。
+    private void UpdateMenuInteraction()
+    {
+        bool pressing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.5f ||
+                        (Mouse.current != null && Mouse.current.leftButton.isPressed);
+        bool clicked = pressing && !menuPressPrev; // 上升沿=本帧点下
+        menuPressPrev = pressing;
+        if (!clicked || !GetMenuPointer(out Vector3 lp))
+        {
+            return;
+        }
+
+        if (Mathf.Abs(lp.y - 0.05f) > 0.34f)
+        {
+            return; // 不在这排图标的高度上
+        }
+
+        // 图标横向位置:主页 -1.08 / 音乐 -0.36 / 跳过 0.36 / 返回 1.08(半宽 0.32)
+        if (Mathf.Abs(lp.x + 1.08f) < 0.32f) { MenuActionHome(); }
+        else if (Mathf.Abs(lp.x + 0.36f) < 0.32f) { MenuActionMusic(); }
+        else if (Mathf.Abs(lp.x - 0.36f) < 0.32f) { MenuActionSkip(); }
+        else if (Mathf.Abs(lp.x - 1.08f) < 0.32f) { MenuActionBack(); }
+    }
+
+    // 取菜单指针在舞台平面上的落点:哪只手扳机压得深用哪只;编辑器退回鼠标。
+    private bool GetMenuPointer(out Vector3 localPoint)
+    {
+        CacheControllerAnchors();
+        bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
+                        (!leftControllerTracked && rightControllerTracked);
+        Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
+        if (controller != null && TryProjectControllerRay(controller, out localPoint))
+        {
+            return true;
+        }
+
+        if (Mouse.current != null && cameraAnchor != null)
+        {
+            Camera cam = cameraAnchor.GetComponent<Camera>();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                return TryProjectRay(ray, out localPoint);
+            }
+        }
+
+        localPoint = Vector3.zero;
+        return false;
+    }
+
+    private void CloseMenu()
+    {
+        ClearMenuOverlay();
+        if (menuPaused)
+        {
+            AudioListener.pause = false;
+            menuPaused = false;
+        }
+        menuPressPrev = false;
+    }
+
+    private void MenuActionBack()
+    {
+        PlaySfx("button", 0.6f);
+        CloseMenu(); // 返回=关菜单、恢复
+    }
+
+    private void MenuActionHome()
+    {
+        PlaySfx("button", 0.6f);
+        CloseMenu();
+        ShowSelect(); // 主页=回选关
+    }
+
+    private void MenuActionSkip()
+    {
+        PlaySfx("button", 0.6f);
+        Stage stage = currentStage;
+        CloseMenu();
+        switch (stage) // 跳过=跳过当前阶段到下一个
+        {
+            case Stage.Intro: ShowTrace(); break;
+            case Stage.Trace: ShowBattle(); break;
+            case Stage.Battle: ShowResult(); break;
+            default: break; // 其它阶段仅关菜单
+        }
+    }
+
+    private void MenuActionMusic()
+    {
+        menuMuted = !menuMuted;
+        AudioListener.volume = menuMuted ? 0f : 1f; // 音乐=全局静音/取消(菜单保持打开)
+        PlaySfx("button", 0.6f);
     }
 
     private void EnsureAudioSources()
