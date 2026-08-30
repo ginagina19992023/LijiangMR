@@ -75,6 +75,7 @@ public class LijiangEchoGameController : MonoBehaviour
         public Transform PrefabRoot;              // 非空 = 这是 Prefab 音符
         public SpriteRenderer[] AllRenderers;     // Prefab 里所有精灵(本体+光晕),用于统一淡入
         public float[] AllRenderersBaseAlpha;     // 各精灵在 Prefab 里的基础透明度(保持相对关系)
+        public Vector2 PrefabContentOffset;       // 可见内容中心相对根原点的偏移(xy);驱动时补偿,让内容中心落在圆环上
 
         // —— 双击「镜像汇合」分身(仅 doubleNoteMirrorConverge=true 时存在):原体(鸟纹=右翼)从右飞入,
         //    另生成一只水平镜像(=左翼)从左飞入,两只对称汇合到圆心。分身纯视觉、不参与判定,
@@ -1343,23 +1344,26 @@ public class LijiangEchoGameController : MonoBehaviour
             new RectInt(1822, 2125, 2973, 2185),
             new RectInt(995, 836, 1335, 1359)
         };
-        GameObject sourcePattern = AddCroppedSprite(
-            tracePaths[selectedLevel],
-            "描绘参考纹样",
-            traceCrops[selectedLevel],
-            new Vector3(0f, 0.02f, -0.48f),
-            0.88f,
-            18,
-            0.74f,
-            false,
-            centerOnVisual: true); // 按不透明像素真实中心对齐,纹样居中(不再偏到左下角)
-        RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
-
         // 双手拆分:开镜像时,右手描【右半】纹样、左手描【左半】纹样,各自进度、各自判定,两半都描完才成功。
         // 关镜像时单手描整条。tracePoints=右半(单手时=整条),traceLeftPoints=左半(=右半的水平镜像)。
         bool splitHands = ExternalTraceMirror ?? true;
         traceTwoHands = splitHands;
         tracePoints = BuildTracePath(selectedLevel, splitHands);
+
+        // 参考纹样【严格与绘画轨迹居中对齐】:轨迹关于 x=0 对称(中心 x=0)、y 取轨迹上下界中点;
+        // 贴图建好后按其"实测可见内容中心"精确平移到该中心,使纹样正好贴合轨迹中心(不依赖美术图内部是否居中)。
+        Vector2 traceCenter = ComputeTraceCenter(tracePoints);
+        GameObject sourcePattern = AddCroppedSprite(
+            tracePaths[selectedLevel],
+            "描绘参考纹样",
+            traceCrops[selectedLevel],
+            new Vector3(traceCenter.x, traceCenter.y, -0.48f),
+            0.88f,
+            18,
+            0.74f,
+            false);
+        CenterSpriteContentTo(sourcePattern, traceCenter);
+        RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
 
         // P1 / 描绘增强：全程「淡淡指引线」——沿纹样形状铺满整条路径，给玩家指引方向。
         // 线本身即对齐纹样基本形状；如需虚线观感，可给此 LineRenderer 换一张虚线纹理材质。
@@ -2648,6 +2652,10 @@ public class LijiangEchoGameController : MonoBehaviour
                     baseA[r] = rends[r] != null ? rends[r].color.a : 1f;
                 }
 
+                // 自动对中:测出 prefab 可见内容中心相对根原点的偏移(在翻转/缩放之后测,结果才准)。
+                // 有的 prefab 内容没摆在根原点(鱼纹偏右、蛙纹偏左),驱动时用这个偏移补偿,让内容中心落在圆环上。
+                Vector2 contentOffset = MeasurePrefabContentOffset(rends, inst.transform.localPosition);
+
                 RhythmNote prefabNote = new RhythmNote
                 {
                     ChartIndex = nextSpawnIndex,
@@ -2659,6 +2667,7 @@ public class LijiangEchoGameController : MonoBehaviour
                     PrefabRoot = inst.transform,
                     AllRenderers = rends,
                     AllRenderersBaseAlpha = baseA,
+                    PrefabContentOffset = contentOffset,
                     Renderer = rends.Length > 0 ? rends[0] : null,
                     Judged = false
                 };
@@ -3060,6 +3069,85 @@ public class LijiangEchoGameController : MonoBehaviour
     }
 
     /// <summary>Prefab 音符每帧驱动:根节点到飞入位置 + 整体淡入(保持各精灵在 Prefab 里的相对透明)。</summary>
+    // 绘画轨迹的中心:轨迹关于 x=0 对称 → 中心 x 恒为 0;y 取轨迹上下界中点。
+    private Vector2 ComputeTraceCenter(Vector3[] pts)
+    {
+        if (pts == null || pts.Length == 0)
+        {
+            return new Vector2(0f, 0.02f);
+        }
+
+        float minY = float.MaxValue;
+        float maxY = float.MinValue;
+        for (int i = 0; i < pts.Length; i++)
+        {
+            float y = pts[i].y;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        return new Vector2(0f, (minY + maxY) * 0.5f);
+    }
+
+    // 把一张精灵的"实测可见内容中心"精确平移到 stageRoot 局部的 targetLocalXY(严格居中,不依赖美术图内部是否居中)。
+    private void CenterSpriteContentTo(GameObject spriteObject, Vector2 targetLocalXY)
+    {
+        if (spriteObject == null || stageRoot == null)
+        {
+            return;
+        }
+
+        SpriteRenderer sr = spriteObject.GetComponent<SpriteRenderer>();
+        if (sr == null)
+        {
+            return;
+        }
+
+        Vector3 centerLocal = stageRoot.InverseTransformPoint(sr.bounds.center);
+        Vector3 p = spriteObject.transform.localPosition;
+        spriteObject.transform.localPosition = new Vector3(
+            p.x + (targetLocalXY.x - centerLocal.x),
+            p.y + (targetLocalXY.y - centerLocal.y),
+            p.z);
+    }
+
+    // 测 prefab 里所有精灵的合并可见中心相对根原点的偏移(stageRoot 局部 xy)。用于让内容中心对齐圆环。
+    private Vector2 MeasurePrefabContentOffset(SpriteRenderer[] rends, Vector3 rootLocalPos)
+    {
+        if (rends == null || rends.Length == 0 || stageRoot == null)
+        {
+            return Vector2.zero;
+        }
+
+        bool has = false;
+        Bounds worldBounds = default;
+        for (int r = 0; r < rends.Length; r++)
+        {
+            if (rends[r] == null)
+            {
+                continue;
+            }
+
+            if (!has)
+            {
+                worldBounds = rends[r].bounds;
+                has = true;
+            }
+            else
+            {
+                worldBounds.Encapsulate(rends[r].bounds);
+            }
+        }
+
+        if (!has)
+        {
+            return Vector2.zero;
+        }
+
+        Vector3 centerLocal = stageRoot.InverseTransformPoint(worldBounds.center);
+        return new Vector2(centerLocal.x - rootLocalPos.x, centerLocal.y - rootLocalPos.y);
+    }
+
     private void UpdatePrefabNote(RhythmNote note, Vector3 pos, float eased)
     {
         if (note.PrefabRoot == null)
@@ -3067,7 +3155,8 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
-        note.PrefabRoot.localPosition = pos;
+        // 补偿内容偏移:让 prefab 的"可见内容中心"落在目标 pos(圆环)上,而不是它的根原点。
+        note.PrefabRoot.localPosition = new Vector3(pos.x - note.PrefabContentOffset.x, pos.y - note.PrefabContentOffset.y, pos.z);
         float appear = Mathf.Clamp01(eased / 0.6f);
         float ringFade = Mathf.InverseLerp(0.80f, 1f, eased);
         float mul = Mathf.Lerp(appear, 0.9f, ringFade); // 出现→进环略淡但清晰

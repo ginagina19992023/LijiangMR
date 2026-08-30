@@ -15,7 +15,7 @@ public class SelectStageController : MonoBehaviour
 {
     private const int LevelCount = 3;
     private const float CardWidth = 6.05f;      // 单张卡片(及其纹样)拟合宽度——与旧版一致,基本铺满画面
-    private const float CardSpacing = 5.6f;     // 卡片布局间距(≈一张卡宽,一次基本只居中一张,邻卡在边缘微露)
+    private const float CardSpacing = 4.0f;     // 卡片布局间距(比卡窄,收紧间隔;越小相邻卡靠得越近/重叠越多。想再调就改这个数)
     private const float DragUnit = 2.0f;         // 拖动灵敏度:拖约 2 个单位 = 换一张卡(和布局间距解耦,避免大卡拖起来迟钝)
     private const float GroupBaseZ = -0.12f;
     private const float NumberInCardY = -0.34f;
