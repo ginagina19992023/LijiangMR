@@ -490,6 +490,11 @@ public class LijiangEchoGameController : MonoBehaviour
         if (settings != null)
         {
             doubleNoteMirrorConverge = settings.doubleNoteMirrorConverge;
+            autoMirrorNotesByDirection = settings.autoMirrorNotesByDirection;
+            mirrorStrike = settings.mirrorStrike;
+            mirrorHold = settings.mirrorHold;
+            mirrorSwipe = settings.mirrorSwipe;
+            mirrorDouble = settings.mirrorDouble;
         }
     }
 
@@ -2042,6 +2047,13 @@ public class LijiangEchoGameController : MonoBehaviour
     private const bool DoubleNoteMirrorConvergeDefault = false;
     private bool doubleNoteMirrorConverge = DoubleNoteMirrorConvergeDefault;
 
+    // 音符按飞入方向自动镜像(由战斗选项资源覆盖):从左侧飞入的音符水平镜像,使朝左的纹样朝向飞行方向。
+    private bool autoMirrorNotesByDirection = true;
+    private bool mirrorStrike = true;   // 鱼纹(单击)
+    private bool mirrorHold = false;    // 蛇纹(长按)
+    private bool mirrorSwipe = false;   // 蛙纹(滑动)
+    private bool mirrorDouble = false;  // 鸟纹(双击)
+
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
     {
@@ -2606,6 +2618,24 @@ public class LijiangEchoGameController : MonoBehaviour
         }
     }
 
+    // 某类型音符是否参与"按飞入方向自动镜像"(总开关 + 按类型开关,来自战斗选项资源)。
+    private bool ShouldAutoMirror(NoteKind kind)
+    {
+        if (!autoMirrorNotesByDirection)
+        {
+            return false;
+        }
+
+        switch (kind)
+        {
+            case NoteKind.Strike: return mirrorStrike;
+            case NoteKind.Hold: return mirrorHold;
+            case NoteKind.Swipe: return mirrorSwipe;
+            case NoteKind.Double: return mirrorDouble;
+            default: return false;
+        }
+    }
+
     private void SpawnDueNotes(float beatTime)
     {
         while (nextSpawnIndex < noteTimes.Length && noteTimes[nextSpawnIndex] - beatTime <= NoteApproachTime)
@@ -2635,9 +2665,9 @@ public class LijiangEchoGameController : MonoBehaviour
                 inst.transform.localPosition = new Vector3(startX, 0f, -0.94f);
                 inst.transform.localRotation = Quaternion.identity;
 
-                // 鱼纹本身朝左:从左侧(side<0)飞入时水平镜像 → 朝向飞行方向(朝右);
-                // 从右侧进入则保持原朝向(朝左,同样朝着飞行方向)。只翻单击鱼纹(Strike)。
-                if (kind == NoteKind.Strike && side < 0f)
+                // 按飞入方向自动镜像(战斗选项可配):纹样默认朝左——从左侧(side<0)飞入时水平镜像→朝右(朝飞行方向);
+                // 从右侧进入保持朝左(同样朝飞行方向)。哪些类型参与由 ShouldAutoMirror 决定(默认只鱼纹)。
+                if (side < 0f && ShouldAutoMirror(kind))
                 {
                     Vector3 sc = inst.transform.localScale;
                     inst.transform.localScale = new Vector3(-Mathf.Abs(sc.x), sc.y, sc.z);

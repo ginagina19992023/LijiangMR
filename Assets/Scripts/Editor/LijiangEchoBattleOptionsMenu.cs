@@ -11,6 +11,7 @@ public static class LijiangEchoBattleOptionsMenu
 {
     private const string AssetPath = "Assets/Resources/" + LijiangEchoBattleSettings.ResourceName + ".asset";
     private const string MirrorMenu = "漓江回声/战斗选项/双击=镜像汇合(左右对飞)";
+    private const string AutoMirrorMenu = "漓江回声/战斗选项/音符按飞入方向自动镜像(总开关)";
     private const string SelectMenu = "漓江回声/战斗选项/选中设置资源(在 Inspector 里改)";
 
     /// <summary>取到资源;没有就在 Resources 下创建一份默认的。</summary>
@@ -52,6 +53,27 @@ public static class LijiangEchoBattleOptionsMenu
     {
         LijiangEchoBattleSettings settings = AssetDatabase.LoadAssetAtPath<LijiangEchoBattleSettings>(AssetPath);
         Menu.SetChecked(MirrorMenu, settings != null && settings.doubleNoteMirrorConverge);
+        return true;
+    }
+
+    // —— 音符按飞入方向自动镜像:总开关(带 ✓),点一下翻转 ——
+    [MenuItem(AutoMirrorMenu, false, 1)]
+    private static void ToggleAutoMirror()
+    {
+        LijiangEchoBattleSettings settings = GetOrCreate();
+        settings.autoMirrorNotesByDirection = !settings.autoMirrorNotesByDirection;
+        EditorUtility.SetDirty(settings);
+        AssetDatabase.SaveAssets();
+        Menu.SetChecked(AutoMirrorMenu, settings.autoMirrorNotesByDirection);
+        Debug.Log($"[漓江回声] 音符按方向自动镜像(总开关)→ {(settings.autoMirrorNotesByDirection ? "开" : "关")};" +
+                  "具体哪些类型参与,在『选中设置资源』的 Inspector 里勾(默认只鱼纹)。重进战斗生效。");
+    }
+
+    [MenuItem(AutoMirrorMenu, true)]
+    private static bool ToggleAutoMirrorValidate()
+    {
+        LijiangEchoBattleSettings settings = AssetDatabase.LoadAssetAtPath<LijiangEchoBattleSettings>(AssetPath);
+        Menu.SetChecked(AutoMirrorMenu, settings != null && settings.autoMirrorNotesByDirection);
         return true;
     }
 
