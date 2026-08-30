@@ -2630,6 +2630,15 @@ public class LijiangEchoGameController : MonoBehaviour
                 inst.name = NotePrefabName(kind) + "_" + nextSpawnIndex;
                 inst.transform.localPosition = new Vector3(startX, 0f, -0.94f);
                 inst.transform.localRotation = Quaternion.identity;
+
+                // 鱼纹本身朝左:从左侧(side<0)飞入时水平镜像 → 朝向飞行方向(朝右);
+                // 从右侧进入则保持原朝向(朝左,同样朝着飞行方向)。只翻单击鱼纹(Strike)。
+                if (kind == NoteKind.Strike && side < 0f)
+                {
+                    Vector3 sc = inst.transform.localScale;
+                    inst.transform.localScale = new Vector3(-Mathf.Abs(sc.x), sc.y, sc.z);
+                }
+
                 spawnedObjects.Add(inst); // 交给 ResetStage 统一清理
 
                 SpriteRenderer[] rends = inst.GetComponentsInChildren<SpriteRenderer>(true);
