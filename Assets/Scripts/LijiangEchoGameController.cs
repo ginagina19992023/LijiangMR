@@ -248,6 +248,12 @@ public class LijiangEchoGameController : MonoBehaviour
     private TextMesh traceFeedbackText;
     private Vector3 previousTracePointer;
     private bool hasPreviousTracePointer;
+    // 真·双手独立描绘:左手描左半,右手描右半,各自进度、各自判定,两半都完成才算成功。
+    private bool traceTwoHands;
+    private Vector3[] traceLeftPoints;
+    private int traceLeftIndex;
+    private Vector3 previousTraceLeftPointer;
+    private bool hasPreviousTraceLeftPointer;
 
     private Vector3 lastLeftControllerPosition;
     private Vector3 lastRightControllerPosition;
@@ -719,6 +725,10 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePointer = null;
         traceMirrorDrawRenderer = null;
         traceMirrorPointer = null;
+        traceTwoHands = false;
+        traceLeftPoints = null;
+        traceLeftIndex = 0;
+        hasPreviousTraceLeftPointer = false;
         leftHandPivot = null;
         rightHandPivot = null;
         leftHandRenderer = null;
@@ -1326,9 +1336,10 @@ public class LijiangEchoGameController : MonoBehaviour
             false);
         RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
 
-        // 双手拆分:开镜像时,主手(原体)只描【右半】纹样,镜像手镜像补出【左半】,两半合起来才是整只纹样,
-        // 每只手只画一半(不再是两只手各画一条一样长的完整轨迹)。关镜像时单手描整条。
+        // 双手拆分:开镜像时,右手描【右半】纹样、左手描【左半】纹样,各自进度、各自判定,两半都描完才成功。
+        // 关镜像时单手描整条。tracePoints=右半(单手时=整条),traceLeftPoints=左半(=右半的水平镜像)。
         bool splitHands = ExternalTraceMirror ?? true;
+        traceTwoHands = splitHands;
         tracePoints = BuildTracePath(selectedLevel, splitHands);
 
         // P1 / 描绘增强：全程「淡淡指引线」——沿纹样形状铺满整条路径，给玩家指引方向。
@@ -1376,27 +1387,33 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePointer = pointerObject.transform;
         tracePointer.gameObject.SetActive(false);
 
-        // 双手镜像绘制:此时 tracePoints 已是【右半】纹样,主手描右半,这里的镜像件(指引线/已描绘线/光标)
-        // 把右半 x→-x 补出【左半】,两半拼成整只纹样,每只手只画一半。开关 ExternalTraceMirror 默认开;设 false 则单手描整条。
-        if (ExternalTraceMirror ?? true)
+        // 双手独立描绘:左半轨迹 = 右半的水平镜像;左手用自己的指引线/已描绘线/光标,独立描、独立判定。
+        if (splitHands)
         {
-            LineRenderer mirrorGuide = AddLineRenderer("纹样描绘指引(镜像)", 0.03f, new Color(1f, 0.9f, 0.55f, 0.16f), 30);
-            mirrorGuide.positionCount = tracePoints.Length;
+            traceLeftPoints = new Vector3[tracePoints.Length];
             for (int gi = 0; gi < tracePoints.Length; gi++)
             {
                 Vector3 gp = tracePoints[gi];
-                mirrorGuide.SetPosition(gi, new Vector3(-gp.x, gp.y, gp.z - 0.018f));
+                traceLeftPoints[gi] = new Vector3(-gp.x, gp.y, gp.z);
             }
 
-            traceMirrorDrawRenderer = AddLineRenderer("已描绘轨迹(镜像)", 0.072f, new Color(1f, 0.86f, 0.28f, 0.98f), 34);
+            LineRenderer mirrorGuide = AddLineRenderer("纹样描绘指引(左手)", 0.03f, new Color(1f, 0.9f, 0.55f, 0.16f), 30);
+            mirrorGuide.positionCount = traceLeftPoints.Length;
+            for (int gi = 0; gi < traceLeftPoints.Length; gi++)
+            {
+                mirrorGuide.SetPosition(gi, traceLeftPoints[gi] + new Vector3(0f, 0f, -0.018f));
+            }
+
+            traceMirrorDrawRenderer = AddLineRenderer("已描绘轨迹(左手)", 0.072f, new Color(1f, 0.86f, 0.28f, 0.98f), 34);
             traceMirrorDrawRenderer.colorGradient = traceGlowGradient;
 
-            GameObject mirrorPointerObject = AddIcon("battle/hit_ring_center", "手柄描绘光标(镜像)", new Vector3(0f, 0f, TracePlaneZ - 0.04f), 0.105f, 42, 0.92f);
+            GameObject mirrorPointerObject = AddIcon("battle/hit_ring_center", "手柄描绘光标(左手)", new Vector3(0f, 0f, TracePlaneZ - 0.04f), 0.105f, 42, 0.92f);
             traceMirrorPointer = mirrorPointerObject.transform;
             traceMirrorPointer.gameObject.SetActive(false);
         }
         else
         {
+            traceLeftPoints = null;
             traceMirrorDrawRenderer = null;
             traceMirrorPointer = null;
         }
@@ -1422,16 +1439,24 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
+        if (traceTwoHands)
+        {
+            UpdateTraceTwoHands();
+        }
+        else
+        {
+            UpdateTraceSingle();
+        }
+    }
+
+    // 单手:一只手(哪只压扳机用哪只)从头描到尾,描完整只算完成。
+    private void UpdateTraceSingle()
+    {
         if (!TryGetTracePointer(out Vector3 localPoint, out bool drawing))
         {
             if (tracePointer != null)
             {
                 tracePointer.gameObject.SetActive(false);
-            }
-
-            if (traceMirrorPointer != null)
-            {
-                traceMirrorPointer.gameObject.SetActive(false);
             }
 
             hasPreviousTracePointer = false;
@@ -1442,12 +1467,6 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             tracePointer.gameObject.SetActive(true);
             tracePointer.localPosition = new Vector3(localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
-        }
-
-        if (traceMirrorPointer != null)
-        {
-            traceMirrorPointer.gameObject.SetActive(true);
-            traceMirrorPointer.localPosition = new Vector3(-localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
         }
 
         if (!drawing || tracePoints == null || tracePointIndex >= tracePoints.Length)
@@ -1463,23 +1482,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         Vector3 pointerOnPlane = new Vector3(localPoint.x, localPoint.y, TracePlaneZ);
-        int advanced = 0;
-        while (tracePointIndex < tracePoints.Length && advanced < 10)
-        {
-            float distance = hasPreviousTracePointer
-                ? DistanceToSegment(tracePoints[tracePointIndex], previousTracePointer, pointerOnPlane)
-                : Vector3.Distance(tracePoints[tracePointIndex], pointerOnPlane);
-            if (distance > TracePointTolerance)
-            {
-                break;
-            }
-
-            tracePointIndex++;
-            advanced++;
-        }
-
-        previousTracePointer = pointerOnPlane;
-        hasPreviousTracePointer = true;
+        tracePointIndex = AdvanceTraceHand(tracePoints, tracePointIndex, pointerOnPlane, ref previousTracePointer, ref hasPreviousTracePointer);
         UpdateTraceLine();
         if (traceFeedbackText != null && tracePointIndex < tracePoints.Length)
         {
@@ -1488,30 +1491,174 @@ public class LijiangEchoGameController : MonoBehaviour
 
         if (tracePointIndex >= tracePoints.Length)
         {
-            traceCompleted = true;
-            traceCompleteTimer = 0f;
-            if (traceFeedbackText != null)
+            CompleteTrace();
+        }
+    }
+
+    // 真·双手独立:右手描右半(tracePoints)、左手描左半(traceLeftPoints),各自指针/进度/判定,两半都完成才成功。
+    private void UpdateTraceTwoHands()
+    {
+        CacheControllerAnchors();
+
+        // —— 右手 → 右半(编辑器无右手柄时用鼠标兜底,方便调试)——
+        bool rightHas = TryGetHandPointer(true, out Vector3 rPoint, out bool rDraw);
+        if (!rightHas && Mouse.current != null && cameraAnchor != null)
+        {
+            Camera cam = cameraAnchor.GetComponent<Camera>();
+            if (cam != null)
             {
-                traceFeedbackText.text = "绘制成功";
-                traceFeedbackText.color = new Color(1f, 0.88f, 0.3f, 1f);
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                if (TryProjectRay(ray, out rPoint))
+                {
+                    rightHas = true;
+                    rDraw = Mouse.current.leftButton.isPressed;
+                }
+            }
+        }
+
+        UpdateTraceCursor(tracePointer, rightHas, rPoint);
+        if (rightHas && rDraw && tracePoints != null && tracePointIndex < tracePoints.Length)
+        {
+            tracePointIndex = AdvanceTraceHand(tracePoints, tracePointIndex, new Vector3(rPoint.x, rPoint.y, TracePlaneZ), ref previousTracePointer, ref hasPreviousTracePointer);
+        }
+        else
+        {
+            hasPreviousTracePointer = false;
+        }
+
+        // —— 左手 → 左半 ——
+        bool leftHas = TryGetHandPointer(false, out Vector3 lPoint, out bool lDraw);
+        UpdateTraceCursor(traceMirrorPointer, leftHas, lPoint);
+        if (leftHas && lDraw && traceLeftPoints != null && traceLeftIndex < traceLeftPoints.Length)
+        {
+            traceLeftIndex = AdvanceTraceHand(traceLeftPoints, traceLeftIndex, new Vector3(lPoint.x, lPoint.y, TracePlaneZ), ref previousTraceLeftPointer, ref hasPreviousTraceLeftPointer);
+        }
+        else
+        {
+            hasPreviousTraceLeftPointer = false;
+        }
+
+        DrawTraceHalf(traceDrawRenderer, tracePoints, tracePointIndex);
+        DrawTraceHalf(traceMirrorDrawRenderer, traceLeftPoints, traceLeftIndex);
+
+        bool rightDone = tracePoints != null && tracePointIndex >= tracePoints.Length;
+        bool leftDone = traceLeftPoints != null && traceLeftIndex >= traceLeftPoints.Length;
+
+        if (traceFeedbackText != null)
+        {
+            if (tracePointIndex == 0 && traceLeftIndex == 0)
+            {
+                traceFeedbackText.text = "双手各按住扳机，左右手分别沿两侧描画";
+            }
+            else
+            {
+                int rp = tracePoints != null && tracePoints.Length > 0 ? Mathf.RoundToInt(tracePointIndex * 100f / tracePoints.Length) : 0;
+                int lp = traceLeftPoints != null && traceLeftPoints.Length > 0 ? Mathf.RoundToInt(traceLeftIndex * 100f / traceLeftPoints.Length) : 0;
+                traceFeedbackText.text = $"左手 {lp}%　·　右手 {rp}%";
+            }
+        }
+
+        if (rightDone && leftDone)
+        {
+            CompleteTrace();
+        }
+    }
+
+    // 某只手的射线落点 + 该手扳机是否按下(仅该手,互不干扰)。
+    private bool TryGetHandPointer(bool right, out Vector3 localPoint, out bool drawing)
+    {
+        Transform controller = right ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = right ? rightControllerTracked : leftControllerTracked;
+        float trigger = right ? rightTriggerValue : leftTriggerValue;
+        drawing = trigger > 0.35f;
+
+        if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
+        {
+            return true;
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
+    // 沿路径推进"已描到"的下标:当前笔迹(上一帧→本帧)离下一个待描点足够近就吃掉它。返回新的下标。
+    private int AdvanceTraceHand(Vector3[] points, int index, Vector3 pointerOnPlane, ref Vector3 previousPointer, ref bool hasPrevious)
+    {
+        int advanced = 0;
+        while (points != null && index < points.Length && advanced < 10)
+        {
+            float distance = hasPrevious
+                ? DistanceToSegment(points[index], previousPointer, pointerOnPlane)
+                : Vector3.Distance(points[index], pointerOnPlane);
+            if (distance > TracePointTolerance)
+            {
+                break;
             }
 
-            RectInt[] doneCrops = { SnakeDoneCrop, BirdDoneCrop, CoinDoneCrop };
-            GameObject completedPattern = AddCroppedSprite(
-                donePaths[selectedLevel],
-                "完成纹样光效",
-                doneCrops[selectedLevel],
-                new Vector3(0f, 0.02f, -0.68f),
-                0.92f,
-                48,
-                0.94f,
-                false);
-            RegisterMotion(completedPattern, MotionKind.Pulse, 0.035f, 3.2f, 0f);
-            string[] completionSounds = { "snake", "swipe", "coin" };
-            PlaySfx(completionSounds[selectedLevel], 0.68f);
-            OVRInput.SetControllerVibration(0.45f, 0.65f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
-            Invoke(nameof(StopControllerVibration), 0.16f);
+            index++;
+            advanced++;
         }
+
+        previousPointer = pointerOnPlane;
+        hasPrevious = true;
+        return index;
+    }
+
+    private void UpdateTraceCursor(Transform cursor, bool visible, Vector3 localPoint)
+    {
+        if (cursor == null)
+        {
+            return;
+        }
+
+        cursor.gameObject.SetActive(visible);
+        if (visible)
+        {
+            cursor.localPosition = new Vector3(localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
+        }
+    }
+
+    private void DrawTraceHalf(LineRenderer renderer, Vector3[] points, int index)
+    {
+        if (renderer == null || points == null)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(index, 0, points.Length);
+        renderer.positionCount = count;
+        for (int i = 0; i < count; i++)
+        {
+            renderer.SetPosition(i, points[i] + new Vector3(0f, 0f, -0.025f));
+        }
+    }
+
+    private void CompleteTrace()
+    {
+        traceCompleted = true;
+        traceCompleteTimer = 0f;
+        if (traceFeedbackText != null)
+        {
+            traceFeedbackText.text = "绘制成功";
+            traceFeedbackText.color = new Color(1f, 0.88f, 0.3f, 1f);
+        }
+
+        RectInt[] doneCrops = { SnakeDoneCrop, BirdDoneCrop, CoinDoneCrop };
+        GameObject completedPattern = AddCroppedSprite(
+            donePaths[selectedLevel],
+            "完成纹样光效",
+            doneCrops[selectedLevel],
+            new Vector3(0f, 0.02f, -0.68f),
+            0.92f,
+            48,
+            0.94f,
+            false);
+        RegisterMotion(completedPattern, MotionKind.Pulse, 0.035f, 3.2f, 0f);
+        string[] completionSounds = { "snake", "swipe", "coin" };
+        PlaySfx(completionSounds[selectedLevel], 0.68f);
+        OVRInput.SetControllerVibration(0.45f, 0.65f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
+        Invoke(nameof(StopControllerVibration), 0.16f);
     }
 
     /// <summary>
