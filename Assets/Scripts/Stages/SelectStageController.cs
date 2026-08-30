@@ -14,9 +14,9 @@ using UnityEngine.InputSystem;
 public class SelectStageController : MonoBehaviour
 {
     private const int LevelCount = 3;
-    private const float CardWidth = 6.05f;      // 单张卡片(及其纹样)拟合宽度——与旧版一致,基本铺满画面
-    private const float CardSpacing = 4.0f;     // 卡片布局间距(比卡窄,收紧间隔;越小相邻卡靠得越近/重叠越多。想再调就改这个数)
-    private const float DragUnit = 2.0f;         // 拖动灵敏度:拖约 2 个单位 = 换一张卡(和布局间距解耦,避免大卡拖起来迟钝)
+    private const float CardWidth = 6.05f;      // 单张卡片可见内容拟合宽度(贴图 tight,按内容宽拟合)——基本铺满画面
+    private const float CardSpacing = 6.0f;     // 卡片布局间距(≈一张卡宽:一次居中一张,相邻卡滑动时才进来。想让邻卡多露就调小)
+    private const float DragUnit = 2.5f;         // 拖动灵敏度:拖约 2.5 个单位 = 换一张卡
     private const float GroupBaseZ = -0.12f;
     private const float NumberInCardY = -0.34f;
 
@@ -205,8 +205,12 @@ public class SelectStageController : MonoBehaviour
             cardGroups[i] = group;
 
             // 卡片底图 + 纹样 + 序号,都作为「组」的子物体,一起滑动/缩放/淡入淡出。
-            LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, LevelCardPaths[i], "卡_" + LevelNames[i], Vector3.zero, CardWidth, 2, 1f, group);
-            LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, LevelSymbolPaths[i], "纹_" + LevelNames[i], new Vector3(0f, 0.02f, -0.01f), CardWidth, 4, 1f, group);
+            GameObject card = LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, LevelCardPaths[i], "卡_" + LevelNames[i], Vector3.zero, CardWidth, 2, 1f, group);
+            GameObject symbol = LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, LevelSymbolPaths[i], "纹_" + LevelNames[i], new Vector3(0f, 0.02f, -0.01f), CardWidth, 4, 1f, group);
+
+            // 贴图是 tight,可见内容常偏离贴图中心(pivot 在贴图正中)→ 卡整体偏一边。
+            // 按"卡+纹样"的合并可见中心把整组子物体平移,使内容中心落在组原点,卡片才真正居中。
+            CenterGroupOnContent(group, card, symbol);
 
             GameObject number = AddIcon(LevelNumberPaths[i], "号_" + (i + 1), new Vector3(0f, NumberInCardY, -0.02f), 0.16f, 6);
             number.transform.SetParent(group, false);
@@ -252,6 +256,55 @@ public class SelectStageController : MonoBehaviour
             {
                 SetAlpha(rends[k], alpha);
                 rends[k].sortingOrder = baseO[k] + lift;
+            }
+        }
+    }
+
+    // 按给定内容物(卡+纹样)的合并可见中心,把它们平移,使内容中心落在 group 原点(严格居中,不依赖美术图内部是否居中)。
+    private void CenterGroupOnContent(Transform group, params GameObject[] contentObjects)
+    {
+        if (group == null || contentObjects == null)
+        {
+            return;
+        }
+
+        bool has = false;
+        Bounds b = default;
+        for (int i = 0; i < contentObjects.Length; i++)
+        {
+            if (contentObjects[i] == null)
+            {
+                continue;
+            }
+
+            SpriteRenderer sr = contentObjects[i].GetComponent<SpriteRenderer>();
+            if (sr == null || sr.sprite == null)
+            {
+                continue;
+            }
+
+            if (!has)
+            {
+                b = sr.bounds;
+                has = true;
+            }
+            else
+            {
+                b.Encapsulate(sr.bounds);
+            }
+        }
+
+        if (!has)
+        {
+            return;
+        }
+
+        Vector3 centerLocal = group.InverseTransformPoint(b.center);
+        for (int i = 0; i < contentObjects.Length; i++)
+        {
+            if (contentObjects[i] != null)
+            {
+                contentObjects[i].transform.localPosition -= centerLocal;
             }
         }
     }
