@@ -3850,8 +3850,27 @@ public class LijiangEchoGameController : MonoBehaviour
         if (AdvancePressed())
         {
             PlaySfx("button", 0.62f);
-            ShowSelect();
+            ReturnToSelectStage();
         }
+    }
+
+    // 结算后重选关:统一回到独立的「选关滚轮场景」(Stage_Select),而不是控制器内置的老选关。
+    // 同时销毁当前(持久化)控制器,让重进旧主场景时【新建一个全新控制器】,走首次那条已验证能用的路,
+    // 避免持久化控制器不重播过场导致的重入卡死。
+    private void ReturnToSelectStage()
+    {
+        const string selectStageScene = "Stage_Select";
+        LijiangEchoGameFlow flow = LijiangEchoGameFlow.Instance;
+        if (flow != null)
+        {
+            instance = null;                  // 让重入时的创建判断/单例守卫认为「无控制器」→ 新建
+            flow.GoToStage(selectStageScene); // 卸载旧主场景、加载滚轮选关场景(Flow 是独立持久对象,不受本对象销毁影响)
+            Destroy(gameObject);
+            return;
+        }
+
+        // 兜底:未经 Flow(单独打开旧主场景做测试)时,退回控制器内置选关。
+        ShowSelect();
     }
 
     private void ToggleMenuOverlay()
