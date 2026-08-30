@@ -19,6 +19,22 @@ public class LijiangEchoBattleSettings : ScriptableObject
     [Tooltip("勾上 = 镜像汇合:本体从一侧飞入,另生成一只对侧镜像分身,两只对称飞向圆心汇合(判定仍是一次命中)。\n不勾 = 单侧飞入(默认,和其它音符一致:从左或右一侧飞到圆心)。")]
     public bool doubleNoteMirrorConverge = false;
 
+    [Header("音符按飞入方向自动镜像(让纹样朝向飞行方向)")]
+    [Tooltip("总开关。勾上 = 从左侧飞入的音符水平镜像,使原本朝左的纹样朝向飞行方向(朝右);从右侧进入保持原朝向。\n下面按类型控制哪些纹样参与(默认只鱼纹/单击)。约定:纹样默认朝左,从右进入时即已朝向飞行方向。")]
+    public bool autoMirrorNotesByDirection = true;
+
+    [Tooltip("鱼纹(单击)参与自动镜像")]
+    public bool mirrorStrike = true;
+
+    [Tooltip("蛇纹(长按)参与自动镜像")]
+    public bool mirrorHold = false;
+
+    [Tooltip("蛙纹(滑动)参与自动镜像")]
+    public bool mirrorSwipe = false;
+
+    [Tooltip("鸟纹(双击)参与自动镜像(注意:若已开启上面的『双击=镜像汇合』,汇合本体固定从右进入,不受此项影响)")]
+    public bool mirrorDouble = false;
+
     private static LijiangEchoBattleSettings cached;
 
     /// <summary>运行时/编辑器读取:优先 Resources 里的资源;没有就用一份默认值实例(不落盘、不报错)。</summary>
