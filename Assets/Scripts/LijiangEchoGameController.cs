@@ -117,11 +117,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float PixelsPerUnit = 520f;
     private const float MainCanvasWidth = 5.65f;
     private const float WideStripWidth = 6.05f;
-    // 过场时长(已大幅缩短)。IntroWalkDuration=漂浮过场(山/房子飘过来)那段的时长,到点就切到视频;
-    // IntroTotalDuration=过场总时长的硬上限,到点无论视频成不成都直接进描绘阶段(=视频那段最多再放 上限-Walk 秒)。
-    // 想再调:改这两个数即可。原为 38.85 / 57。
-    private const float IntroWalkDuration = 9f;
-    private const float IntroTotalDuration = 13f;
+    private const float IntroWalkDuration = 38.85f;
+    private const float IntroTotalDuration = 57f;
     private const float NoteApproachTime = 1.22f;
     // 用户反馈:纹样音符整体做小一些的缩放系数。
     private const float NoteSizeScale = 0.72f;
