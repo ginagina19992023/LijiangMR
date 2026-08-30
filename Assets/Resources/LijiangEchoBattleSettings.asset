@@ -11,5 +11,5 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f32ab0953ec24f96a55eedb4e3892028, type: 3}
   m_Name: LijiangEchoBattleSettings
-  m_EditorClassIdentifier:
-  doubleNoteMirrorConverge: 0
+  m_EditorClassIdentifier: 
+  doubleNoteMirrorConverge: 1
