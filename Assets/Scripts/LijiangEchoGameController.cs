@@ -76,11 +76,12 @@ public class LijiangEchoGameController : MonoBehaviour
         public SpriteRenderer[] AllRenderers;     // Prefab 里所有精灵(本体+光晕),用于统一淡入
         public float[] AllRenderersBaseAlpha;     // 各精灵在 Prefab 里的基础透明度(保持相对关系)
 
-        // —— 双击「双翼汇合」(仅 doubleNoteMirrorConverge=true 时存在):右翼从右飞、左翼从左飞,
-        //    在圆心叠合拼成整只鸟。根节点固定在圆心,两翼各自沿 x 从 ±WingSpread 收拢到 0。 ——
-        public Transform WingLeft;
-        public Transform WingRight;
-        public float WingSpread;
+        // —— 双击「镜像汇合」分身(仅 doubleNoteMirrorConverge=true 时存在):原体(鸟纹=右翼)从右飞入,
+        //    另生成一只水平镜像(=左翼)从左飞入,两只对称汇合到圆心。分身纯视觉、不参与判定,
+        //    随本体一起淡入、一起销毁。 ——
+        public Transform MirrorTwin;
+        public SpriteRenderer[] MirrorTwinRenderers;
+        public float[] MirrorTwinBaseAlpha;
     }
 
     private sealed class IntroFadeItem
@@ -2351,12 +2352,13 @@ public class LijiangEchoGameController : MonoBehaviour
             float targetX = 0f; // 用户反馈:音符最终飞到中心原点圆点(不再停在一侧)
             NoteKind kind = GetNoteKind(nextSpawnIndex);
 
-            // 双击「双翼汇合」样式:不用整只鸟 Prefab,改成右翼从右飞、左翼从左飞、圆心拼成整鸟。
-            if (doubleNoteMirrorConverge && kind == NoteKind.Double)
+            // 双击「镜像汇合」:用同一只鸟纹 Prefab —— 原体(=右翼)固定从右侧飞入,再生成一只水平镜像
+            // 分身(=左翼)从左侧飞入,两只对称汇合到圆心拼成整鸟。原体永远走右、分身永远走左。
+            bool mirrorConverge = doubleNoteMirrorConverge && kind == NoteKind.Double;
+            if (mirrorConverge)
             {
-                SpawnWingConvergeNote(nextSpawnIndex);
-                nextSpawnIndex++;
-                continue;
+                side = 1f;       // 原体固定走右侧
+                startX = 2.26f;  // 从右进入(分身取 -startX,从左进入)
             }
 
             // 可编辑纹样 Prefab 优先:Resources/LijiangEchoNotes/Note_鱼/鸟/蛇/蛙 存在就用它。
@@ -2392,6 +2394,30 @@ public class LijiangEchoGameController : MonoBehaviour
                     Renderer = rends.Length > 0 ? rends[0] : null,
                     Judged = false
                 };
+
+                // 双击「镜像汇合」:生成一只对侧、水平镜像的纯视觉分身(=左翼),从左飞入。
+                // 只是视觉,不进 activeNotes、不参与判定;随本体一起淡入、一起销毁。
+                if (mirrorConverge)
+                {
+                    GameObject twin = Instantiate(notePrefab, stageRoot, false);
+                    twin.name = inst.name + "_镜像分身";
+                    twin.transform.localPosition = new Vector3(-startX, 0f, -0.94f); // 从左侧起步
+                    twin.transform.localRotation = Quaternion.identity;
+                    Vector3 ts = twin.transform.localScale;
+                    twin.transform.localScale = new Vector3(-Mathf.Abs(ts.x), ts.y, ts.z); // 水平镜像=左翼
+                    spawnedObjects.Add(twin);
+
+                    SpriteRenderer[] twinRends = twin.GetComponentsInChildren<SpriteRenderer>(true);
+                    float[] twinBaseA = new float[twinRends.Length];
+                    for (int r = 0; r < twinRends.Length; r++)
+                    {
+                        twinBaseA[r] = twinRends[r] != null ? twinRends[r].color.a : 1f;
+                    }
+
+                    prefabNote.MirrorTwin = twin.transform;
+                    prefabNote.MirrorTwinRenderers = twinRends;
+                    prefabNote.MirrorTwinBaseAlpha = twinBaseA;
+                }
 
                 activeNotes.Add(prefabNote);
                 nextSpawnIndex++;
@@ -2506,54 +2532,6 @@ public class LijiangEchoGameController : MonoBehaviour
         }
     }
 
-    // 双击「双翼汇合」样式的整只画布宽度(两翼素材是满画布对齐,叠在圆心即拼成整鸟)。想调大小改这里。
-    private const float DoubleWingWidth = 1.8f;
-
-    /// <summary>
-    /// 生成一个「双翼汇合」双击音符:右翼(monster_wing_right)从右飞入、左翼(monster_wing_left)从左飞入,
-    /// 在圆心叠合拼成整只鸟。判定仍是一次命中(根节点即判定体,两翼只是视觉)。
-    /// </summary>
-    private void SpawnWingConvergeNote(int index)
-    {
-        float spread = 2.26f; // 两翼起始横向距离(和普通音符飞入距离一致)
-
-        GameObject root = new GameObject("双击双翼汇合_" + index);
-        root.transform.SetParent(stageRoot, false);
-        root.transform.localPosition = new Vector3(0f, 0f, -0.94f); // 根固定在圆心,两翼各自收拢
-        root.transform.localRotation = Quaternion.identity;
-        spawnedObjects.Add(root);
-
-        // 右翼从右起步、左翼从左起步;满画布对齐 → eased→1 两翼都回到 x=0 时正好拼成整鸟。
-        GameObject rightWing = AddLayer("battle/monster_wing_right", "右翼", new Vector3(spread, 0f, 0f), DoubleWingWidth, 230, 1f, root.transform);
-        GameObject leftWing = AddLayer("battle/monster_wing_left", "左翼", new Vector3(-spread, 0f, 0f), DoubleWingWidth, 230, 1f, root.transform);
-
-        SpriteRenderer[] rends = root.GetComponentsInChildren<SpriteRenderer>(true);
-        float[] baseA = new float[rends.Length];
-        for (int r = 0; r < rends.Length; r++)
-        {
-            baseA[r] = rends[r] != null ? rends[r].color.a : 1f;
-        }
-
-        RhythmNote note = new RhythmNote
-        {
-            ChartIndex = index,
-            HitTime = noteTimes[index],
-            StartX = 0f,
-            TargetX = 0f,
-            Side = 0f, // 双翼对称,判定不偏一侧(双击本就双手)
-            Kind = NoteKind.Double,
-            PrefabRoot = root.transform,       // 复用 Prefab 音符的淡入/销毁通道
-            AllRenderers = rends,
-            AllRenderersBaseAlpha = baseA,
-            Renderer = rends.Length > 0 ? rends[0] : null,
-            WingLeft = leftWing.transform,
-            WingRight = rightWing.transform,
-            WingSpread = spread,
-            Judged = false
-        };
-        activeNotes.Add(note);
-    }
-
     private void UpdateNotes(float beatTime)
     {
         for (int i = activeNotes.Count - 1; i >= 0; i--)
@@ -2584,12 +2562,20 @@ public class LijiangEchoGameController : MonoBehaviour
                 Mathf.Sin((normalized + note.HitTime) * Mathf.PI * 2f) * 0.022f * (1f - eased),
                 -0.94f);
 
-            // 蛙纹(挥划)=「上跳」:从下方跃起到圆心,末段带一点上冲弧线,呼应向上挑的动作。
+            // 蛙纹(挥划)=「上跳」:飞入时从下方蓄势升到圆心;过判定点后「跳着离开」——沿抛物线向上跃出、
+            // 略带斜向,越飞越高直到消失,呼应青蛙向上蹬地跳走的真实轨迹。
             if (note.Kind == NoteKind.Swipe)
             {
-                float rise = Mathf.Lerp(-0.34f, 0f, eased);        // 从下方升到圆心
-                float hop = Mathf.Sin(eased * Mathf.PI) * 0.14f;   // 途中一个上冲小弧(起跳感)
-                visibleCenter.y += rise + hop;
+                float rise = Mathf.Lerp(-0.30f, 0f, eased);        // 起跳前从下方蓄势升到圆心
+                visibleCenter.y += rise;
+
+                float leave = Mathf.Clamp01((beatTime - note.HitTime) / 0.55f); // 判定点之后的离场进度
+                if (leave > 0f)
+                {
+                    float arc = Mathf.Sin(leave * Mathf.PI * 0.5f);        // 前段快、末段缓的上跃
+                    visibleCenter.y += arc * 0.62f;                        // 向上跃出的高度
+                    visibleCenter.x += (note.Side == 0f ? 1f : note.Side) * leave * 0.14f; // 略带斜向更像跳走
+                }
             }
 
             if (note.PrefabRoot != null)
@@ -2836,18 +2822,28 @@ public class LijiangEchoGameController : MonoBehaviour
             }
         }
 
-        // 双击「双翼汇合」:右翼从 +spread、左翼从 -spread 各自沿 x 收拢到 0,eased→1 时叠合拼成整鸟。
-        // (淡入已随 AllRenderers 统一处理;这里只驱动两翼各自的横向位置。)
-        if (note.WingRight != null)
+        // 双击「镜像汇合」分身(=左翼):对称位置(x 取反),同步淡入;和本体一起飞向圆心汇合。
+        if (note.MirrorTwin != null)
         {
-            Vector3 rp = note.WingRight.localPosition;
-            note.WingRight.localPosition = new Vector3(Mathf.Lerp(note.WingSpread, 0f, eased), rp.y, rp.z);
-        }
+            note.MirrorTwin.localPosition = new Vector3(-pos.x, pos.y, pos.z);
+            if (note.MirrorTwinRenderers != null)
+            {
+                for (int k = 0; k < note.MirrorTwinRenderers.Length; k++)
+                {
+                    SpriteRenderer sr = note.MirrorTwinRenderers[k];
+                    if (sr == null)
+                    {
+                        continue;
+                    }
 
-        if (note.WingLeft != null)
-        {
-            Vector3 lp = note.WingLeft.localPosition;
-            note.WingLeft.localPosition = new Vector3(Mathf.Lerp(-note.WingSpread, 0f, eased), lp.y, lp.z);
+                    float baseA = (note.MirrorTwinBaseAlpha != null && k < note.MirrorTwinBaseAlpha.Length)
+                        ? note.MirrorTwinBaseAlpha[k]
+                        : 1f;
+                    Color c = sr.color;
+                    c.a = Mathf.Clamp01(baseA * mul);
+                    sr.color = c;
+                }
+            }
         }
     }
 
@@ -2859,9 +2855,14 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
+        if (note.MirrorTwin != null)
+        {
+            Destroy(note.MirrorTwin.gameObject); // 双击镜像分身随本体一起清理
+        }
+
         if (note.PrefabRoot != null)
         {
-            Destroy(note.PrefabRoot.gameObject); // 双翼是其子节点,一并销毁
+            Destroy(note.PrefabRoot.gameObject);
             return;
         }
 
