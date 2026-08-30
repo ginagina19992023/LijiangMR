@@ -130,7 +130,18 @@ public class SelectStageController : MonoBehaviour
     {
         confirmed = true;
         LijiangEchoStageKit.PlaySfx("button", 0.62f);
-        LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
+
+        // 过场已拆成独立场景(Stage_Intro 已在 Build Settings)时走它;否则退回旧流程(旧主场景从过场开始)。
+        // 这样"建好场景就自动生效、没建就照旧",不会因场景不存在而出错。
+        if (Application.CanStreamedLevelBeLoaded("Stage_Intro"))
+        {
+            LijiangEchoGameFlow.Instance.SelectedLevel = selectedLevel;
+            LijiangEchoGameFlow.Instance.GoToStage("Stage_Intro");
+        }
+        else
+        {
+            LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
+        }
     }
 
     private void BuildSelectScreen()
