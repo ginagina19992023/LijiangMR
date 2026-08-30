@@ -59,7 +59,7 @@
 2. **换控制器**:按 1.2 把 `SelectStageController` 换成 `IntroStageController`;
 3. **视频资源**:确认 `Assets/StreamingAssets/LijiangEchoVideos/pre_level.mp4` 是真身(几 MB,不是 132 字节的 LFS 指针);是指针就 `git lfs pull`;
 4. **Build Settings**:按 1.3 把 `Stage_Intro` 放在 `Stage_Select` **之后**、`LijiangEchoMR_Main` **之前**;
-5. **接流程**:这一步我会在代码里改好(选关确认 → 先进 `Stage_Intro`,过场完再进旧主场景、从描绘开始),或明确告诉你改哪一行。你只需确认。
+5. **接流程 = 已自动**(我已用安全守卫接好):选关确认后,若 `Stage_Intro` 在 Build 里就走它、过场完再进旧主场景从描绘开始;没建就照旧。你**只要完成上面 1~4,建好即自动生效**,不用改代码。
 
 ### 2.3 验证清单(逐项打勾回我)
 - [ ] 选关确认后,**进入过场**(悬浮的山/房子朝你飘过来);
