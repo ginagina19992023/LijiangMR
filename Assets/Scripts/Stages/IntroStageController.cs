@@ -56,6 +56,7 @@ public class IntroStageController : MonoBehaviour
 
         selectedLevel = LijiangEchoGameFlow.Instance.SelectedLevel;
         stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_过场舞台");
+        LijiangEchoStageKit.HideControllerPointers(); // 过场无交互:隐藏上一阶段(选关)留下的残留手柄射线
         LijiangEchoStageKit.PlayStageLoop("water", 0.3f);
         BuildIntroWalkStage();
     }
@@ -131,16 +132,17 @@ public class IntroStageController : MonoBehaviour
         };
         const float horizonHalfSpan = 2.1f;
         const float horizonStep = 0.14f;
+        const float horizonRowZ = 3.0f;  // 静止远山这一排的深度(越大越远,约放到 4 米开外)。想更远/更近改这个(原 0.44)
         int horizonCount = Mathf.CeilToInt((horizonHalfSpan * 2f) / horizonStep) + 1;
         for (int m = 0; m < horizonCount; m++)
         {
             float hx = -horizonHalfSpan + m * horizonStep;
             LijiangEchoStageKit.AddIcon(stageRoot, spawnedObjects, horizonMtnArt[m % horizonMtnArt.Length],
-                "地平线小远山_" + m, new Vector3(hx, mtnCenterY, 0.44f), mtnHeight, -50 + (m % 5), 0.85f);
+                "地平线小远山_" + m, new Vector3(hx, mtnCenterY, horizonRowZ), mtnHeight, -50 + (m % 5), 0.85f);
         }
 
         LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "ui/mountain_background", "地平线天幕",
-            new Vector3(0f, horizonY - 0.04f, 0.5f), LijiangEchoStageKit.WideStripWidth, -52, 0.45f);
+            new Vector3(0f, horizonY - 0.04f, horizonRowZ + 0.2f), LijiangEchoStageKit.WideStripWidth, -52, 0.45f);
 
         AddFly("transition/mountain_1", "近景山一", new RectInt(127, 197, 490, 260), new Vector3(-3.25f, -0.18f, -0.16f), new Vector3(3.15f, -0.05f, -0.16f), 0.42f, 0.78f, 0.0f, 5.8f, 12, 0.88f);
         AddFly("transition/mountain_4", "近景山二", new RectInt(1390, 219, 373, 197), new Vector3(3.20f, -0.34f, -0.18f), new Vector3(-3.10f, -0.20f, -0.18f), 0.38f, 0.74f, 0.3f, 6.1f, 13, 0.84f);
