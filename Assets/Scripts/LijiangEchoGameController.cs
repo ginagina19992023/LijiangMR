@@ -436,10 +436,28 @@ public class LijiangEchoGameController : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureController()
     {
+        // 进程启动只触发一次:订阅场景加载事件,保证旧主场景【每次】被(附加)加载后都会尝试创建控制器。
+        // 关键修复:旧主场景是运行时【附加加载】的,而本方法只在进程启动那一次触发、彼时主场景还没加载
+        // → 之前会直接 return,控制器永远建不出来 → 进旧主场景后无人驱动、画面卡死(不崩、仍 72fps)。
+        SceneManager.sceneLoaded -= HandleSceneLoadedForController;
+        SceneManager.sceneLoaded += HandleSceneLoadedForController;
+        TryCreateRuntimeController(); // 若启动时旧主场景已加载(单独打开该场景测试),立即创建
+    }
+
+    private static void HandleSceneLoadedForController(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name == "LijiangEchoMR_Main")
+        {
+            TryCreateRuntimeController();
+        }
+    }
+
+    private static void TryCreateRuntimeController()
+    {
+        // 开始/选关已拆到独立场景（Stage_Start/Stage_Select），本控制器只在旧主场景加载后才自动生成，
+        // 避免在 Bootstrap/新阶段场景里重复搭建一套内容。
         if (!SceneManager.GetSceneByName("LijiangEchoMR_Main").isLoaded)
         {
-            // 开始/选关已拆到独立场景（Stage_Start/Stage_Select），本控制器只在旧主场景
-            // 加载后才自动生成，避免在 Bootstrap/新阶段场景里重复搭建一套内容。
             return;
         }
 
