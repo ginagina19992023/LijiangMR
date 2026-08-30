@@ -1326,7 +1326,10 @@ public class LijiangEchoGameController : MonoBehaviour
             false);
         RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
 
-        tracePoints = BuildTracePath(selectedLevel);
+        // 双手拆分:开镜像时,主手(原体)只描【右半】纹样,镜像手镜像补出【左半】,两半合起来才是整只纹样,
+        // 每只手只画一半(不再是两只手各画一条一样长的完整轨迹)。关镜像时单手描整条。
+        bool splitHands = ExternalTraceMirror ?? true;
+        tracePoints = BuildTracePath(selectedLevel, splitHands);
 
         // P1 / 描绘增强：全程「淡淡指引线」——沿纹样形状铺满整条路径，给玩家指引方向。
         // 线本身即对齐纹样基本形状；如需虚线观感，可给此 LineRenderer 换一张虚线纹理材质。
@@ -1373,8 +1376,8 @@ public class LijiangEchoGameController : MonoBehaviour
         tracePointer = pointerObject.transform;
         tracePointer.gameObject.SetActive(false);
 
-        // 双手镜像绘制:把指引线/已描绘线/光标镜像到对侧(x→-x),形成左右对称的双手画效果
-        // (会议:"画的虚线直接复制过来")。开关 ExternalTraceMirror 默认开;设 false 则单手画全程。
+        // 双手镜像绘制:此时 tracePoints 已是【右半】纹样,主手描右半,这里的镜像件(指引线/已描绘线/光标)
+        // 把右半 x→-x 补出【左半】,两半拼成整只纹样,每只手只画一半。开关 ExternalTraceMirror 默认开;设 false 则单手描整条。
         if (ExternalTraceMirror ?? true)
         {
             LineRenderer mirrorGuide = AddLineRenderer("纹样描绘指引(镜像)", 0.03f, new Color(1f, 0.9f, 0.55f, 0.16f), 30);
@@ -1552,11 +1555,24 @@ public class LijiangEchoGameController : MonoBehaviour
             };
     }
 
-    private Vector3[] BuildTracePath(int level)
+    private Vector3[] BuildTracePath(int level, bool rightHalfOnly)
     {
         List<Vector3> points = new List<Vector3>();
         if (level == 2)
         {
+            if (rightHalfOnly)
+            {
+                // 右半圆:顶(π/2)→右(0)→底(-π/2);镜像手补出左半圆,合起来是整圈铜钱纹。
+                const int halfPoints = 36;
+                for (int i = 0; i < halfPoints; i++)
+                {
+                    float angle = Mathf.PI * 0.5f - i / (float)(halfPoints - 1) * Mathf.PI;
+                    points.Add(new Vector3(Mathf.Cos(angle) * 0.43f, Mathf.Sin(angle) * 0.43f + 0.02f, TracePlaneZ));
+                }
+
+                return points.ToArray();
+            }
+
             const int circlePoints = 72;
             for (int i = 0; i < circlePoints; i++)
             {
@@ -1567,26 +1583,48 @@ public class LijiangEchoGameController : MonoBehaviour
             return points.ToArray();
         }
 
-        Vector2[] controls = level == 0
-            ? new[]
-            {
-                new Vector2(-0.20f, 0.44f), new Vector2(-0.38f, 0.28f),
-                new Vector2(-0.17f, 0.13f), new Vector2(-0.34f, -0.03f),
-                new Vector2(-0.10f, -0.14f), new Vector2(-0.18f, -0.34f),
-                new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
-                new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
-                new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
-                new Vector2(0.20f, 0.44f)
-            }
-            : new[]
-            {
-                new Vector2(-0.52f, 0.02f), new Vector2(-0.34f, 0.30f),
-                new Vector2(-0.10f, 0.14f), new Vector2(0f, 0.38f),
-                new Vector2(0.10f, 0.14f), new Vector2(0.34f, 0.30f),
-                new Vector2(0.52f, 0.02f), new Vector2(0.25f, -0.06f),
-                new Vector2(0f, -0.45f), new Vector2(-0.25f, -0.06f),
-                new Vector2(-0.52f, 0.02f)
-            };
+        Vector2[] controls;
+        if (rightHalfOnly)
+        {
+            // 纹样关于 x=0 对称:主手只描右半(x≥0)控制点,镜像手把它 -x 翻出左半,两半拼成整只纹样。
+            controls = level == 0
+                ? new[]
+                {
+                    new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                    new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                    new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                    new Vector2(0.20f, 0.44f)
+                }
+                : new[]
+                {
+                    new Vector2(0f, 0.38f), new Vector2(0.10f, 0.14f),
+                    new Vector2(0.34f, 0.30f), new Vector2(0.52f, 0.02f),
+                    new Vector2(0.25f, -0.06f), new Vector2(0f, -0.45f)
+                };
+        }
+        else
+        {
+            controls = level == 0
+                ? new[]
+                {
+                    new Vector2(-0.20f, 0.44f), new Vector2(-0.38f, 0.28f),
+                    new Vector2(-0.17f, 0.13f), new Vector2(-0.34f, -0.03f),
+                    new Vector2(-0.10f, -0.14f), new Vector2(-0.18f, -0.34f),
+                    new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                    new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                    new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                    new Vector2(0.20f, 0.44f)
+                }
+                : new[]
+                {
+                    new Vector2(-0.52f, 0.02f), new Vector2(-0.34f, 0.30f),
+                    new Vector2(-0.10f, 0.14f), new Vector2(0f, 0.38f),
+                    new Vector2(0.10f, 0.14f), new Vector2(0.34f, 0.30f),
+                    new Vector2(0.52f, 0.02f), new Vector2(0.25f, -0.06f),
+                    new Vector2(0f, -0.45f), new Vector2(-0.25f, -0.06f),
+                    new Vector2(-0.52f, 0.02f)
+                };
+        }
 
         const int subdivisions = 6;
         for (int segment = 0; segment < controls.Length - 1; segment++)
