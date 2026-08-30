@@ -1351,7 +1351,8 @@ public class LijiangEchoGameController : MonoBehaviour
             0.88f,
             18,
             0.74f,
-            false);
+            false,
+            centerOnVisual: true); // 按不透明像素真实中心对齐,纹样居中(不再偏到左下角)
         RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
 
         // 双手拆分:开镜像时,右手描【右半】纹样、左手描【左半】纹样,各自进度、各自判定,两半都描完才成功。
@@ -1518,20 +1519,18 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         CacheControllerAnchors();
 
-        // —— 右手 → 右半(编辑器无右手柄时用鼠标兜底,方便调试)——
+        // 编辑器鼠标兜底:一支鼠标默认画右手;【按住 Shift 时改画左手】,这样单鼠标也能把左右两半都描完。
+        bool mouseHas = TryGetMousePointer(out Vector3 mousePoint, out bool mouseDraw);
+        bool mouseToLeft = Keyboard.current != null &&
+                           (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
+
+        // —— 右手 → 右半 ——
         bool rightHas = TryGetHandPointer(true, out Vector3 rPoint, out bool rDraw);
-        if (!rightHas && Mouse.current != null && cameraAnchor != null)
+        if (!rightHas && mouseHas && !mouseToLeft)
         {
-            Camera cam = cameraAnchor.GetComponent<Camera>();
-            if (cam != null)
-            {
-                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
-                if (TryProjectRay(ray, out rPoint))
-                {
-                    rightHas = true;
-                    rDraw = Mouse.current.leftButton.isPressed;
-                }
-            }
+            rightHas = true;
+            rPoint = mousePoint;
+            rDraw = mouseDraw;
         }
 
         UpdateTraceCursor(tracePointer, rightHas, rPoint);
@@ -1544,8 +1543,14 @@ public class LijiangEchoGameController : MonoBehaviour
             hasPreviousTracePointer = false;
         }
 
-        // —— 左手 → 左半 ——
+        // —— 左手 → 左半(编辑器按住 Shift 时鼠标画这半)——
         bool leftHas = TryGetHandPointer(false, out Vector3 lPoint, out bool lDraw);
+        if (!leftHas && mouseHas && mouseToLeft)
+        {
+            leftHas = true;
+            lPoint = mousePoint;
+            lDraw = mouseDraw;
+        }
         UpdateTraceCursor(traceMirrorPointer, leftHas, lPoint);
         if (leftHas && lDraw && traceLeftPoints != null && traceLeftIndex < traceLeftPoints.Length)
         {
@@ -1593,6 +1598,28 @@ public class LijiangEchoGameController : MonoBehaviour
         if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
         {
             return true;
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
+    // 编辑器鼠标落点 + 左键是否按下(供无手柄时兜底描绘)。
+    private bool TryGetMousePointer(out Vector3 localPoint, out bool drawing)
+    {
+        if (Mouse.current != null && cameraAnchor != null)
+        {
+            Camera cam = cameraAnchor.GetComponent<Camera>();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                if (TryProjectRay(ray, out localPoint))
+                {
+                    drawing = Mouse.current.leftButton.isPressed;
+                    return true;
+                }
+            }
         }
 
         localPoint = Vector3.zero;
@@ -4257,7 +4284,8 @@ public class LijiangEchoGameController : MonoBehaviour
         int order,
         float alpha,
         bool mirrorX,
-        Transform parent = null)
+        Transform parent = null,
+        bool centerOnVisual = false)
     {
         GameObject spriteObject = new GameObject(objectName);
         spriteObject.transform.SetParent(parent != null ? parent : stageRoot, false);
@@ -4265,7 +4293,7 @@ public class LijiangEchoGameController : MonoBehaviour
         SpriteRenderer renderer = spriteObject.AddComponent<SpriteRenderer>();
         renderer.sprite = GetCroppedSprite(resourcePath, topLeftCrop);
         renderer.sortingOrder = order;
-        SetCroppedSpritePose(renderer, visibleCenter, targetHeight, alpha, mirrorX);
+        SetCroppedSpritePose(renderer, visibleCenter, targetHeight, alpha, mirrorX, centerOnVisual);
 
         spawnedObjects.Add(spriteObject);
         return spriteObject;
