@@ -171,6 +171,12 @@ public class LijiangEchoGameController : MonoBehaviour
     /// </summary>
     public static int? ExternalSelectedLevel;
 
+    /// <summary>
+    /// 场景拆分桥接:旧主场景加载后【从哪个阶段开始】。2=过场 3=描绘 4=战斗;为 null 时按旧行为(从过场开始)。
+    /// 由已拆出去的独立阶段场景(如 Stage_Intro)在进旧主场景前设置,让旧场景跳过已拆走的前置阶段。用一次即清除。
+    /// </summary>
+    public static int? ExternalStartStage;
+
     // 双手镜像绘制开关:null/true = 左右对称双手画(把描绘镜像到对侧);false = 单手画全程。
     public static bool? ExternalTraceMirror;
 
@@ -525,6 +531,19 @@ public class LijiangEchoGameController : MonoBehaviour
         if (debugStage >= 0)
         {
             JumpToStageForDebug(debugStage);
+        }
+        else if (ExternalStartStage.HasValue)
+        {
+            // 独立阶段场景(如 Stage_Intro)已跑完前置阶段 → 旧主场景从指定阶段直接开始。
+            selectedLevel = ExternalSelectedLevel ?? 0;
+            int startStage = ExternalStartStage.Value;
+            ExternalStartStage = null; // 用一次即清除
+            switch (startStage)
+            {
+                case 3: ShowTrace(); break;
+                case 4: ShowBattle(); break;
+                default: ShowIntro(); break;
+            }
         }
         else if (ExternalSelectedLevel.HasValue)
         {
