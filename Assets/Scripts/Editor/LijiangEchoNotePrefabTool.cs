@@ -640,4 +640,72 @@ public static class LijiangEchoNotePrefabTool
             RenderTexture.ReleaseTemporary(rt);
         }
     }
+
+    // 中间圆环默认贴图 + 目标高度(和 LijiangEchoGameController.HitRingVisibleHeight 一致)。
+    private const string RingArtRel = "battle/hit_ring_center";
+    private const float RingTargetHeight = 0.62f;
+
+    [MenuItem("漓江回声/纹样/生成默认圆环Prefab（Ring_Center·带默认反馈脚本）")]
+    public static void GenerateRingPrefab()
+    {
+        string msg = BuildRing("Ring_Center", RingArtRel, RingTargetHeight);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        EditorUtility.DisplayDialog("圆环 Prefab",
+            "Ring_Center:" + msg + "\n\n" +
+            "已挂【默认反馈脚本 LijiangEchoRingFeedback】,观感与旧版一致(按拍脉动)。\n" +
+            "想换反馈:继承 LijiangEchoRingFeedback 写个新脚本、挂到该 Prefab(或用总表一键挂),再绑定即可。\n" +
+            "不生成本 Prefab 也没关系:运行时会用原贴图兜底,观感不变。", "好");
+    }
+
+    /// <summary>生成一个圆环 Prefab:根 → Visual(圆环贴图),根上挂默认反馈脚本。供菜单/总表调用。</summary>
+    internal static string BuildRing(string prefabName, string artRel, float targetHeight)
+    {
+        if (!AssetDatabase.IsValidFolder(OutFolder))
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoNotes");
+        }
+
+        Texture2D tex = Resources.Load<Texture2D>("LijiangEchoArt/" + artRel);
+        if (tex == null)
+        {
+            return "找不到贴图 LijiangEchoArt/" + artRel;
+        }
+
+        string texPath = AssetDatabase.GetAssetPath(tex);
+        TextureImporter ti = AssetImporter.GetAtPath(texPath) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.SaveAndReimport();
+        }
+
+        Sprite spr = AssetDatabase.LoadAssetAtPath<Sprite>(texPath);
+        if (spr == null)
+        {
+            return "贴图未生成 Sprite";
+        }
+
+        GameObject root = new GameObject(prefabName);
+        GameObject visual = new GameObject("Visual");
+        visual.transform.SetParent(root.transform, false);
+        float h = Mathf.Max(1e-4f, spr.bounds.size.y);
+        visual.transform.localScale = Vector3.one * (targetHeight / h);
+        SpriteRenderer vr = visual.AddComponent<SpriteRenderer>();
+        vr.sprite = spr;
+        vr.sortingOrder = 190; // 和旧版圆环层级一致
+        vr.color = Color.white;
+
+        root.AddComponent<LijiangEchoRingFeedback>(); // 默认反馈脚本(不改观感)
+
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, OutFolder + "/" + prefabName + ".prefab");
+        Object.DestroyImmediate(root);
+        return saved != null ? $"OK(高度 {targetHeight})" : "保存失败";
+    }
 }

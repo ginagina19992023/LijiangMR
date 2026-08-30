@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -38,6 +40,17 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
     private string status = string.Empty;
     private Vector2 scroll;
 
+    // —— 圆环区状态 ——
+    private int ringTargetLevel;         // 0=全局(Ring_Center),1..3=关卡0/1/2(Ring_level{N})
+    private GameObject ringSourcePrefab;  // 要绑到圆环格的已有 Prefab
+    private int feedbackTypeIndex;        // 选中的反馈脚本类型下标
+    private Type[] feedbackTypes;         // 可用的圆环反馈脚本(基类 + 子类)
+    private string[] feedbackTypeNames;
+
+    private static string RingGlobalPath() => OutFolder + "/Ring_Center.prefab";
+    private static string RingLevelPath(int level0Based) => OutFolder + "/Ring_level" + level0Based + ".prefab";
+    private string RingTargetPath() => ringTargetLevel == 0 ? RingGlobalPath() : RingLevelPath(ringTargetLevel - 1);
+
     [MenuItem("漓江回声/纹样/纹样绑定总表（看清+替换每个类型的纹样）")]
     public static void Open()
     {
@@ -72,6 +85,9 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
 
         EditorGUILayout.Space(10f);
         DrawReplaceSection();
+
+        EditorGUILayout.Space(10f);
+        DrawRingSection();
 
         EditorGUILayout.Space(6f);
         if (!string.IsNullOrEmpty(status))
@@ -255,6 +271,246 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
         status = ok
             ? $"已绑定:{System.IO.Path.GetFileName(dst)} ← 复制自『{sourcePrefab.name}』。重进战斗生效。"
             : "复制失败(检查目标目录/权限)。";
+    }
+
+    // —— 圆环:prefab + 反馈脚本(和音符同一套逻辑) ——
+    private void DrawRingSection()
+    {
+        EditorGUILayout.LabelField("④ 中间圆环(prefab + 反馈脚本)", EditorStyles.boldLabel);
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            GameObject ringGlobal = AssetDatabase.LoadAssetAtPath<GameObject>(RingGlobalPath());
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("全局圆环", GUILayout.Width(64f));
+                EditorGUILayout.ObjectField(ringGlobal, typeof(GameObject), false);
+            }
+
+            if (ringGlobal == null)
+            {
+                EditorGUILayout.LabelField("(没有 Ring_Center Prefab → 运行时用原贴图兜底,观感不变)", EditorStyles.miniLabel);
+                if (GUILayout.Button("生成默认圆环 Prefab(Ring_Center·带默认反馈)"))
+                {
+                    status = LijiangEchoNotePrefabTool.BuildRing("Ring_Center", "battle/hit_ring_center", 0.62f);
+                    AssetDatabase.SaveAssets();
+                    AssetDatabase.Refresh();
+                }
+            }
+            else
+            {
+                Behaviour fb = FindFeedback(ringGlobal);
+                EditorGUILayout.LabelField("当前反馈脚本:", fb != null ? fb.GetType().Name : "(无 → 运行时补默认)", EditorStyles.miniLabel);
+            }
+
+            // 关卡覆盖
+            for (int lv = 0; lv < 3; lv++)
+            {
+                GameObject over = AssetDatabase.LoadAssetAtPath<GameObject>(RingLevelPath(lv));
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("关卡" + lv, GUILayout.Width(48f));
+                    if (over != null)
+                    {
+                        EditorGUILayout.ObjectField(over, typeof(GameObject), false);
+                        if (GUILayout.Button("删覆盖", GUILayout.Width(56f)))
+                        {
+                            AssetDatabase.DeleteAsset(RingLevelPath(lv));
+                            AssetDatabase.Refresh();
+                            status = $"已删除 关卡{lv} 圆环覆盖 → 恢复用全局。";
+                        }
+                    }
+                    else
+                    {
+                        EditorGUILayout.LabelField("用全局 Ring_Center", EditorStyles.miniLabel);
+                    }
+                }
+            }
+        }
+
+        // 绑定已有圆环 Prefab 到某格
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            ringTargetLevel = EditorGUILayout.Popup("目标", ringTargetLevel, LevelLabels, GUILayout.Width(220f));
+            ringSourcePrefab = (GameObject)EditorGUILayout.ObjectField(ringSourcePrefab, typeof(GameObject), false);
+        }
+
+        using (new EditorGUI.DisabledScope(ringSourcePrefab == null))
+        {
+            if (GUILayout.Button("把此圆环 Prefab 绑定到目标格"))
+            {
+                status = CopyPrefabInto(ringSourcePrefab, RingTargetPath());
+            }
+        }
+
+        // 一键给全局圆环换 / 挂反馈脚本
+        EnsureFeedbackTypes();
+        feedbackTypeIndex = Mathf.Clamp(feedbackTypeIndex, 0, Mathf.Max(0, feedbackTypeNames.Length - 1));
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            feedbackTypeIndex = EditorGUILayout.Popup("反馈脚本", feedbackTypeIndex, feedbackTypeNames);
+            bool canAttach = feedbackTypes.Length > 0 && AssetDatabase.LoadAssetAtPath<GameObject>(RingTargetPath()) != null;
+            using (new EditorGUI.DisabledScope(!canAttach))
+            {
+                if (GUILayout.Button("挂到目标格圆环", GUILayout.Width(130f)))
+                {
+                    status = AttachFeedback(RingTargetPath(), feedbackTypes[feedbackTypeIndex]);
+                }
+            }
+        }
+
+        EditorGUILayout.LabelField(
+            "反馈脚本 = 继承 LijiangEchoRingFeedback 的 MonoBehaviour;不挂就用默认(观感同旧版)。写好新脚本后这里会自动列出。",
+            EditorStyles.wordWrappedMiniLabel);
+    }
+
+    private static Behaviour FindFeedback(GameObject prefab)
+    {
+        // 反馈脚本继承自 LijiangEchoRingFeedback,用名字判断避免编辑器程序集强依赖运行时类型。
+        foreach (Behaviour b in prefab.GetComponentsInChildren<Behaviour>(true))
+        {
+            if (b == null)
+            {
+                continue;
+            }
+
+            for (Type t = b.GetType(); t != null; t = t.BaseType)
+            {
+                if (t.Name == "LijiangEchoRingFeedback")
+                {
+                    return b;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void EnsureFeedbackTypes()
+    {
+        if (feedbackTypes != null)
+        {
+            return;
+        }
+
+        List<Type> list = new List<Type>();
+        Type baseType = null;
+        foreach (Type t in TypeCache.GetTypesDerivedFrom<MonoBehaviour>())
+        {
+            if (t.Name == "LijiangEchoRingFeedback")
+            {
+                baseType = t;
+                break;
+            }
+        }
+
+        if (baseType != null)
+        {
+            list.Add(baseType); // 基类=默认反馈
+            foreach (Type t in TypeCache.GetTypesDerivedFrom(baseType))
+            {
+                if (!t.IsAbstract)
+                {
+                    list.Add(t);
+                }
+            }
+        }
+
+        feedbackTypes = list.ToArray();
+        feedbackTypeNames = new string[feedbackTypes.Length];
+        for (int i = 0; i < feedbackTypes.Length; i++)
+        {
+            feedbackTypeNames[i] = feedbackTypes[i].Name + (i == 0 ? "(默认)" : string.Empty);
+        }
+
+        if (feedbackTypeNames.Length == 0)
+        {
+            feedbackTypeNames = new[] { "(未找到反馈脚本)" };
+            feedbackTypes = Array.Empty<Type>();
+        }
+    }
+
+    private string AttachFeedback(string prefabPath, Type feedbackType)
+    {
+        if (feedbackType == null)
+        {
+            return "没有可挂的反馈脚本类型。";
+        }
+
+        GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+        try
+        {
+            foreach (Behaviour old in root.GetComponentsInChildren<Behaviour>(true))
+            {
+                if (old == null)
+                {
+                    continue;
+                }
+
+                for (Type t = old.GetType(); t != null; t = t.BaseType)
+                {
+                    if (t.Name == "LijiangEchoRingFeedback")
+                    {
+                        UnityEngine.Object.DestroyImmediate(old, true);
+                        break;
+                    }
+                }
+            }
+
+            root.AddComponent(feedbackType);
+            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+
+        AssetDatabase.Refresh();
+        return $"已把反馈脚本 {feedbackType.Name} 挂到 {System.IO.Path.GetFileName(prefabPath)}。重进战斗生效。";
+    }
+
+    /// <summary>把一个 Prefab 复制成目标路径(覆盖需确认);运行时按名加载即完成替换。</summary>
+    private string CopyPrefabInto(GameObject src, string dst)
+    {
+        string srcPath = AssetDatabase.GetAssetPath(src);
+        if (string.IsNullOrEmpty(srcPath) || !srcPath.EndsWith(".prefab"))
+        {
+            return "来源不是一个 Prefab 资源。";
+        }
+
+        if (srcPath == dst)
+        {
+            return "来源就是目标本身,无需绑定。";
+        }
+
+        if (!AssetDatabase.IsValidFolder(OutFolder))
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            AssetDatabase.CreateFolder("Assets/Resources", "LijiangEchoNotes");
+        }
+
+        bool overwrite = AssetDatabase.LoadAssetAtPath<GameObject>(dst) != null;
+        if (overwrite && !EditorUtility.DisplayDialog("覆盖确认",
+                $"目标 {System.IO.Path.GetFileName(dst)} 已存在,将被『{src.name}』的副本覆盖。\n继续?", "覆盖", "取消"))
+        {
+            return "已取消。";
+        }
+
+        if (overwrite)
+        {
+            AssetDatabase.DeleteAsset(dst);
+        }
+
+        bool ok = AssetDatabase.CopyAsset(srcPath, dst);
+        AssetDatabase.Refresh();
+        return ok
+            ? $"已绑定:{System.IO.Path.GetFileName(dst)} ← 复制自『{src.name}』。重进战斗生效。"
+            : "复制失败。";
     }
 
     /// <summary>写调试标记并进入指定关卡的战斗(和「漓江回声/调试/进 战斗」同机制)。</summary>

@@ -270,6 +270,7 @@ public class LijiangEchoGameController : MonoBehaviour
     private SpriteRenderer countdownRenderer;
     private SpriteRenderer cardPageRenderer;
     private Transform ringTransform;
+    private LijiangEchoRingFeedback ringFeedback; // 圆环反馈脚本(挂在圆环上;没挂则补默认,观感同旧版)
     private Transform monsterRoot;
     private Transform introScrollRoot;
     private Transform introPreLevelRoot;
@@ -739,6 +740,7 @@ public class LijiangEchoGameController : MonoBehaviour
         countdownRenderer = null;
         cardPageRenderer = null;
         ringTransform = null;
+        ringFeedback = null;
         monsterRoot = null;
         introScrollRoot = null;
         introPreLevelRoot = null;
@@ -1944,16 +1946,43 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.38f), 0.24f, 70, 0.9f);
-        GameObject centerRingObject = AddIcon(
-            "battle/hit_ring_center",
-            "中央节奏判定双圆环",
-            new Vector3(0f, 0f, -0.82f),
-            HitRingVisibleHeight,
-            190,
-            1f);
-        ringRenderer = centerRingObject.GetComponent<SpriteRenderer>();
-        ringTransform = centerRingObject.transform;
+
+        // 中间圆环:和音符同一套"prefab 优先"逻辑 —— 本关 Ring_level{关} → 全局 Ring_Center → 贴图兜底。
+        // 用 Prefab 你在编辑器里怎么摆就怎么显示(更稳,和音符迁移一样);没有 Prefab 就用原来的贴图,观感不变。
+        GameObject ringPrefab = Resources.Load<GameObject>("LijiangEchoNotes/Ring_level" + selectedLevel)
+            ?? Resources.Load<GameObject>("LijiangEchoNotes/Ring_Center");
+        GameObject centerRingObject;
+        if (ringPrefab != null)
+        {
+            centerRingObject = Instantiate(ringPrefab, stageRoot, false);
+            centerRingObject.name = "中央节奏判定双圆环(Prefab)";
+            centerRingObject.transform.localPosition = new Vector3(0f, 0f, -0.82f);
+            centerRingObject.transform.localRotation = Quaternion.identity;
+            spawnedObjects.Add(centerRingObject);
+            ringRenderer = centerRingObject.GetComponentInChildren<SpriteRenderer>();
+            ringTransform = centerRingObject.transform;
+        }
+        else
+        {
+            centerRingObject = AddIcon(
+                "battle/hit_ring_center",
+                "中央节奏判定双圆环",
+                new Vector3(0f, 0f, -0.82f),
+                HitRingVisibleHeight,
+                190,
+                1f);
+            ringRenderer = centerRingObject.GetComponent<SpriteRenderer>();
+            ringTransform = centerRingObject.transform;
+        }
         ringBaseScale = ringTransform.localScale;
+
+        // 圆环反馈脚本:Prefab 上挂了(或其子物体上有)就用它;没挂就补一个默认(OnBeat 脉动=旧版观感,命中不额外闪)。
+        ringFeedback = centerRingObject.GetComponentInChildren<LijiangEchoRingFeedback>();
+        if (ringFeedback == null)
+        {
+            ringFeedback = centerRingObject.AddComponent<LijiangEchoRingFeedback>();
+        }
+        ringFeedback.Init(ringRenderer, ringTransform, ringBaseScale);
 
         RectInt[] traceCrops =
         {
@@ -2916,6 +2945,12 @@ public class LijiangEchoGameController : MonoBehaviour
             TriggerHandStrike(hitKind == NoteKind.Double ? 0f : hitSide);
         }
 
+        // 通知圆环反馈脚本"命中了"(默认脚本不做额外反馈;挂了自定义脚本才会响应)。
+        if (ringFeedback != null)
+        {
+            ringFeedback.OnHit((int)hitKind, true);
+        }
+
         nextNoteIndex++;
         holdActive = false;
         holdProgress = 0f;
@@ -3426,6 +3461,14 @@ public class LijiangEchoGameController : MonoBehaviour
 
         float untilNote = noteTimes[nextNoteIndex] - beatTime;
         float normalized = Mathf.InverseLerp(0.7f, 0f, Mathf.Clamp(untilNote, 0f, 0.7f));
+
+        // 反馈交给圆环上挂的脚本(默认脚本=下面这套旧观感);脚本缺失时兜底直接用旧算法,保证永不异常。
+        if (ringFeedback != null)
+        {
+            ringFeedback.OnBeat(normalized);
+            return;
+        }
+
         float scale = Mathf.Lerp(1.12f, 0.92f, normalized);
         ringTransform.localScale = ringBaseScale * scale;
         ringRenderer.color = new Color(1f, 0.92f, 0.45f, Mathf.Lerp(0.42f, 1f, normalized));
