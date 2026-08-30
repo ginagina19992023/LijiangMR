@@ -188,6 +188,9 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
+    private bool menuPaused;      // 菜单打开时是否已暂停(冻结进度+音频)
+    private bool menuPressPrev;   // 上一帧是否在按住(菜单点击的上升沿检测)
+    private bool menuMuted;       // 菜单「音乐」开关:是否静音
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
     private readonly List<RhythmNote> activeNotes = new List<RhythmNote>();
     private readonly List<IntroFadeItem> introWalkItems = new List<IntroFadeItem>();
@@ -561,9 +564,6 @@ public class LijiangEchoGameController : MonoBehaviour
 
         headPoseWasTracked = headPoseTracked;
 
-        stageTimer += Time.deltaTime;
-        selectMoveCooldown -= Time.deltaTime;
-        swipeCooldown -= Time.deltaTime;
         UpdateControllerInput();
 
 #if UNITY_EDITOR
@@ -578,6 +578,29 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             ToggleMenuOverlay();
         }
+
+        // 菜单打开 = 暂停:冻结进度 + 音频,只处理菜单点击;关闭后恢复。
+        if (menuObjects.Count > 0)
+        {
+            if (!menuPaused)
+            {
+                AudioListener.pause = true;
+                menuPaused = true;
+            }
+
+            UpdateMenuInteraction();
+            return;
+        }
+
+        if (menuPaused)
+        {
+            AudioListener.pause = false;
+            menuPaused = false;
+        }
+
+        stageTimer += Time.deltaTime;
+        selectMoveCooldown -= Time.deltaTime;
+        swipeCooldown -= Time.deltaTime;
 
         UpdateMotions();
 
@@ -797,6 +820,12 @@ public class LijiangEchoGameController : MonoBehaviour
         selectCards = null;
         selectNumbers = null;
         menuObjects.Clear();
+        if (menuPaused)
+        {
+            AudioListener.pause = false; // 换阶段时若菜单还开着,确保恢复音频/暂停状态
+            menuPaused = false;
+        }
+        menuPressPrev = false;
         motionItems.Clear();
         activeNotes.Clear();
         scheduledSfx.Clear();
@@ -3980,6 +4009,101 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         menuObjects.Clear();
+    }
+
+    // 菜单点击处理:手柄射线 / 编辑器鼠标点到某个图标(主页/音乐/跳过/返回)→ 执行对应动作。
+    private void UpdateMenuInteraction()
+    {
+        bool pressing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.5f ||
+                        (Mouse.current != null && Mouse.current.leftButton.isPressed);
+        bool clicked = pressing && !menuPressPrev; // 上升沿=本帧点下
+        menuPressPrev = pressing;
+        if (!clicked || !GetMenuPointer(out Vector3 lp))
+        {
+            return;
+        }
+
+        if (Mathf.Abs(lp.y - 0.05f) > 0.34f)
+        {
+            return; // 不在这排图标的高度上
+        }
+
+        // 图标横向位置:主页 -1.08 / 音乐 -0.36 / 跳过 0.36 / 返回 1.08(半宽 0.32)
+        if (Mathf.Abs(lp.x + 1.08f) < 0.32f) { MenuActionHome(); }
+        else if (Mathf.Abs(lp.x + 0.36f) < 0.32f) { MenuActionMusic(); }
+        else if (Mathf.Abs(lp.x - 0.36f) < 0.32f) { MenuActionSkip(); }
+        else if (Mathf.Abs(lp.x - 1.08f) < 0.32f) { MenuActionBack(); }
+    }
+
+    // 取菜单指针在舞台平面上的落点:哪只手扳机压得深用哪只;编辑器退回鼠标。
+    private bool GetMenuPointer(out Vector3 localPoint)
+    {
+        CacheControllerAnchors();
+        bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
+                        (!leftControllerTracked && rightControllerTracked);
+        Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
+        if (controller != null && TryProjectControllerRay(controller, out localPoint))
+        {
+            return true;
+        }
+
+        if (Mouse.current != null && cameraAnchor != null)
+        {
+            Camera cam = cameraAnchor.GetComponent<Camera>();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                return TryProjectRay(ray, out localPoint);
+            }
+        }
+
+        localPoint = Vector3.zero;
+        return false;
+    }
+
+    private void CloseMenu()
+    {
+        ClearMenuOverlay();
+        if (menuPaused)
+        {
+            AudioListener.pause = false;
+            menuPaused = false;
+        }
+        menuPressPrev = false;
+    }
+
+    private void MenuActionBack()
+    {
+        PlaySfx("button", 0.6f);
+        CloseMenu(); // 返回=关菜单、恢复
+    }
+
+    private void MenuActionHome()
+    {
+        PlaySfx("button", 0.6f);
+        CloseMenu();
+        ShowSelect(); // 主页=回选关
+    }
+
+    private void MenuActionSkip()
+    {
+        PlaySfx("button", 0.6f);
+        Stage stage = currentStage;
+        CloseMenu();
+        switch (stage) // 跳过=跳过当前阶段到下一个
+        {
+            case Stage.Intro: ShowTrace(); break;
+            case Stage.Trace: ShowBattle(); break;
+            case Stage.Battle: ShowResult(); break;
+            default: break; // 其它阶段仅关菜单
+        }
+    }
+
+    private void MenuActionMusic()
+    {
+        menuMuted = !menuMuted;
+        AudioListener.volume = menuMuted ? 0f : 1f; // 音乐=全局静音/取消(菜单保持打开)
+        PlaySfx("button", 0.6f);
     }
 
     private void EnsureAudioSources()
