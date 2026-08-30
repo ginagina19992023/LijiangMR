@@ -23,24 +23,26 @@
 
 ---
 
-## 拆分顺序(最低风险优先)
+## 拆分顺序(从前往后拆 —— 已定)
 
-### 第 1 步:描绘(Trace)→ `Stage_Trace`
-**为什么先拆它**:输入输出清晰(选关→描绘→战斗),状态相对自成一体;不涉及视频。
+**为什么从前往后**:每拆一个,旧主场景入口就往后挪一格,旧场景一趟只进一次,避免"进两次 + 持久化控制器重入"的麻烦。
+运行时顺序:`选关 →【过场:悬浮→视频】→ 描绘 → 战斗 → 结算`。
 
-- 我做:
-  1. StageKit 补齐:`AddCroppedSprite / GetCroppedSprite / GetSpriteVisibleCenter`、`TryGetHandPointer(左/右手落点)`(从总控制器搬,纯新增)。
-  2. 新建 `TraceStageController`:搬 `BuildTracePath` / `ShowTrace` 视觉 / `UpdateTrace`(单手+双手独立) / 完成判定 → `GoToStage` 进战斗(或先桥回旧流程的战斗)。
-- 你做:建 `Stage_Trace.unity`、进 Build Settings、把"选关确认后"改成先进 `Stage_Trace`(而不是直接进旧主场景的过场)。
-- 验:选关 → 描绘(单手/双手、居中、完成)→ 进战斗。
+### 第 1 步:过场(悬浮过场 + 入关视频,合成一个)→ `Stage_Intro`
+**合成一个场景**:悬浮和视频是连续的一段过场,视频部分很小(一个 VideoPlayer + 黑底),不单独拆。
 
-### 第 2 步:过场(悬浮过场 + 入关视频)→ `Stage_Intro`
-- 我做:新建 `IntroStageController`:搬 `BuildIntroWalkStage`(漂浮山/房子)、视频段(`VideoPlayer` + 刚修好的"播完才进关/坏了短黑屏跳过")→ 进描绘。
-- 你做:建 `Stage_Intro.unity`(注意 StreamingAssets 的 `pre_level.mp4` 打包)、Build Settings、接流程(选关→过场→描绘)。
-- 验:选关 → 过场(悬浮播完 + 视频完整播放,不砍断、不长黑)→ 描绘。
+- 我做:新建 `IntroStageController`(用 StageKit):搬 `BuildIntroWalkStage`(漂浮山/房子)、悬浮动画、视频段(`VideoPlayer` + 已修好的"播完才进/坏了短黑屏跳过")→ 完了 `EnterLegacyFlow` 让旧主场景**从描绘开始**跑。
+- 你做:建 `Stage_Intro.unity`(注意 StreamingAssets 的 `pre_level.mp4` 打包)、Build Settings(放 `Stage_Select` 之后)、接流程(选关确认 → `GoToStage("Stage_Intro")`)。
+- 验:选关 →【悬浮播完 + 视频完整播放,不砍断、不长黑】→ 进描绘 → 战斗。
+- 收尾:验过后我把旧主场景的过场代码摘掉,旧场景入口改成从"描绘"开始。
 
-### 第 3 步(可选,最后):战斗(Battle)→ `Stage_Battle`
-- 最大、最晚。战斗牵扯谱面/音符/圆环/打击/结算,单独一轮干净地做。可暂不拆,先享受前两步的收益。
+### 第 2 步:描绘(Trace)→ `Stage_Trace`
+- 我做:StageKit 若缺 `TryGetHandPointer(左/右手落点)` 先补;新建 `TraceStageController`:搬 `BuildTracePath` / `ShowTrace` 视觉 / `UpdateTrace`(单手+双手独立) / 完成 → 让旧主场景**从战斗开始**跑。
+- 你做:建 `Stage_Trace.unity`、进 Build Settings(放 `Stage_Intro` 之后)、接流程(过场完 → `GoToStage("Stage_Trace")`)。
+- 验:选关 → 过场 → 描绘(单手/双手、完成)→ 战斗。
+
+### 第 3 步(可选,最后):战斗+结算 → `Stage_Battle`
+- 最大、最晚。牵扯谱面/音符/圆环/打击/结算,单独一轮干净地做。可暂不拆,先享受前两步的收益。
 
 ---
 
@@ -53,4 +55,5 @@
 
 ## 现在的状态
 - 分支 `refactor-scene-split` 已从干净的 `battle-visual-hands` 切出(含黑屏修复)。
-- 本文件 = 计划。**代码还没开始搬**——等你确认从「第 1 步:描绘」开始,我就先做「StageKit 补齐 + 新建 TraceStageController」这部分(纯新增,不动旧代码,旧描绘照常能跑),做完给你 Unity 那几步。
+- 顺序已定:**过场(悬浮+视频合一)先拆 → 描绘 → 战斗**。
+- 正在做「第 1 步:过场」的代码(新建 `IntroStageController`,纯新增、不动旧代码,旧过场照常能跑),做完给你 Unity 那几步。

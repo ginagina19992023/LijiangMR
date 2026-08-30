@@ -47,29 +47,28 @@
 
 ---
 
-## 2. 第 1 步 playbook:描绘 → `Stage_Trace`
+## 2. 第 1 步 playbook:过场(悬浮 + 视频)→ `Stage_Intro`
 
 ### 2.1 我先做(等我 push 后通知你)
-- 新建 `Assets/Scripts/Stages/TraceStageController.cs`(自包含,搬 `BuildTracePath`/描绘视觉/单手+双手描绘/完成→进战斗)。
-- **此时不生效**:没有场景挂它,旧描绘照常在 `LijiangEchoMR_Main` 里跑 → 现在的游戏不受影响。
+- 新建 `Assets/Scripts/Stages/IntroStageController.cs`(自包含,用 StageKit:搬悬浮过场漂浮山/房子 + 入关视频 + 已修好的"播完才进/坏了短黑屏跳过" → 完了进描绘)。
+- **此时不生效**:没有场景挂它,旧过场照常在 `LijiangEchoMR_Main` 里跑 → 现在的游戏不受影响。
 - 我会告诉你:改了哪些文件、以及下面 2.2 的具体参数。
 
 ### 2.2 你做(Unity)
-1. **建场景**:按 1.1 复制 `Stage_Select` → 改名 `Stage_Trace`;
-2. **换控制器**:按 1.2 把 `SelectStageController` 换成 `TraceStageController`;
-3. **Build Settings**:按 1.3 把 `Stage_Trace` 放在 `Stage_Select` **之后**、`LijiangEchoMR_Main` **之前**;
-4. **接流程**:这一步我会在代码里改好(选关确认 → 先进 `Stage_Trace`,描绘完再进旧主场景的战斗),或明确告诉你改哪一行。你只需确认。
+1. **建场景**:按 1.1 复制 `Stage_Select` → 改名 `Stage_Intro`;
+2. **换控制器**:按 1.2 把 `SelectStageController` 换成 `IntroStageController`;
+3. **视频资源**:确认 `Assets/StreamingAssets/LijiangEchoVideos/pre_level.mp4` 是真身(几 MB,不是 132 字节的 LFS 指针);是指针就 `git lfs pull`;
+4. **Build Settings**:按 1.3 把 `Stage_Intro` 放在 `Stage_Select` **之后**、`LijiangEchoMR_Main` **之前**;
+5. **接流程**:这一步我会在代码里改好(选关确认 → 先进 `Stage_Intro`,过场完再进旧主场景、从描绘开始),或明确告诉你改哪一行。你只需确认。
 
 ### 2.3 验证清单(逐项打勾回我)
-- [ ] 选关确认后,**进入描绘画面**(不是直接进战斗/不卡);
-- [ ] **单手**模式:一只手能描完整只纹样 → 显示「绘制成功」;
-- [ ] **双手**模式:左右各描一半、两半都描完才成功(编辑器按 Shift 用鼠标画左手);
-- [ ] 参考纹样位置**可接受**(居中问题我们后面单独收拾,先不卡在这);
-- [ ] 描绘完成 → **正常进入战斗**;
-- [ ] 战斗/后续**没被影响**(音符、圆环照旧)。
+- [ ] 选关确认后,**进入过场**(悬浮的山/房子朝你飘过来);
+- [ ] 悬浮之后,**入关视频完整播放**(不被砍断);视频若坏,**只黑一下就跳过**(不长黑);
+- [ ] 过场结束 → **进入描绘**;
+- [ ] 描绘 → 战斗 → 结算**照旧没被影响**。
 
 ### 2.4 通过之后
-- 你回我「描绘第1步通过」→ 我把 `LijiangEchoMR_Main` 里旧的描绘阶段代码**摘掉**(改成:过场结束不再进旧描绘,而是 `GoToStage("Stage_Trace")`)→ 你再 pull 验一次 → 进第 2 步(过场)。
+- 你回我「过场第1步通过」→ 我把 `LijiangEchoMR_Main` 里旧的过场阶段代码**摘掉**(旧主场景入口改成从"描绘"开始)→ 你再 pull 验一次 → 进第 2 步(描绘)。
 
 ---
 
@@ -92,7 +91,7 @@
 
 ## 5. 进度勾选(我们一起维护)
 - [x] 第 0 步:黑屏修复 + 建分支 + 方案/本手册
-- [ ] 第 1 步:描绘 → `Stage_Trace`
-- [ ] 第 2 步:过场(悬浮 + 视频)→ `Stage_Intro`
+- [ ] 第 1 步:过场(悬浮 + 视频)→ `Stage_Intro`
+- [ ] 第 2 步:描绘 → `Stage_Trace`
 - [ ] 第 3 步(可选):战斗 → `Stage_Battle`
 - [ ] 并行:tools 整理(生成纹样菜单并进「纹样绑定总表」)
