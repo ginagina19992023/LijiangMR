@@ -13,3 +13,8 @@ MonoBehaviour:
   m_Name: LijiangEchoBattleSettings
   m_EditorClassIdentifier: 
   doubleNoteMirrorConverge: 1
+  autoMirrorNotesByDirection: 1
+  mirrorStrike: 1
+  mirrorHold: 0
+  mirrorSwipe: 0
+  mirrorDouble: 0
