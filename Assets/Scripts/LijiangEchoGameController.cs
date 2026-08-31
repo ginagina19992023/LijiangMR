@@ -1145,7 +1145,7 @@ public class LijiangEchoGameController : MonoBehaviour
 
         // 远方地平线一排小远山:每座缩到约原来 1/5,底面落在地平线上,横向排成一排(静止,不随
         // 漂浮素材横移)。参数:horizonY=地平线高度、mtnHeight=山高、xs=各山横坐标。可自行增删调整。
-        const float horizonY = 0.30f;    // 地平线再往上抬
+        const float horizonY = 0.42f;    // 地平线再往上抬(0.30→0.42:静止远山这排再稍微往上一点)
         const float mtnHeight = 0.025f;  // 再缩到上一版的 1/4,很小
         float mtnCenterY = horizonY + mtnHeight * 0.5f; // 让山底贴地平线
         const float horizonRowZ = 3.0f;  // 静止远山这一排的深度(越大越远,约放到 4 米开外)。想更远/更近改这个(原 0.44)

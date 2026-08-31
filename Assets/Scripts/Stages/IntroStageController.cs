@@ -122,7 +122,7 @@ public class IntroStageController : MonoBehaviour
         spawnedObjects.Add(scrollRootObject);
 
         // 远方地平线一排小远山(静止,不随漂浮素材横移)。
-        const float horizonY = 0.30f;
+        const float horizonY = 0.42f;    // 0.30→0.42:静止远山这排再稍微往上一点(与旧控制器同步)
         const float mtnHeight = 0.025f;
         float mtnCenterY = horizonY + mtnHeight * 0.5f;
         string[] horizonMtnArt =
