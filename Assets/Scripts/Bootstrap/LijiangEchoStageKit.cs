@@ -480,6 +480,49 @@ public static class LijiangEchoStageKit
         return false;
     }
 
+    /// <summary>
+    /// 取【指定某只手】的射线在 stageRoot 平面上的落点 + 该手扳机是否按住(仅该手,左右互不干扰)。
+    /// 供「双手各描各的半只」的描绘阶段:右手判右半、左手判左半。先调 UpdateControllerInput。
+    /// </summary>
+    public static bool TryGetHandPointer(Transform stageRoot, bool right, out Vector3 localPoint, out bool drawing)
+    {
+        Transform controller = right ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = right ? rightControllerTracked : leftControllerTracked;
+        float trigger = right ? rightTriggerValue : leftTriggerValue;
+        drawing = trigger > 0.35f;
+
+        if (tracked && controller != null && TryProjectControllerRay(stageRoot, controller, out localPoint))
+        {
+            return true;
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
+    /// <summary>编辑器鼠标落点 + 左键是否按下(无手柄时给描绘兜底)。</summary>
+    public static bool TryGetMousePointer(Transform stageRoot, out Vector3 localPoint, out bool drawing)
+    {
+        if (Mouse.current != null && stageRoot != null)
+        {
+            Camera cam = FindGameplayCamera();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                if (TryProjectRay(stageRoot, ray, out localPoint))
+                {
+                    drawing = Mouse.current.leftButton.isPressed;
+                    return true;
+                }
+            }
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
     public static bool NonPointerConfirmPressed()
     {
         bool keyboardPressed = Keyboard.current != null &&

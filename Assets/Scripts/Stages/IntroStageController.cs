@@ -119,13 +119,21 @@ public class IntroStageController : MonoBehaviour
         }
     }
 
-    // 过场结束 → 进旧版流程,并让旧主场景从描绘阶段开始(战斗/描绘尚未拆出去时的桥接)。
+    // 过场结束 → 进描绘。Stage_Trace 已在 Build 就走独立描绘场景;否则退回旧流程让旧主场景从描绘开始。
     private void EnterTrace()
     {
         done = true;
         ReleaseIntroVideo();
-        LijiangEchoGameController.ExternalStartStage = 3; // 3 = 描绘(Trace)
-        LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
+        if (Application.CanStreamedLevelBeLoaded("Stage_Trace"))
+        {
+            LijiangEchoGameFlow.Instance.SelectedLevel = selectedLevel;
+            LijiangEchoGameFlow.Instance.GoToStage("Stage_Trace");
+        }
+        else
+        {
+            LijiangEchoGameController.ExternalStartStage = 3; // 3 = 描绘(Trace)
+            LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
+        }
     }
 
     // ————————————————————————————— 悬浮过场 —————————————————————————————
