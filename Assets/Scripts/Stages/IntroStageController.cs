@@ -42,6 +42,12 @@ public class IntroStageController : MonoBehaviour
     private RenderTexture introVideoTexture;
 
     private float stageTimer;
+    // 反馈#1:手动往前走——推摇杆(或PC的W/↑)漂浮元素才朝相机跑来,松开停;远方静止远山不动。
+    // introWalkTimer 取代过场段对 stageTimer 的直接读取;想回到自动按时间推进把 introManualWalk 设 false。
+    [SerializeField] private bool introManualWalk = true;
+    private float introWalkTimer;
+    private float introVideoStartTime;               // 视频段起始的 stageTimer(手动走完时刻不定,视频计时以此为基准)
+    private const float IntroWalkSpeed = 2.4f;        // 摇杆满推时的推进倍率
     private bool preLevelStarted;
     private bool preLevelFinished;
     private int selectedLevel;
@@ -72,8 +78,21 @@ public class IntroStageController : MonoBehaviour
 
         if (!preLevelStarted)
         {
+            // 手动往前走:推摇杆(或 W/↑)才推进过场,松开停;后拉可略微倒退(不低于 0)。
+            if (introManualWalk)
+            {
+                float forward = LijiangEchoStageKit.ReadForwardAxis();
+                introWalkTimer = Mathf.Clamp(
+                    introWalkTimer + forward * IntroWalkSpeed * Time.deltaTime,
+                    0f, IntroWalkDuration);
+            }
+            else
+            {
+                introWalkTimer = stageTimer;   // 旧行为:自动按时间推进
+            }
+
             UpdateIntroWalkStage();
-            if (stageTimer >= IntroWalkDuration)
+            if (introWalkTimer >= IntroWalkDuration)
             {
                 StartIntroPreLevelVideo();
             }
@@ -83,7 +102,7 @@ public class IntroStageController : MonoBehaviour
 
         UpdateIntroPreLevelStage();
 
-        float videoElapsed = stageTimer - IntroWalkDuration;
+        float videoElapsed = stageTimer - introVideoStartTime;
         bool videoPlaying = introVideoPlayer != null && introVideoPlayer.isPlaying;
 
         if (preLevelFinished)
@@ -224,10 +243,10 @@ public class IntroStageController : MonoBehaviour
                 continue;
             }
 
-            float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, stageTimer));
+            float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, introWalkTimer));
             float eased = Mathf.SmoothStep(0f, 1f, progress);
-            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, stageTimer));
-            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, stageTimer));
+            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, introWalkTimer));
+            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, introWalkTimer));
             float alpha = item.TargetAlpha * Mathf.Min(fadeIn, fadeOut);
 
             Vector3 center = Vector3.Lerp(item.StartCenter, item.EndCenter, eased);
@@ -244,6 +263,7 @@ public class IntroStageController : MonoBehaviour
     {
         preLevelStarted = true;
         preLevelFinished = false;
+        introVideoStartTime = stageTimer;
 
         if (introScrollRoot != null)
         {
