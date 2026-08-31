@@ -239,6 +239,13 @@ public class LijiangEchoGameController : MonoBehaviour
     private Stage currentStage;
     private int selectedLevel;
     private float stageTimer;
+    // 反馈#1:悬浮过场改「手动往前走」——推摇杆前推(或 PC 的 W/↑)才前进,漂浮元素才朝相机跑来;
+    // 松开就停。远方那排静止远山不受影响(它本来就不随过场移动)。introWalkTimer 是手动累计的推进量,
+    // 取代过场段里对 stageTimer 的直接读取。想回到「自动按时间推进」把 introManualWalk 设 false 即可。
+    private bool introManualWalk = true;
+    private float introWalkTimer;
+    private float introVideoStartTime;           // 视频段开始时的 stageTimer(手动走完时刻不定,视频计时以此为基准)
+    private const float IntroWalkSpeed = 2.4f;   // 摇杆满推时的推进倍率(越大走得越快)
     private float selectMoveCooldown;
     private float hitFlashTimer;
     private bool introPreLevelStarted;
@@ -785,6 +792,8 @@ public class LijiangEchoGameController : MonoBehaviour
         ReleaseIntroVideo();
         currentStage = nextStage;
         stageTimer = 0f;
+        introWalkTimer = 0f;
+        introVideoStartTime = 0f;
         feedbackTimer = 0f;
         hitFlashTimer = 0f;
         introPreLevelStarted = false;
@@ -1105,8 +1114,21 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         if (!introPreLevelStarted)
         {
+            // 手动往前走:推摇杆(或 W/↑)才推进过场,松开停住;后拉可略微倒退(不低于 0)。
+            if (introManualWalk)
+            {
+                float forward = LijiangEchoStageKit.ReadForwardAxis();
+                introWalkTimer = Mathf.Clamp(
+                    introWalkTimer + forward * IntroWalkSpeed * Time.deltaTime,
+                    0f, IntroWalkDuration);
+            }
+            else
+            {
+                introWalkTimer = stageTimer;   // 旧行为:自动按时间推进
+            }
+
             UpdateIntroWalkStage();
-            if (stageTimer >= IntroWalkDuration)
+            if (introWalkTimer >= IntroWalkDuration)
             {
                 StartIntroPreLevelVideo();
             }
@@ -1116,7 +1138,7 @@ public class LijiangEchoGameController : MonoBehaviour
 
         UpdateIntroPreLevelStage();
 
-        float videoElapsed = stageTimer - IntroWalkDuration;                 // 进入视频段的时长
+        float videoElapsed = stageTimer - introVideoStartTime;               // 进入视频段的时长(以视频真正开始时刻为基准)
         bool videoPlaying = introVideoPlayer != null && introVideoPlayer.isPlaying;
 
         if (introPreLevelFinished)
@@ -1333,10 +1355,10 @@ public class LijiangEchoGameController : MonoBehaviour
                 continue;
             }
 
-            float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, stageTimer));
+            float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, introWalkTimer));
             float eased = Mathf.SmoothStep(0f, 1f, progress);
-            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, stageTimer));
-            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, stageTimer));
+            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, introWalkTimer));
+            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, introWalkTimer));
             float alpha = item.TargetAlpha * Mathf.Min(fadeIn, fadeOut);
 
             Vector3 center = Vector3.Lerp(item.StartCenter, item.EndCenter, eased);
@@ -1349,8 +1371,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
         foreach (IntroFocusItem focus in introFocusItems)
         {
-            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.StartTime - 0.2f, focus.StartTime + 0.45f, stageTimer));
-            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.EndTime - 0.45f, focus.EndTime + 0.15f, stageTimer));
+            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.StartTime - 0.2f, focus.StartTime + 0.45f, introWalkTimer));
+            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.EndTime - 0.45f, focus.EndTime + 0.15f, introWalkTimer));
             float alpha = Mathf.Min(fadeIn, fadeOut);
             if (focus.PanelRenderer != null)
             {
@@ -1368,6 +1390,7 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         introPreLevelStarted = true;
         introPreLevelFinished = false;
+        introVideoStartTime = stageTimer;
         StopAuxiliaryLoop();
 
         if (introScrollRoot != null)

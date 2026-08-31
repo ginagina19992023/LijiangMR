@@ -540,6 +540,55 @@ public static class LijiangEchoStageKit
         return 0;
     }
 
+    /// <summary>
+    /// 读「向前推」的连续量:摇杆前推(Y 正)= 正值,后拉 = 负值,范围约 [-1,1](带死区)。
+    /// 用于「手动往前走」的过场:玩家推摇杆才前进,松开就停。PC 测试可用 W/↑(前)、S/↓(后)。
+    /// 左右手任一摇杆的 |y| 较大者为准。
+    /// </summary>
+    public static float ReadForwardAxis()
+    {
+        float value = 0f;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.upArrowKey.isPressed || Keyboard.current.wKey.isPressed)
+            {
+                value += 1f;
+            }
+
+            if (Keyboard.current.downArrowKey.isPressed || Keyboard.current.sKey.isPressed)
+            {
+                value -= 1f;
+            }
+        }
+
+        Vector2 stick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick);
+        UnityEngine.XR.InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+        UnityEngine.XR.InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+        if (leftDevice.isValid && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 leftStick) &&
+            Mathf.Abs(leftStick.y) > Mathf.Abs(stick.y))
+        {
+            stick = leftStick;
+        }
+
+        if (rightDevice.isValid && rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 rightStick) &&
+            Mathf.Abs(rightStick.y) > Mathf.Abs(stick.y))
+        {
+            stick = rightStick;
+        }
+
+        if (Mathf.Abs(stick.y) > Mathf.Abs(value))
+        {
+            value = stick.y;
+        }
+
+        if (Mathf.Abs(value) < 0.12f)   // 死区,防漂移
+        {
+            return 0f;
+        }
+
+        return Mathf.Clamp(value, -1f, 1f);
+    }
+
     // ---------------------------------------------------------------
     // 精灵拼装
     // ---------------------------------------------------------------

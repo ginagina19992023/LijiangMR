@@ -388,6 +388,7 @@ UnityEngine.AudioClip::get_length_Injected
 UnityEngine.AudioClip::CreateUserSound_Injected
 UnityEngine.AudioClip::GetName_Injected
 UnityEngine.AudioListener::get_volume
+UnityEngine.AudioListener::set_pause
 UnityEngine.AudioListener::set_volume
 UnityEngine.AudioSettings::StartAudioOutput
 UnityEngine.AudioSettings::StopAudioOutput
@@ -2239,6 +2240,7 @@ UnityEngine.VFX.VFXManager::SetCameraBuffer_Injected
 UnityEngine.VFX.VFXManager::IsCameraBufferNeeded_Injected
 UnityEngine.VFX.VFXSpawnerState::Internal_Destroy
 UnityEngine.VFX.VisualEffect::get_visualEffectAsset_Injected
+UnityEngine.Video.VideoPlayer::get_isPlaying_Injected
 UnityEngine.Video.VideoPlayer::Play_Injected
 UnityEngine.Video.VideoPlayer::Stop_Injected
 UnityEngine.Video.VideoPlayer::set_audioOutputMode_Injected
