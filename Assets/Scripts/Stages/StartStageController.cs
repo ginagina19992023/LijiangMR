@@ -17,6 +17,10 @@ public class StartStageController : MonoBehaviour
     [Tooltip("烘焙后可在此指定「开始舞台」根节点；留空则运行时自动查找或运行时构建")]
     [SerializeField] private Transform stageRoot;
 
+    // 9.1 需求第 1 条:开始界面在 VR 里偏低,要低头才看得见 → 整体抬到平视中心。
+    // 单位米,只影响开始界面(选关/行进段不受影响)。戴上头显觉得高了或低了就调这个。
+    [SerializeField] private float startScreenRaise = 0.20f;
+
     /// <summary>烘焙生成的舞台根节点名称，运行时据此判断是否已场景化。</summary>
     private const string BakedStageRootName = "开始舞台";
 
@@ -46,7 +50,7 @@ public class StartStageController : MonoBehaviour
         if (stageRoot != null)
         {
             // 已烘焙：内容已在场景里，只需摆到相机前、收集动效、找到按钮渲染器
-            LijiangEchoStageKit.AnchorStageRoot(stageRoot);
+            LijiangEchoStageKit.AnchorStageRoot(stageRoot, startScreenRaise);
             CollectSceneMotions();
             startButtonPanelRenderer = FindChildRenderer("进入游戏主按钮");
             startButtonRenderer = FindChildRenderer("开始按钮高光");
@@ -54,7 +58,7 @@ public class StartStageController : MonoBehaviour
         else
         {
             // 未烘焙：沿用运行时构建，画面与改造前完全一致
-            stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_开始舞台");
+            stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_开始舞台", startScreenRaise);
             BuildStartScreenLayout(stageRoot, spawnedObjects, motionItems);
             startButtonPanelRenderer = FindSpawnedRenderer("进入游戏主按钮");
             startButtonRenderer = FindSpawnedRenderer("开始按钮高光");

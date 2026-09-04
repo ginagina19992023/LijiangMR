@@ -514,6 +514,9 @@ public class LijiangEchoGameController : MonoBehaviour
             mirrorSwipe = settings.mirrorSwipe;
             mirrorDouble = settings.mirrorDouble;
             hitWindowSeconds = Mathf.Clamp(settings.hitWindowSeconds, 0.15f, 0.9f);
+            handSideJudge = settings.handSideJudge;
+            doubleNoteNeedsBothHands = settings.doubleNoteNeedsBothHands;
+            twoHandSyncWindow = Mathf.Clamp(settings.twoHandSyncWindow, 0.05f, 0.8f);
         }
     }
 
@@ -2141,6 +2144,21 @@ public class LijiangEchoGameController : MonoBehaviour
     private bool mirrorDouble = false;  // 鸟纹(双击)
     private float hitWindowSeconds = 0.5f; // 命中窗口(秒),战斗选项可调;完美窗口=×0.4
 
+    // ——— 9.1 需求第 7 条:左右手判定(战斗选项可调)———
+    // 左侧飞入的音符只响应左手、右侧只响应右手;双手音符(鸟纹)要左右手在容差内都到齐。
+    [System.Flags]
+    private enum HitHand { None = 0, Left = 1, Right = 2, Both = Left | Right }
+
+    private bool handSideJudge = true;             // 关掉 = 旧行为:任意手打所有音符
+    private bool doubleNoteNeedsBothHands = true;  // 关掉 = 旧行为:双击一次命中即可
+    private float twoHandSyncWindow = 0.35f;       // 左右手先后按下算「同时」的容差(秒),宽松
+
+    private HitHand battleStrikeHandsDown;         // 本帧手柄上哪几只手触发了「按下」
+    private HitHand lastStrikeHands;               // 本次打击输入来自哪几只手(含鼠标/键盘兜底)
+    private HitHand doublePendingHand;             // 双手音符:已经到了的那只手
+    private float doublePendingTime;               // 那只手到达的时刻
+    private int doublePendingNoteIndex = -1;       // 它属于哪个音符(换音符就作废)
+
     /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
     private void BuildBattleHands()
     {
@@ -2649,6 +2667,13 @@ public class LijiangEchoGameController : MonoBehaviour
                 bool performed = kind == NoteKind.Swipe
                     ? BattleSwipePerformed()
                     : BattleStrikePressed();
+
+                // 需求第 7 条:输入有了,还要看是不是用对的手(单侧音符对应手 / 双手音符两只都到齐)。
+                if (performed && !AcceptStrikeHands(kind))
+                {
+                    performed = false;
+                }
+
                 if (performed)
                 {
                     if (diff <= hitWindowSeconds * 0.4f)
@@ -3452,11 +3477,20 @@ public class LijiangEchoGameController : MonoBehaviour
         battleControllerButtonHeld = leftTriggerValue >= 0.35f || rightTriggerValue >= 0.35f ||
                                      leftGripPressed || rightGripPressed ||
                                      leftFacePressed || rightFacePressed;
-        battleControllerButtonDown = leftTriggerDown || rightTriggerDown ||
-                                     (leftGripPressed && !previousLeftGripPressed) ||
-                                     (rightGripPressed && !previousRightGripPressed) ||
-                                     (leftFacePressed && !previousLeftFacePressed) ||
-                                     (rightFacePressed && !previousRightFacePressed);
+        // 需求第 7 条:除了「有没有人按」,还要留下【是哪只手按的】。
+        // 旧代码把两只手 || 成一个布尔,手的身份在这里就丢了,导致任意手能打所有音符。
+        bool leftDown = leftTriggerDown ||
+                        (leftGripPressed && !previousLeftGripPressed) ||
+                        (leftFacePressed && !previousLeftFacePressed);
+        bool rightDown = rightTriggerDown ||
+                         (rightGripPressed && !previousRightGripPressed) ||
+                         (rightFacePressed && !previousRightFacePressed);
+
+        battleStrikeHandsDown = HitHand.None;
+        if (leftDown) { battleStrikeHandsDown |= HitHand.Left; }
+        if (rightDown) { battleStrikeHandsDown |= HitHand.Right; }
+
+        battleControllerButtonDown = leftDown || rightDown;
         if (battleControllerButtonDown && currentStage == Stage.Battle)
         {
             Debug.Log("[漓江回声] 已收到控制器打击输入");
@@ -3709,13 +3743,40 @@ public class LijiangEchoGameController : MonoBehaviour
         return BattleStrikePressed();
     }
 
+    /// <summary>PC 兜底的手别映射:鼠标左键 = 右手,Shift + 左键 = 左手。
+    /// 和描绘的双手映射完全一致(TraceStageController.UpdateTraceTwoHands),避免两处规则打架。</summary>
+    private static HitHand MousePointerHand()
+    {
+        bool toLeft = Keyboard.current != null &&
+                      (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
+        return toLeft ? HitHand.Left : HitHand.Right;
+    }
+
     private bool BattleStrikePressed()
     {
+        lastStrikeHands = HitHand.None;
+
         bool keyboardPressed = Keyboard.current != null &&
                                (Keyboard.current.spaceKey.wasPressedThisFrame ||
                                 Keyboard.current.enterKey.wasPressedThisFrame ||
                                 Keyboard.current.numpadEnterKey.wasPressedThisFrame);
         bool mousePressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+
+        if (keyboardPressed)
+        {
+            lastStrikeHands |= HitHand.Both;   // 键盘 = 双手齐按,无头显时方便测双手音符
+        }
+
+        if (mousePressed)
+        {
+            lastStrikeHands |= MousePointerHand();
+        }
+
+        if (battleControllerButtonDown)
+        {
+            lastStrikeHands |= battleStrikeHandsDown;
+        }
+
         if (keyboardPressed || mousePressed || battleControllerButtonDown)
         {
             swipeCooldown = 0.16f;
@@ -3727,6 +3788,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private bool BattleSwipePerformed()
     {
+        lastStrikeHands = HitHand.None;
+
         // 蛙纹标准动作已定为「上挑」:无头显调试时用 ↑ 键代表向上挥。
         bool keyboardSwipe = Keyboard.current != null &&
                              Keyboard.current.upArrowKey.wasPressedThisFrame;
@@ -3734,6 +3797,8 @@ public class LijiangEchoGameController : MonoBehaviour
                           Mouse.current.delta.ReadValue().sqrMagnitude >= 64f;
         if (keyboardSwipe || mouseSwipe)
         {
+            // ↑ 键 = 双手(调试省事);鼠标挥划沿用「左键=右手 / Shift+左键=左手」。
+            lastStrikeHands |= keyboardSwipe ? HitHand.Both : MousePointerHand();
             swipeCooldown = 0.22f;
             PlaySfx("swipe", 0.5f);
             return true;
@@ -3765,24 +3830,101 @@ public class LijiangEchoGameController : MonoBehaviour
             return false;
         }
 
-        float side = nextNoteIndex % 2 == 0 ? -1f : 1f;
-        foreach (RhythmNote note in activeNotes)
-        {
-            if (!note.Judged && note.ChartIndex == nextNoteIndex)
-            {
-                side = note.Side;
-                break;
-            }
-        }
+        float side = CurrentNoteSide();
 
-        bool deliberateSwing = IsDeliberateBattleSwing(leftControllerVelocity, side, strictSwipe) ||
-                               IsDeliberateBattleSwing(rightControllerVelocity, side, strictSwipe);
+        // 需求第 7 条:分别记录是哪只手挥的,不再 || 成一个布尔。
+        bool leftSwing = IsDeliberateBattleSwing(leftControllerVelocity, side, strictSwipe);
+        bool rightSwing = IsDeliberateBattleSwing(rightControllerVelocity, side, strictSwipe);
+        if (leftSwing) { lastStrikeHands |= HitHand.Left; }
+        if (rightSwing) { lastStrikeHands |= HitHand.Right; }
+
+        bool deliberateSwing = leftSwing || rightSwing;
         if (deliberateSwing)
         {
             swipeCooldown = strictSwipe ? 0.25f : 0.18f;
         }
 
         return deliberateSwing;
+    }
+
+    /// <summary>当前待判定音符从哪一侧飞入(-1 左 / +1 右)。取 note.Side;
+    /// 音符还没生成时退回「序号奇偶」这个既有规则(side 目前就是这么定的)。</summary>
+    private float CurrentNoteSide()
+    {
+        foreach (RhythmNote note in activeNotes)
+        {
+            if (!note.Judged && note.ChartIndex == nextNoteIndex)
+            {
+                return note.Side;
+            }
+        }
+
+        return nextNoteIndex % 2 == 0 ? -1f : 1f;
+    }
+
+    /// <summary>需求第 7 条的手别闸门:这一次打击输入,用的手对不对。
+    /// 单侧音符 → 必须是对应那只手;双手音符 → 左右手要在容差窗口内都到齐。
+    /// 用错手不消耗音符:连击归零 + 提示,窗口内还能用对的手补救(偏宽松,按用户要求)。</summary>
+    private bool AcceptStrikeHands(NoteKind kind)
+    {
+        if (!handSideJudge)
+        {
+            return true;   // 战斗选项关掉 = 旧行为,任意手打所有音符
+        }
+
+        bool hasControllers = leftControllerTracked || rightControllerTracked;
+
+        // —— 双手音符(鸟纹/双击):左右手都要到 ——
+        if (kind == NoteKind.Double && doubleNoteNeedsBothHands)
+        {
+            if (!hasControllers)
+            {
+                return true;   // PC 无头显:一次普通点击即视为双手到齐(方便调试)
+            }
+
+            if (lastStrikeHands == HitHand.Both)
+            {
+                ClearDoublePending();
+                return true;   // 同一帧两只手一起按
+            }
+
+            if (doublePendingNoteIndex != nextNoteIndex)
+            {
+                ClearDoublePending();   // 换音符了,上一个的等待作废
+            }
+
+            bool inWindow = doublePendingHand != HitHand.None &&
+                            Time.time - doublePendingTime <= twoHandSyncWindow;
+            if (inWindow && doublePendingHand != lastStrikeHands && lastStrikeHands != HitHand.None)
+            {
+                ClearDoublePending();
+                return true;   // 另一只手在容差内到齐
+            }
+
+            // 第一只手到了(或上一只已超时)→ 重新开始等另一只
+            doublePendingHand = lastStrikeHands;
+            doublePendingTime = Time.time;
+            doublePendingNoteIndex = nextNoteIndex;
+            SetFeedback("等另一只手", new Color(0.85f, 0.92f, 1f));
+            return false;
+        }
+
+        // —— 单侧音符:左侧只响应左手,右侧只响应右手 ——
+        HitHand required = CurrentNoteSide() < 0f ? HitHand.Left : HitHand.Right;
+        if ((lastStrikeHands & required) != 0)
+        {
+            return true;
+        }
+
+        combo = 0;
+        SetFeedback(required == HitHand.Left ? "要用左手" : "要用右手", new Color(1f, 0.62f, 0.55f));
+        return false;
+    }
+
+    private void ClearDoublePending()
+    {
+        doublePendingHand = HitHand.None;
+        doublePendingNoteIndex = -1;
     }
 
     private bool IsDeliberateBattleSwing(Vector3 worldVelocity, float noteSide, bool strictSwipe)

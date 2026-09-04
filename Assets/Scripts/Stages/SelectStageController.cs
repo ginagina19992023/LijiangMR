@@ -12,6 +12,12 @@ public class SelectStageController : MonoBehaviour
 {
     private static readonly string[] LevelNames = { "蛙纹", "鸟纹", "鱼纹" };
 
+    // 9.1 需求第 2 条:这一版只开放蛙纹关,其余两关保持变暗并禁止进入(作为后续新增关卡的预留位)。
+    // 以后开放哪一关就在这里改 true —— 数组长度必须和 LevelNames 一致。
+    private static readonly bool[] LevelUnlocked = { true, false, false };
+
+    private const float LockedCardAlpha = 0.22f;   // 未开放关卡的变暗程度(越小越暗)
+
     private static readonly string[] LevelCardPaths =
     {
         "select/frog_card",
@@ -73,6 +79,11 @@ public class SelectStageController : MonoBehaviour
 
         for (int i = 0; i < SelectNumberPositions.Length; i++)
         {
+            if (!IsUnlocked(i))
+            {
+                continue;   // 需求第 2 条:未开放的关卡不响应指向和点击
+            }
+
             Rect cardBounds = new Rect(SelectNumberPositions[i].x - 0.58f, -0.82f, 1.16f, 1.48f);
             if (!LijiangEchoStageKit.TryGetControllerHover(stageRoot, cardBounds, out bool pointerPressed))
             {
@@ -92,31 +103,33 @@ public class SelectStageController : MonoBehaviour
             }
         }
 
+        // 摇杆左右:跳过未开放的关卡(只有一关开放时就是原地不动)。
         int direction = LijiangEchoStageKit.ReadHorizontalStep();
         if (direction != 0 && selectMoveCooldown <= 0f)
         {
-            selectedLevel = Mathf.Clamp(selectedLevel + direction, 0, LevelNames.Length - 1);
+            int next = NextUnlocked(selectedLevel, direction);
             selectMoveCooldown = 0.25f;
-            LijiangEchoStageKit.PlaySfx("swipe", 0.34f);
-            UpdateSelectedCardVisual();
+            if (next != selectedLevel)
+            {
+                selectedLevel = next;
+                LijiangEchoStageKit.PlaySfx("swipe", 0.34f);
+                UpdateSelectedCardVisual();
+            }
         }
 
         if (Keyboard.current != null)
         {
             if (Keyboard.current.digit1Key.wasPressedThisFrame)
             {
-                selectedLevel = 0;
-                UpdateSelectedCardVisual();
+                TrySelect(0);
             }
             else if (Keyboard.current.digit2Key.wasPressedThisFrame)
             {
-                selectedLevel = 1;
-                UpdateSelectedCardVisual();
+                TrySelect(1);
             }
             else if (Keyboard.current.digit3Key.wasPressedThisFrame)
             {
-                selectedLevel = 2;
-                UpdateSelectedCardVisual();
+                TrySelect(2);
             }
         }
 
@@ -126,8 +139,46 @@ public class SelectStageController : MonoBehaviour
         }
     }
 
+    // ————————————— 需求第 2 条:关卡开放状态 —————————————
+
+    private static bool IsUnlocked(int level)
+    {
+        return level >= 0 && level < LevelUnlocked.Length && LevelUnlocked[level];
+    }
+
+    /// <summary>沿 direction 找下一个开放的关卡;没有就留在原地。</summary>
+    private static int NextUnlocked(int from, int direction)
+    {
+        for (int i = from + direction; i >= 0 && i < LevelNames.Length; i += direction)
+        {
+            if (IsUnlocked(i))
+            {
+                return i;
+            }
+        }
+
+        return from;
+    }
+
+    private void TrySelect(int level)
+    {
+        if (!IsUnlocked(level))
+        {
+            return;
+        }
+
+        selectedLevel = level;
+        UpdateSelectedCardVisual();
+    }
+
     private void Confirm()
     {
+        // 兜底:任何路径都不能进未开放的关卡(摇杆/键盘/点击已各自拦过一道)。
+        if (!IsUnlocked(selectedLevel))
+        {
+            return;
+        }
+
         confirmed = true;
         LijiangEchoStageKit.PlaySfx("button", 0.62f);
 
@@ -186,6 +237,20 @@ public class SelectStageController : MonoBehaviour
         for (int i = 0; i < selectCards.Length; i++)
         {
             bool selected = i == selectedLevel;
+
+            // 需求第 2 条:未开放的关卡固定变暗,不随选中状态变亮,视觉上就是"进不去"。
+            if (!IsUnlocked(i))
+            {
+                selectCards[i].color = new Color(0.55f, 0.55f, 0.6f, LockedCardAlpha);
+                if (selectNumbers != null && i < selectNumbers.Length && selectNumbers[i] != null)
+                {
+                    selectNumbers[i].color = new Color(0.55f, 0.55f, 0.6f, LockedCardAlpha);
+                    selectNumbers[i].transform.localScale = Vector3.one * 0.18f;
+                }
+
+                continue;
+            }
+
             selectCards[i].color = selected ? Color.white : new Color(1f, 1f, 1f, 0.52f);
 
             if (selectNumbers != null && i < selectNumbers.Length && selectNumbers[i] != null)

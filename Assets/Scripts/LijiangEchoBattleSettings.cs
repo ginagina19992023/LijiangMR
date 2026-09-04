@@ -40,6 +40,17 @@ public class LijiangEchoBattleSettings : ScriptableObject
     [Range(0.15f, 0.9f)]
     public float hitWindowSeconds = 0.5f;
 
+    [Header("左右手判定(9.1 需求第 7 条)")]
+    [Tooltip("勾上 = 从左侧飞入的音符只响应左手、右侧只响应右手,用错手不算命中(连击归零,但窗口内还能用对的手补救)。\n不勾 = 旧行为:任意一只手都能打所有音符,忽略方向。\nPC 调试:鼠标左键=右手,Shift+左键=左手(和描绘的左右手映射一致)。")]
+    public bool handSideJudge = true;
+
+    [Tooltip("双手音符(鸟纹/双击)『同时打击』的容差(秒):左右手先后按下的时间差在此范围内就算同时。\n越大越宽松。默认 0.35 已相当宽松;准确范围待队友确认(需求「开发前需确认」第 5 条)。")]
+    [Range(0.05f, 0.8f)]
+    public float twoHandSyncWindow = 0.35f;
+
+    [Tooltip("勾上 = 双手音符必须左右手都到齐才算成功(需求第 7 条)。\n不勾 = 旧行为:双击音符一次命中即可。\n注意:PC 上没有手柄时,一次普通点击即视为双手到齐,方便无头显调试。")]
+    public bool doubleNoteNeedsBothHands = true;
+
     private static LijiangEchoBattleSettings cached;
 
     /// <summary>运行时/编辑器读取:优先 Resources 里的资源;没有就用一份默认值实例(不落盘、不报错)。</summary>

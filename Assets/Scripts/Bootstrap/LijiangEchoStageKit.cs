@@ -167,10 +167,10 @@ public static class LijiangEchoStageKit
     /// 在当前激活场景里创建一个新的舞台根节点，锚定在相机前方（不随转头移动）。
     /// 供尚未场景化的阶段使用；已场景化的阶段请改用 AnchorStageRoot。
     /// </summary>
-    public static Transform PrepareStageRoot(string rootName)
+    public static Transform PrepareStageRoot(string rootName, float verticalOffset = 0f)
     {
         GameObject rootObject = new GameObject(rootName);
-        AnchorStageRoot(rootObject.transform);
+        AnchorStageRoot(rootObject.transform, verticalOffset);
         return rootObject.transform;
     }
 
@@ -178,7 +178,9 @@ public static class LijiangEchoStageKit
     /// 把一个已存在的舞台根节点摆到相机前方。场景化后的阶段，其根节点预先放在场景里
     /// （这样美术内容作为子物体在 Scene 视图中可见可拖），运行时只需要重新定位。
     /// </summary>
-    public static void AnchorStageRoot(Transform stageRoot)
+    /// <param name="verticalOffset">额外的抬高量(米)。默认 0 = 原位置。
+    /// 9.1 需求第 1 条要把开始界面抬到平视中心,由 StartStageController 传 0.20。</param>
+    public static void AnchorStageRoot(Transform stageRoot, float verticalOffset = 0f)
     {
         if (stageRoot == null)
         {
@@ -195,7 +197,9 @@ public static class LijiangEchoStageKit
 
         forward.Normalize();
         stageRoot.SetParent(null, true);
-        stageRoot.position = camera.transform.position + forward * StageDistance + Vector3.down * 0.02f;
+        stageRoot.position = camera.transform.position + forward * StageDistance
+                             + Vector3.down * 0.02f
+                             + Vector3.up * verticalOffset;
         stageRoot.rotation = Quaternion.LookRotation(forward, Vector3.up);
         stageRoot.localScale = Vector3.one * StageWorldScale;
 
