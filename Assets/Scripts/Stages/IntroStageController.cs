@@ -16,7 +16,9 @@ using UnityEngine.Video;
 /// </summary>
 public class IntroStageController : MonoBehaviour
 {
-    private const float IntroWalkDuration = 38.85f;   // 整段行进的总长度(三段之和)
+    // 整段行进的总长度(三段之和)。原为 38.85,但漂浮素材在 34.0 就放完了,末尾 4.85 一路空白;
+    // 连同批次之间的空白一起压掉后,内容正好铺满 26.5。想走更久就调大(尾部会重新出现空窗)。
+    [SerializeField] private float introWalkDuration = 26.5f;
     private const float PreLevelNoVideoSkip = 2.5f;   // 进入视频段 2.5s 还没开始播 → 判定坏了,跳过(短黑屏)
     private const float PreLevelSafetyCap = 60f;      // 视频段绝对上限,防异常长视频卡住
     private const int BattleStartStage = 4;           // ExternalStartStage:4 = 战斗
@@ -202,10 +204,10 @@ public class IntroStageController : MonoBehaviour
     {
         if (traceIndex >= traceGates.Length)
         {
-            return IntroWalkDuration;
+            return introWalkDuration;
         }
 
-        return Mathf.Clamp01(traceGates[traceIndex]) * IntroWalkDuration;
+        return Mathf.Clamp01(traceGates[traceIndex]) * introWalkDuration;
     }
 
     // ————————————————————— 卡点浮动纹样(点它才进描绘) —————————————————————
@@ -382,10 +384,34 @@ public class IntroStageController : MonoBehaviour
         UpdateIntroWalkStage();
     }
 
+    // 用户反馈:三批漂浮素材之间原本各有 4.3 / 3.6 的空窗,末尾还有 4.85 什么都不飘,
+    // 走很久看不到东西会让人以为走错了。把第二、三批整体前移,压掉批次之间和末尾的空白。
+    // 下面这两个偏移只挪批次起点,批内各素材的相对错落原样保留(美术节奏不变)。
+    private const float FlyWave2Shift = 4.0f;    // 第二批(原 13.2 起)前移 → 9.2 起,紧接第一批
+    private const float FlyWave3Shift = 7.5f;    // 第三批(原 23.4 起)前移 → 15.9 起,紧接第二批
+
+    private static float CompressFlyTime(float time)
+    {
+        if (time >= 23.0f)
+        {
+            return time - FlyWave3Shift;
+        }
+
+        if (time >= 13.0f)
+        {
+            return time - FlyWave2Shift;
+        }
+
+        return time;                              // 第一批(0 ~ 8.9)原样
+    }
+
     private void AddFly(string resourcePath, string objectName, RectInt topLeftCrop,
         Vector3 startCenter, Vector3 endCenter, float startHeight, float endHeight,
         float startTime, float endTime, int order, float alpha)
     {
+        startTime = CompressFlyTime(startTime);
+        endTime = CompressFlyTime(endTime);
+
         int spatialIndex = flyItems.Count;
         float startDepth = 5.6f + (spatialIndex % 4) * 0.85f;
         float endDepth = -4.1f - (spatialIndex % 3) * 0.55f;
