@@ -163,13 +163,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b021d288b097bba43a798f78b58bc142, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::IntroStageController
+  introWalkDuration: 26.5
   introManualWalk: 1
   traceGates:
   - 0.34
   - 0.67
   - 1
   twoHandTrace: 1
-  preLevelVideoEndTime: 0
+  preLevelVideoEndTime: 7
+  gateGlyphPosition: {x: -0.62, y: 0.34, z: -0.5}
+  gateGlyphHeight: 0.52
+  gateGlyphLeadIn: 5
+  gateGlyphHitPadding: 0.16
+  showGateHintArt: 1
+  gateArrowOffset: {x: 0.42, y: -0.3, z: 0.01}
+  gateArrowHeight: 0.34
+  gateBubblePosition: {x: 0, y: -0.6, z: -0.52}
+  gateBubbleWidth: 2.3
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
