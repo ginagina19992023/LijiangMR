@@ -36,6 +36,13 @@ public class LijiangEchoGameFlow : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        // 全局暂停菜单:它是盖在所有阶段之上的覆盖层,不属于任何一个阶段,所以挂在常驻的 Bootstrap 上。
+        // 运行时自动补挂 —— Unity 那边不用拖任何东西。旧主场景在跑时它会自动让位(见 LegacyOwnsPauseMenu)。
+        if (gameObject.GetComponent<LijiangEchoPauseMenu>() == null)
+        {
+            gameObject.AddComponent<LijiangEchoPauseMenu>();
+        }
+
         ambienceSource = gameObject.AddComponent<AudioSource>();
         ambienceSource.playOnAwake = false;
         ambienceSource.loop = true;

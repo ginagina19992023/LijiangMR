@@ -14,8 +14,24 @@ using UnityEngine.Video;
 /// 视频按需求第 5 条挪到三次绘制【之后】,播完直接进打击关卡。
 /// 视觉/输入统一用 LijiangEchoStageKit;视频自带(VideoPlayer + RenderTexture)。
 /// </summary>
-public class IntroStageController : MonoBehaviour
+public class IntroStageController : MonoBehaviour, ILijiangEchoSkippableStage
 {
+    /// <summary>暂停菜单的「跳过」:跳过整个行进段(含未完成的绘制和过场视频),直接进打击关卡。</summary>
+    public void SkipStage()
+    {
+        if (!done)
+        {
+            HideGateGlyph();
+            if (traceModule != null)
+            {
+                traceModule.Teardown();
+            }
+
+            tracing = false;
+            EnterBattle();
+        }
+    }
+
     // 整段行进的总长度(三段之和)。原为 38.85,但漂浮素材在 34.0 就放完了,末尾 4.85 一路空白;
     // 连同批次之间的空白一起压掉后,内容正好铺满 26.5。想走更久就调大(尾部会重新出现空窗)。
     [SerializeField] private float introWalkDuration = 26.5f;

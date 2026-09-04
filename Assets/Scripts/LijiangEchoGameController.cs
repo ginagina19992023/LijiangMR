@@ -165,6 +165,13 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private static LijiangEchoGameController instance;
 
+    /// <summary>旧主场景控制器是否正在驱动某个阶段(它自带一套暂停菜单)。
+    /// 全局暂停菜单 <see cref="LijiangEchoPauseMenu"/> 据此让位,避免同一个按键弹出两套菜单。
+    /// 注意这个控制器是 DontDestroyOnLoad 的,离开旧主场景后实例仍在,
+    /// 所以判据是「有没有在跑阶段」(experienceReady + stageRoot),不是「实例存不存在」。</summary>
+    public static bool LegacyOwnsPauseMenu =>
+        instance != null && instance.isActiveAndEnabled && instance.experienceReady && instance.stageRoot != null;
+
     /// <summary>
     /// 由 LijiangEchoGameFlow 在桥接进入本场景前设置：跳过开始/选关（已迁移到独立场景），
     /// 直接从过场动画开始。为 null 时保持旧行为，方便独立打开本场景做调试。
