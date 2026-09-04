@@ -70,6 +70,15 @@ public class IntroStageController : MonoBehaviour
     [SerializeField] private float gateGlyphHeight = 0.46f;
     [SerializeField] private float gateGlyphHitPadding = 0.16f;   // 点击判定比图形稍放宽,VR 里好点
 
+    // 需求第 3 条「加入补充的箭头,字幕等美术素材」。素材来自 docs/漓江9.1改/第二关卡/,
+    // 已导入 Resources/LijiangEchoArt/transition/(第二关卡箭头 → gate_arrow、提示字幕背景 → hint_bubble、
+    // 提示字幕(有字) → hint_bubble_text)。箭头指向浮动纹样,气泡在下方给文字提示。
+    [SerializeField] private bool showGateHintArt = true;
+    [SerializeField] private Vector3 gateArrowOffset = new Vector3(0.42f, -0.30f, 0.01f); // 相对纹样的偏移
+    [SerializeField] private float gateArrowHeight = 0.34f;
+    [SerializeField] private Vector3 gateBubblePosition = new Vector3(0f, -0.78f, -0.52f);
+    [SerializeField] private float gateBubbleWidth = 2.30f;
+
     private float introWalkTimer;
     private float introVideoStartTime;               // 视频段起始的 stageTimer(手动走完时刻不定,视频计时以此为基准)
     private const float IntroWalkSpeed = 2.4f;        // 摇杆满推时的推进倍率
@@ -221,11 +230,34 @@ public class IntroStageController : MonoBehaviour
             return;
         }
 
+        // 需求第 3 条:提示字幕气泡和左上角纹样【同时出现】,一起收。
+        if (showGateHintArt)
+        {
+            LijiangEchoStageKit.AddLayer(
+                stageRoot, gateGlyphObjects, "transition/hint_bubble", "卡点提示气泡底",
+                gateBubblePosition, gateBubbleWidth, 58, 0.88f);
+            GameObject bubbleText = LijiangEchoStageKit.AddLayer(
+                stageRoot, gateGlyphObjects, "transition/hint_bubble_text", "卡点提示字幕",
+                gateBubblePosition + new Vector3(0f, 0f, -0.01f), gateBubbleWidth, 59, 0.98f);
+            LijiangEchoStageKit.RegisterMotion(
+                gateGlyphMotions, bubbleText, LijiangEchoStageKit.MotionKind.FloatY, 0.012f, 1.6f, 0.5f);
+        }
+
         gateGlyph = LijiangEchoStageKit.AddCroppedSprite(
             stageRoot, gateGlyphObjects, artPath, "卡点浮动纹样_" + traceIndex,
             artCrop, gateGlyphPosition, gateGlyphHeight, 60, 0.95f, false);
         LijiangEchoStageKit.RegisterMotion(
             gateGlyphMotions, gateGlyph, LijiangEchoStageKit.MotionKind.Pulse, 0.045f, 2.1f, 0f);
+
+        // 箭头指向纹样,和纹样、气泡同时出现。
+        if (showGateHintArt)
+        {
+            GameObject arrow = LijiangEchoStageKit.AddIcon(
+                stageRoot, gateGlyphObjects, "transition/gate_arrow", "卡点指向箭头",
+                gateGlyphPosition + gateArrowOffset, gateArrowHeight, 61, 0.96f);
+            LijiangEchoStageKit.RegisterMotion(
+                gateGlyphMotions, arrow, LijiangEchoStageKit.MotionKind.FloatX, 0.03f, 2.6f, 0f);
+        }
 
         LijiangEchoStageKit.PlaySfx("swipe", 0.4f);   // 浮现提示音
         awaitingGlyphClick = true;

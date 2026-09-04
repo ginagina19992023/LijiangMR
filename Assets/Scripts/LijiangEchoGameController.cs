@@ -443,6 +443,14 @@ public class LijiangEchoGameController : MonoBehaviour
     private int nextSpawnIndex;
     private int nextNoteIndex;
     private int cardPageIndex;
+
+    // 需求第 8 条:卡面翻页按钮的位置/大小/点击判定半宽(原 0.42 太小且不可点)。
+    private const float CardArrowX = 2.45f;
+    private const float CardArrowY = -0.02f;
+    private const float CardArrowSize = 0.62f;
+    private const float CardArrowHitHalf = 0.46f;   // 判定比图标再放宽一圈,VR 里好点
+    private TextMesh cardPageLabel;                 // "3 / 15" 页码提示
+    private bool cardPressPrev;                     // 翻页点击的上升沿检测
     private int score;
     private int combo;
     private float feedbackTimer;
@@ -2725,7 +2733,9 @@ public class LijiangEchoGameController : MonoBehaviour
             battleEndingTimer += Time.deltaTime;
             if (battleEndingTimer >= 0.72f)
             {
-                ShowCard();
+                // 9.1 需求第 8 条:打击结束后【先显示成功/失败】,再进卡面解析。
+                // 原来是先卡面后结算,顺序反了。
+                ShowResult();
             }
         }
     }
@@ -4078,8 +4088,14 @@ public class LijiangEchoGameController : MonoBehaviour
         AddLayer("pattern/drawing_card", "纹样绘制卡面底", new Vector3(0f, 0f, -0.03f), 4.2f, -4, 0.34f);
         GameObject cardObject = AddLayer(cardPagePaths[cardPageIndex], "纹样解析卡片", new Vector3(0f, 0f, -0.06f), 4.08f, 5, 0.98f);
         cardPageRenderer = cardObject.GetComponent<SpriteRenderer>();
-        AddIcon("cards/left_button", "左翻页按钮", new Vector3(-2.45f, -0.02f, -0.12f), 0.42f, 10, 0.98f);
-        AddIcon("cards/right_button", "右翻页按钮", new Vector3(2.45f, -0.02f, -0.12f), 0.42f, 10, 0.98f);
+        // 需求第 8 条:翻页按钮原来只有 0.42 且不可点(只能推摇杆),VR 里既看不清也不知道能翻。
+        // 放大到 0.62 并接上点击判定(见 TryCardArrowClicked)。
+        AddIcon("cards/left_button", "左翻页按钮", new Vector3(CardArrowX * -1f, CardArrowY, -0.12f), CardArrowSize, 10, 0.98f);
+        AddIcon("cards/right_button", "右翻页按钮", new Vector3(CardArrowX, CardArrowY, -0.12f), CardArrowSize, 10, 0.98f);
+
+        // 页码:让玩家知道一共 15 张、现在第几张(原来完全没有提示,看起来就像"只有一张")。
+        cardPageLabel = AddText($"{cardPageIndex + 1} / {cardPagePaths.Length}",
+            new Vector3(0f, -1.12f, -0.14f), 0.16f, new Color(1f, 0.94f, 0.78f, 0.92f), 12);
 
         GameObject donePattern = AddCroppedSprite(
             donePaths[selectedLevel],
@@ -4096,6 +4112,15 @@ public class LijiangEchoGameController : MonoBehaviour
     private void UpdateCard()
     {
         int direction = ReadHorizontalStep();
+
+        // 需求第 8 条:翻页按钮可点(原来只能推摇杆)。点击优先,且不吃摇杆冷却。
+        bool arrowClicked = TryCardArrowClicked(out int clickDirection);
+        if (arrowClicked)
+        {
+            direction = clickDirection;
+            selectMoveCooldown = 0f;
+        }
+
         if (direction != 0 && selectMoveCooldown <= 0f)
         {
             cardPageIndex = (cardPageIndex + direction + cardPagePaths.Length) % cardPagePaths.Length;
@@ -4105,13 +4130,58 @@ public class LijiangEchoGameController : MonoBehaviour
             {
                 cardPageRenderer.sprite = GetSprite(cardPagePaths[cardPageIndex], false);
             }
+
+            if (cardPageLabel != null)
+            {
+                cardPageLabel.text = $"{cardPageIndex + 1} / {cardPagePaths.Length}";
+            }
+
+            return;   // 本帧已用于翻页,不要同时被判成「离开卡面」
         }
 
-        if (AdvancePressed() || stageTimer > 10f)
+        // 需求第 8 条:去掉原来的 stageTimer > 10f 自动跳走 —— 15 张卡面 10 秒根本看不完,
+        // 这正是「只显示一张」的观感来源。现在必须玩家主动确认才离开。
+        if (AdvancePressed())
         {
             PlaySfx("page_close", 0.68f);
-            ShowResult();
+            ShowSelect();
         }
+    }
+
+    /// <summary>卡面左右翻页按钮的点击判定(手柄射线 / 编辑器鼠标),上升沿触发。
+    /// 复用菜单那套 GetMenuPointer,判定区比图标再放宽一圈,VR 里好点。</summary>
+    private bool TryCardArrowClicked(out int direction)
+    {
+        direction = 0;
+
+        bool pressing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.5f ||
+                        (Mouse.current != null && Mouse.current.leftButton.isPressed);
+        bool clicked = pressing && !cardPressPrev;
+        cardPressPrev = pressing;
+
+        if (!clicked || !GetMenuPointer(out Vector3 lp))
+        {
+            return false;
+        }
+
+        if (Mathf.Abs(lp.y - CardArrowY) > CardArrowHitHalf)
+        {
+            return false;   // 不在翻页按钮那一行的高度上
+        }
+
+        if (Mathf.Abs(lp.x + CardArrowX) < CardArrowHitHalf)
+        {
+            direction = -1;
+            return true;
+        }
+
+        if (Mathf.Abs(lp.x - CardArrowX) < CardArrowHitHalf)
+        {
+            direction = 1;
+            return true;
+        }
+
+        return false;
     }
 
     private void ShowResult()
@@ -4149,7 +4219,8 @@ public class LijiangEchoGameController : MonoBehaviour
         if (AdvancePressed())
         {
             PlaySfx("button", 0.62f);
-            ShowSelect();
+            // 需求第 8 条:看完成功/失败标识 → 进卡面解析(不再直接回选关)。
+            ShowCard();
         }
     }
 
