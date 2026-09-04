@@ -15,6 +15,9 @@ EditorBuildSettings:
     path: Assets/Scenes/Stages/Stage_Select.unity
     guid: 32b5f368b3349859df310af7969ada99
   - enabled: 1
+    path: Assets/Scenes/Stages/Stage_Intro.unity
+    guid: 0624bd23a80f29b48b6f9b5ba3e79dd8
+  - enabled: 1
     path: Assets/Scenes/LijiangEchoMR_Main.unity
     guid: 4600cf25042fdc24796580487869a0cb
   m_configObjects:
