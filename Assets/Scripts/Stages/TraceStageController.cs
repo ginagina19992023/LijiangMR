@@ -159,22 +159,106 @@ public class TraceStageController : MonoBehaviour
         callback?.Invoke();
     }
 
+    // ————————————————————————————— 可编辑描绘台 Prefab —————————————————————————————
+
+    /// <summary>Resources 下描绘台 Prefab 的路径前缀,后面接图案序号(0蛇/1鸟/2铜钱)。</summary>
+    public const string PanelPrefabPrefix = "LijiangEchoTrace/TracePanel_";
+
+    /// <summary>Prefab 里两条路线物件的名字。运行时按名字找,请勿修改。</summary>
+    public const string PathObjectOneHand = "描绘路线_单手";
+    public const string PathObjectTwoHand = "描绘路线_双手右半";
+
+    /// <summary>有 Prefab 就实例化并从里面读出描绘路线;没有则返回 null 让调用方回退代码生成。
+    /// 路线点按【物件当前的位置/旋转/缩放】换算到舞台坐标 —— 所以你在 Prefab 里拖动、
+    /// 旋转、缩放那条线,运行时的判定路径会跟着一起变,和你看到的完全一致。</summary>
+    private Vector3[] TryBuildFromPanelPrefab(bool splitHands)
+    {
+        GameObject prefab = Resources.Load<GameObject>(PanelPrefabPrefix + patternIndex);
+        if (prefab == null)
+        {
+            return null;
+        }
+
+        GameObject panel = Instantiate(prefab, stageRoot);
+        panel.transform.localPosition = Vector3.zero;
+        panel.transform.localRotation = Quaternion.identity;
+        panel.transform.localScale = Vector3.one;
+        spawnedObjects.Add(panel);
+
+        // 两条线都先关掉显示:它们只是"路径数据 + 编辑时的可视参考",
+        // 运行时的指引线/已描线由下面的代码另外画,免得叠成两条。
+        LineRenderer oneHand = FindLine(panel.transform, PathObjectOneHand);
+        LineRenderer twoHand = FindLine(panel.transform, PathObjectTwoHand);
+        LineRenderer source = splitHands ? (twoHand ?? oneHand) : (oneHand ?? twoHand);
+
+        if (oneHand != null) { oneHand.enabled = false; }
+        if (twoHand != null) { twoHand.enabled = false; }
+
+        if (source == null || source.positionCount < 2)
+        {
+            Debug.LogWarning($"[漓江回声] {PanelPrefabPrefix}{patternIndex} 里没找到可用的" +
+                             $"「{PathObjectOneHand}」或「{PathObjectTwoHand}」,本次描绘回退代码生成的路径。");
+            return null;
+        }
+
+        Vector3[] points = new Vector3[source.positionCount];
+        for (int i = 0; i < points.Length; i++)
+        {
+            Vector3 local = source.GetPosition(i);
+            Vector3 world = source.useWorldSpace ? local : source.transform.TransformPoint(local);
+            Vector3 inStage = stageRoot.InverseTransformPoint(world);
+            inStage.z = LijiangEchoStageKit.TracePlaneZ;   // 判定统一压到描绘平面,深度由代码保证一致
+            points[i] = inStage;
+        }
+
+        return points;
+    }
+
+    private static LineRenderer FindLine(Transform root, string objectName)
+    {
+        if (root.name == objectName)
+        {
+            return root.GetComponent<LineRenderer>();
+        }
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            LineRenderer found = FindLine(root.GetChild(i), objectName);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
     // ————————————————————————————— 搭建描绘台 —————————————————————————————
 
     private void BuildTraceStage()
     {
-        LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "transition/purple_frame", "描绘阶段淡紫边框",
-            Vector3.zero, LijiangEchoStageKit.MainCanvasWidth, -20, 0.14f);
-        LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "pattern/drawing_card", "纹样描绘台",
-            new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
-
         bool splitHands = traceTwoHands;               // Begin 传进来的,决定单手整条还是双手各半
-        tracePoints = BuildTracePath(patternIndex, splitHands);
 
-        GameObject sourcePattern = LijiangEchoStageKit.AddCroppedSprite(
-            stageRoot, spawnedObjects, tracePaths[patternIndex], "描绘参考纹样",
-            traceCrops[patternIndex], new Vector3(0f, 0.02f, -0.48f), 0.88f, 18, 0.74f, false);
-        LijiangEchoStageKit.RegisterMotion(motions, sourcePattern, LijiangEchoStageKit.MotionKind.Pulse, 0.01f, 1.7f, 0f);
+        // 9.1 需求第 4 条:可编辑描绘台 Prefab 优先。
+        // Resources/LijiangEchoTrace/TracePanel_{图案序号} 存在就用它 —— 背景、参考纹样、
+        // 描绘路线全部由 Prefab 决定,你在 Prefab 模式里拖着把纹样和路线对齐、一起放大即可。
+        // 没有 Prefab 就回退到下面的代码生成,和改造前完全一致。
+        tracePoints = TryBuildFromPanelPrefab(splitHands);
+
+        if (tracePoints == null)
+        {
+            LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "transition/purple_frame", "描绘阶段淡紫边框",
+                Vector3.zero, LijiangEchoStageKit.MainCanvasWidth, -20, 0.14f);
+            LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "pattern/drawing_card", "纹样描绘台",
+                new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
+
+            tracePoints = BuildTracePath(patternIndex, splitHands);
+
+            GameObject sourcePattern = LijiangEchoStageKit.AddCroppedSprite(
+                stageRoot, spawnedObjects, tracePaths[patternIndex], "描绘参考纹样",
+                traceCrops[patternIndex], new Vector3(0f, 0.02f, -0.48f), 0.88f, 18, 0.74f, false);
+            LijiangEchoStageKit.RegisterMotion(motions, sourcePattern, LijiangEchoStageKit.MotionKind.Pulse, 0.01f, 1.7f, 0f);
+        }
 
         // 全程「淡淡指引线」——沿纹样形状铺满整条路径,给玩家指引方向。
         LineRenderer traceGuideRenderer = LijiangEchoStageKit.AddLineRenderer(
@@ -497,7 +581,9 @@ public class TraceStageController : MonoBehaviour
 
     // 每关纹样的路径点(与旧 BuildTracePath 完全一致):rightHalfOnly=true 时只生成右半,
     // 左半由 traceLeftPoints 水平镜像补出;蛙纹(0)/鸟纹(1)贝塞尔细分,铜钱纹(2)是圆。
-    private Vector3[] BuildTracePath(int level, bool rightHalfOnly)
+    /// <summary>生成某个纹样的描绘路径点。public static:编辑器工具烘 Prefab 时调同一份数学,
+    /// 保证 Prefab 里看到的线和运行时判定用的线是同一条。</summary>
+    public static Vector3[] BuildTracePath(int level, bool rightHalfOnly)
     {
         float planeZ = LijiangEchoStageKit.TracePlaneZ;
         List<Vector3> points = new List<Vector3>();
