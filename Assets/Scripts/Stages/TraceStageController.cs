@@ -1,21 +1,24 @@
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// 描绘阶段场景(Stage_Trace)的控制器。对应旧 LijiangEchoGameController 里的
+/// 描绘环节的控制器。对应旧 LijiangEchoGameController 里的
 /// ShowTrace / UpdateTrace(单手 + 双手各描各半) / CompleteTrace / BuildTracePath。
 /// 视觉/输入统一用 LijiangEchoStageKit(精灵拼装 + 每只手的射线落点)。
-/// 描完(单手整条 / 双手两半都完成)→ 经 LijiangEchoGameFlow 进旧版流程、并让旧主场景【从战斗开始】。
-/// 纯新增、自包含:Stage_Trace 场景没建之前一律走不到这里,旧流程照常。
+///
+/// 【不是场景控制器】9.1 需求第 3 条要求描绘在行进过程中穿插三次,所以它是一个
+/// **可重入的模块**:由 IntroStageController 调 Begin(第几个图案, 双手?, 画完回调) 拉起,
+/// 描完走回调、调 Teardown() 收起,行进段接着走。同一个实例可以反复 Begin/Teardown。
+/// 自己不决定"下一步去哪"——去哪是调用方的事。
 /// </summary>
 public class TraceStageController : MonoBehaviour
 {
     private const float TracePointTolerance = 0.105f;   // 笔迹离下一个待描点多近算"描到"
-    private const int BattleStartStage = 4;             // ExternalStartStage:4 = 战斗
 
-    // 每关纹样资源(与旧控制器一致:0=蛙纹 1=鸟纹 2=铜钱/鱼纹)。
+    // 三个描绘图案,按【第几次绘制】取(不是按第几关):0=蛇纹 1=鸟纹 2=铜钱。
+    // 需求确认:蛙纹关里三次绘制把这三个纹样依次走一遍。
     private readonly string[] tracePaths = { "pattern/snake_trace", "pattern/bird_trace", "pattern/coin_trace" };
     private readonly string[] donePaths = { "pattern/snake_done", "pattern/bird_done", "pattern/coin_done" };
     private readonly RectInt[] traceCrops =
@@ -32,16 +35,13 @@ public class TraceStageController : MonoBehaviour
     };
     private readonly string[] completionSounds = { "snake", "swipe", "coin" };
 
-    // 勾上 = 双手各描各的半只(右手右半、左手左半,各自进度各自判定,两半都完成才成功);
-    // 取消 = 单手描整条。默认双手,和旧版默认一致。
-    [SerializeField] private bool twoHandTrace = true;
-
     private Transform stageRoot;
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<LijiangEchoStageKit.MotionItem> motions = new List<LijiangEchoStageKit.MotionItem>();
 
-    private int selectedLevel;
-    private bool done;
+    private int patternIndex;          // 这一次画三个图案里的哪一个
+    private Action onTraceComplete;    // 画完通知调用方(IntroStageController)
+    private bool active;               // Begin 之后为真,Teardown 后为假
 
     private Vector3[] tracePoints;
     private int tracePointIndex;
@@ -63,22 +63,57 @@ public class TraceStageController : MonoBehaviour
     private Vector3 previousTraceLeftPointer;
     private bool hasPreviousTraceLeftPointer;
 
-    private IEnumerator Start()
+    /// <summary>拉起一次描绘。pattern = 三个图案里的第几个(0蛇/1鸟/2铜钱);
+    /// twoHands = 双手各描一半还是单手描整条;onComplete = 描完(含 1.05s 成功动效)后的回调。</summary>
+    public void Begin(int pattern, bool twoHands, Action onComplete)
     {
-        while (LijiangEchoGameFlow.Instance == null)
-        {
-            yield return null;
-        }
+        Teardown();                                    // 同一个实例反复用,先清干净上一次
 
-        selectedLevel = Mathf.Clamp(LijiangEchoGameFlow.Instance.SelectedLevel, 0, tracePaths.Length - 1);
+        patternIndex = Mathf.Clamp(pattern, 0, tracePaths.Length - 1);
+        traceTwoHands = twoHands;
+        onTraceComplete = onComplete;
+
+        traceCompleted = false;
+        traceCompleteTimer = 0f;
+        tracePointIndex = 0;
+        traceLeftIndex = 0;
+        hasPreviousTracePointer = false;
+        hasPreviousTraceLeftPointer = false;
+
         stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_描绘舞台");
-        LijiangEchoStageKit.PlayStageLoop("ambience", 0.26f);
         BuildTraceStage();
+        active = true;
+    }
+
+    /// <summary>收起这一次描绘:销毁描绘台、清空生成物与动效,手柄射线交还给调用方。
+    /// Begin 会先自动调它,所以调用方只在"整段结束"时需要显式调一次。</summary>
+    public void Teardown()
+    {
+        active = false;
+        onTraceComplete = null;
+        CancelInvoke();
+        StopControllerVibration();
+
+        spawnedObjects.Clear();
+        motions.Clear();
+        traceDrawRenderer = null;
+        traceMirrorDrawRenderer = null;
+        tracePointer = null;
+        traceMirrorPointer = null;
+        traceFeedbackText = null;
+        tracePoints = null;
+        traceLeftPoints = null;
+
+        if (stageRoot != null)
+        {
+            Destroy(stageRoot.gameObject);             // 描绘台是 Begin 里新建的根,整个销毁
+            stageRoot = null;
+        }
     }
 
     private void Update()
     {
-        if (stageRoot == null || done)
+        if (!active || stageRoot == null)
         {
             return;
         }
@@ -88,13 +123,13 @@ public class TraceStageController : MonoBehaviour
         UpdateTrace();
     }
 
-    // 描绘结束 → 进旧版流程,并让旧主场景从战斗阶段开始(战斗尚未拆出去时的桥接)。
-    private void EnterBattle()
+    // 描绘结束 → 通知调用方。去哪(继续走 / 播视频 / 进战斗)由调用方决定,这里不管。
+    private void Finish()
     {
-        done = true;
+        Action callback = onTraceComplete;
+        active = false;
         StopControllerVibration();
-        LijiangEchoGameController.ExternalStartStage = BattleStartStage;
-        LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
+        callback?.Invoke();
     }
 
     // ————————————————————————————— 搭建描绘台 —————————————————————————————
@@ -106,13 +141,12 @@ public class TraceStageController : MonoBehaviour
         LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "pattern/drawing_card", "纹样描绘台",
             new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
 
-        bool splitHands = twoHandTrace;
-        traceTwoHands = splitHands;
-        tracePoints = BuildTracePath(selectedLevel, splitHands);
+        bool splitHands = traceTwoHands;               // Begin 传进来的,决定单手整条还是双手各半
+        tracePoints = BuildTracePath(patternIndex, splitHands);
 
         GameObject sourcePattern = LijiangEchoStageKit.AddCroppedSprite(
-            stageRoot, spawnedObjects, tracePaths[selectedLevel], "描绘参考纹样",
-            traceCrops[selectedLevel], new Vector3(0f, 0.02f, -0.48f), 0.88f, 18, 0.74f, false);
+            stageRoot, spawnedObjects, tracePaths[patternIndex], "描绘参考纹样",
+            traceCrops[patternIndex], new Vector3(0f, 0.02f, -0.48f), 0.88f, 18, 0.74f, false);
         LijiangEchoStageKit.RegisterMotion(motions, sourcePattern, LijiangEchoStageKit.MotionKind.Pulse, 0.01f, 1.7f, 0f);
 
         // 全程「淡淡指引线」——沿纹样形状铺满整条路径,给玩家指引方向。
@@ -197,7 +231,7 @@ public class TraceStageController : MonoBehaviour
             traceCompleteTimer += Time.deltaTime;
             if (traceCompleteTimer >= 1.05f)
             {
-                EnterBattle();
+                Finish();
             }
 
             return;
@@ -409,10 +443,10 @@ public class TraceStageController : MonoBehaviour
         }
 
         GameObject completedPattern = LijiangEchoStageKit.AddCroppedSprite(
-            stageRoot, spawnedObjects, donePaths[selectedLevel], "完成纹样光效",
-            doneCrops[selectedLevel], new Vector3(0f, 0.02f, -0.68f), 0.92f, 48, 0.94f, false);
+            stageRoot, spawnedObjects, donePaths[patternIndex], "完成纹样光效",
+            doneCrops[patternIndex], new Vector3(0f, 0.02f, -0.68f), 0.92f, 48, 0.94f, false);
         LijiangEchoStageKit.RegisterMotion(motions, completedPattern, LijiangEchoStageKit.MotionKind.Pulse, 0.035f, 3.2f, 0f);
-        LijiangEchoStageKit.PlaySfx(completionSounds[selectedLevel], 0.68f);
+        LijiangEchoStageKit.PlaySfx(completionSounds[patternIndex], 0.68f);
         OVRInput.SetControllerVibration(0.45f, 0.65f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
         Invoke(nameof(StopControllerVibration), 0.16f);
     }

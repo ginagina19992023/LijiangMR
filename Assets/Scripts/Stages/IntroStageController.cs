@@ -4,17 +4,22 @@ using UnityEngine;
 using UnityEngine.Video;
 
 /// <summary>
-/// 过场阶段场景(Stage_Intro)的控制器。对应旧 LijiangEchoGameController 里的
-/// ShowIntro / BuildIntroWalkStage / UpdateIntro（悬浮过场 + 入关视频,合成一个场景）。
-/// 悬浮:一批漂浮的山/房子/动物从两侧飘过来;之后播入关视频 pre_level.mp4;
-/// 视频播完(或坏了短暂黑屏跳过)→ 经 LijiangEchoGameFlow 进旧版流程、并让旧主场景【从描绘开始】。
+/// 第二关行进段场景(Stage_Intro)的控制器。对应旧 LijiangEchoGameController 里的
+/// ShowIntro / BuildIntroWalkStage / UpdateIntro,并按 9.1 需求第 3 条重新编排。
+///
+/// 【流程】前进① → 绘制① → 前进② → 绘制② → 前进③ → 绘制③ → 过渡视频 → 战斗。
+/// 三次绘制穿插在三段前进之间,不是走完一次性画三遍;当前这段没画完就走不过卡点。
+/// 描绘不是独立场景,是本场景里的 TraceStageController 模块,被 Begin/Teardown 拉起收起三次
+/// (三个图案固定 蛇→鸟→铜钱,由第几次绘制决定,与选了哪一关无关)。
+/// 视频按需求第 5 条挪到三次绘制【之后】,播完直接进打击关卡。
 /// 视觉/输入统一用 LijiangEchoStageKit;视频自带(VideoPlayer + RenderTexture)。
 /// </summary>
 public class IntroStageController : MonoBehaviour
 {
-    private const float IntroWalkDuration = 38.85f;   // 悬浮过场时长,到点切视频
+    private const float IntroWalkDuration = 38.85f;   // 整段行进的总长度(三段之和)
     private const float PreLevelNoVideoSkip = 2.5f;   // 进入视频段 2.5s 还没开始播 → 判定坏了,跳过(短黑屏)
     private const float PreLevelSafetyCap = 60f;      // 视频段绝对上限,防异常长视频卡住
+    private const int BattleStartStage = 4;           // ExternalStartStage:4 = 战斗
     private const string IntroPreLevelVideoPath = "LijiangEchoVideos/pre_level.mp4";
 
     private sealed class FlyItem
@@ -45,6 +50,18 @@ public class IntroStageController : MonoBehaviour
     // 反馈#1:手动往前走——推摇杆(或PC的W/↑)漂浮元素才朝相机跑来,松开停;远方静止远山不动。
     // introWalkTimer 取代过场段对 stageTimer 的直接读取;想回到自动按时间推进把 introManualWalk 设 false。
     [SerializeField] private bool introManualWalk = true;
+
+    // 需求第 3 条:三段前进的卡点,按整段行进的比例(0~1)。走到卡点必须画完当前图案才放行。
+    // 三段各自的长度还没和队友定死(需求「开发前需确认」第 1 条),先给等分默认值,可在 Inspector 里直接调。
+    [SerializeField] private float[] traceGates = { 0.34f, 0.67f, 1f };
+
+    // 勾上 = 每次绘制都双手各描一半(右手右半、左手左半,进度独立);取消 = 单手描整条。
+    [SerializeField] private bool twoHandTrace = true;
+
+    // 需求第 5 条:视频播到指定位置就切打击界面,不播多余片段。单位秒,0 = 完整播到片尾。
+    // 准确的结束时间还没定(需求「开发前需确认」第 3 条),定了直接在 Inspector 里填。
+    [SerializeField] private float preLevelVideoEndTime;
+
     private float introWalkTimer;
     private float introVideoStartTime;               // 视频段起始的 stageTimer(手动走完时刻不定,视频计时以此为基准)
     private const float IntroWalkSpeed = 2.4f;        // 摇杆满推时的推进倍率
@@ -52,6 +69,10 @@ public class IntroStageController : MonoBehaviour
     private bool preLevelFinished;
     private int selectedLevel;
     private bool done;
+
+    private TraceStageController traceModule;         // 本场景里的描绘模块,反复 Begin/Teardown 三次
+    private int traceIndex;                           // 下一次要画第几个图案(0/1/2);==traceGates.Length 表示三次都画完
+    private bool tracing;                             // 正在描绘:行进段暂停
 
     private IEnumerator Start()
     {
@@ -62,8 +83,21 @@ public class IntroStageController : MonoBehaviour
 
         selectedLevel = LijiangEchoGameFlow.Instance.SelectedLevel;
         stageRoot = LijiangEchoStageKit.PrepareStageRoot("漓江回声_过场舞台");
-        LijiangEchoStageKit.HideControllerPointers(); // 过场无交互:隐藏上一阶段(选关)留下的残留手柄射线
-        LijiangEchoStageKit.PlayStageLoop("water", 0.3f);
+        LijiangEchoStageKit.HideControllerPointers(); // 行进段无交互:隐藏上一阶段(选关)留下的残留手柄射线
+        LijiangEchoStageKit.PlayStageLoop("water", 0.3f);   // 整段(含三次绘制)保持同一条环境音,不来回切
+
+        // 描绘模块挂在自己身上,运行时创建 —— Unity 那边不用额外拖引用,建好场景挂上本控制器即可。
+        traceModule = gameObject.GetComponent<TraceStageController>();
+        if (traceModule == null)
+        {
+            traceModule = gameObject.AddComponent<TraceStageController>();
+        }
+
+        if (traceGates == null || traceGates.Length == 0)
+        {
+            traceGates = new[] { 1f };                 // 兜底:Inspector 里清空了就退化成"走完画一次"
+        }
+
         BuildIntroWalkStage();
     }
 
@@ -76,25 +110,43 @@ public class IntroStageController : MonoBehaviour
 
         stageTimer += Time.deltaTime;
 
+        if (tracing)
+        {
+            return;      // 描绘进行中:行进段冻结,画面交给 TraceStageController 自己的 Update
+        }
+
         if (!preLevelStarted)
         {
-            // 手动往前走:推摇杆(或 W/↑)才推进过场,松开停;后拉可略微倒退(不低于 0)。
+            // 本段前进的终点:走到当前卡点就停住,必须画完这一次才放行(需求第 3 条验收项)。
+            float walkLimit = CurrentWalkLimit();
+
+            // 手动往前走:推摇杆(或 W/↑)才推进,松开停;后拉可略微倒退(不低于 0)。
             if (introManualWalk)
             {
                 float forward = LijiangEchoStageKit.ReadForwardAxis();
                 introWalkTimer = Mathf.Clamp(
                     introWalkTimer + forward * IntroWalkSpeed * Time.deltaTime,
-                    0f, IntroWalkDuration);
+                    0f, walkLimit);
             }
             else
             {
-                introWalkTimer = stageTimer;   // 旧行为:自动按时间推进
+                // 自动按时间推进,同样卡在卡点。用自增而不是读 stageTimer:
+                // stageTimer 在描绘期间照常走,直接赋值会让画完那一刻瞬间弹到下一个卡点。
+                introWalkTimer = Mathf.Min(introWalkTimer + Time.deltaTime, walkLimit);
             }
 
             UpdateIntroWalkStage();
-            if (introWalkTimer >= IntroWalkDuration)
+
+            if (introWalkTimer >= walkLimit - 0.0001f)
             {
-                StartIntroPreLevelVideo();
+                if (traceIndex < traceGates.Length)
+                {
+                    BeginTraceSegment();          // 到卡点 → 拉起第 traceIndex 次绘制
+                }
+                else
+                {
+                    StartIntroPreLevelVideo();    // 三次都画完 → 才播过渡视频(需求第 5 条)
+                }
             }
 
             return;
@@ -105,35 +157,72 @@ public class IntroStageController : MonoBehaviour
         float videoElapsed = stageTimer - introVideoStartTime;
         bool videoPlaying = introVideoPlayer != null && introVideoPlayer.isPlaying;
 
-        if (preLevelFinished)
+        // 需求第 5 条:填了结束时间就播到那儿为止,不播多余片段;没填(0)则完整播完不砍断。
+        bool trimmed = preLevelVideoEndTime > 0.01f
+            && introVideoPlayer != null
+            && introVideoPlayer.time >= preLevelVideoEndTime;
+
+        if (preLevelFinished || trimmed)
         {
-            EnterTrace();                                                    // 视频完整播完 → 进关(不砍断)
+            EnterBattle();                                                   // 播到位 → 进打击关卡
         }
         else if (!videoPlaying && videoElapsed > PreLevelNoVideoSkip)
         {
-            EnterTrace();                                                    // 视频没能开始播(坏/无资源)→ 短暂黑屏后跳过
+            EnterBattle();                                                   // 视频没能开始播(坏/无资源)→ 短暂黑屏后跳过
         }
         else if (videoElapsed > PreLevelSafetyCap)
         {
-            EnterTrace();                                                    // 极端兜底
+            EnterBattle();                                                   // 极端兜底
         }
     }
 
-    // 过场结束 → 进描绘。Stage_Trace 已在 Build 就走独立描绘场景;否则退回旧流程让旧主场景从描绘开始。
-    private void EnterTrace()
+    // ————————————————————————————— 三段行进 × 三次绘制 —————————————————————————————
+
+    // 当前这一段前进能走到哪:第 traceIndex 个卡点;三次都画完了就是整段终点。
+    private float CurrentWalkLimit()
+    {
+        if (traceIndex >= traceGates.Length)
+        {
+            return IntroWalkDuration;
+        }
+
+        return Mathf.Clamp01(traceGates[traceIndex]) * IntroWalkDuration;
+    }
+
+    // 走到卡点 → 拉起这一次绘制。行进画面收起,手柄射线交给描绘模块。
+    private void BeginTraceSegment()
+    {
+        tracing = true;
+        if (introScrollRoot != null)
+        {
+            introScrollRoot.gameObject.SetActive(false);
+        }
+
+        traceModule.Begin(traceIndex, twoHandTrace, OnTraceSegmentDone);
+    }
+
+    // 这一次画完 → 收起描绘台,行进画面回来,继续走下一段(第三次画完则由 Update 去播视频)。
+    private void OnTraceSegmentDone()
+    {
+        traceModule.Teardown();
+        traceIndex++;
+        tracing = false;
+
+        if (introScrollRoot != null)
+        {
+            introScrollRoot.gameObject.SetActive(true);
+        }
+
+        LijiangEchoStageKit.HideControllerPointers();   // 行进段无交互,收掉描绘留下的射线
+    }
+
+    // 整段结束 → 进旧版流程,并让旧主场景从战斗阶段开始(战斗尚未拆出去时的桥接)。
+    private void EnterBattle()
     {
         done = true;
         ReleaseIntroVideo();
-        if (Application.CanStreamedLevelBeLoaded("Stage_Trace"))
-        {
-            LijiangEchoGameFlow.Instance.SelectedLevel = selectedLevel;
-            LijiangEchoGameFlow.Instance.GoToStage("Stage_Trace");
-        }
-        else
-        {
-            LijiangEchoGameController.ExternalStartStage = 3; // 3 = 描绘(Trace)
-            LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
-        }
+        LijiangEchoGameController.ExternalStartStage = BattleStartStage;
+        LijiangEchoGameFlow.Instance.EnterLegacyFlow(selectedLevel);
     }
 
     // ————————————————————————————— 悬浮过场 —————————————————————————————
