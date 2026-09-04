@@ -217,12 +217,15 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float MenuIconSize = 0.66f;      // 0.42 → 0.66,VR 里看得清
     private const float MenuIconY = 0.12f;
     private const float MenuLabelY = -0.34f;
-    private const float MenuHitCenterY = -0.08f;   // 判定区中心:同时罩住图标和它下面的文字
-    private const float MenuHitHalfY = 0.52f;
-    private const float MenuHitHalfX = 0.42f;      // 0.32 → 0.42,相邻按钮间距 0.86 不会重叠
     private const string MenuPrefabPath = "LijiangEchoMenu/PauseMenu";   // 有这个 Prefab 就用它
 
     private readonly List<SpriteRenderer> menuIconRenderers = new List<SpriteRenderer>();
+
+    // 判定区不再读 MenuButtons 的硬编码 X,而是从图标【实际所在位置和包围盒】算出来。
+    // 否则用 Prefab 时你在里面挪了图标,视觉跟着走、判定还留在代码表的位置上,就点不中。
+    private readonly List<Rect> menuButtonHitRects = new List<Rect>();
+    private const float MenuHitPadX = 0.14f;        // 横向再放宽一点,VR 里好点
+    private const float MenuHitExtendDown = 0.42f;  // 向下延伸罩住图标底下的文字标签
     private int menuHoverIndex = -1;
     private bool menuClickArmed;  // 按下后一直"待命",直到真的点到按钮或松手才作废(防止边缘帧丢点击)
 
@@ -4275,6 +4278,7 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         menuIconRenderers.Clear();
+        menuButtonHitRects.Clear();
         menuHoverIndex = -1;
         menuClickArmed = false;
 
@@ -4287,9 +4291,11 @@ public class LijiangEchoGameController : MonoBehaviour
             GameObject instance = Instantiate(menuPrefab, stageRoot);
             instance.transform.localPosition = Vector3.zero;
             instance.transform.localRotation = Quaternion.identity;
-            instance.transform.localScale = Vector3.one;
+            // 不强设 localScale:你在 Prefab 根上做的整体缩放要保留下来,
+            // 否则"在 Prefab 里调好的间距,进场景又变了"。
             RegisterMenuObject(instance);
             CollectMenuIconRenderers(instance.transform);
+            RebuildMenuHitRects();
             return;
         }
 
@@ -4307,6 +4313,37 @@ public class LijiangEchoGameController : MonoBehaviour
 
             RegisterMenuObject(AddText(spec.Label, new Vector3(spec.X, MenuLabelY, -0.72f),
                 0.024f, Color.white, 90).gameObject);
+        }
+
+        RebuildMenuHitRects();
+    }
+
+    /// <summary>按图标【当前实际所在的位置和包围盒】重建点击判定区,
+    /// 代码生成和 Prefab 两条路都走这里 —— 所以你在 Prefab 里怎么摆,判定就在哪。
+    /// 纵向额外向下延伸 MenuHitExtendDown,把图标底下的文字标签也罩进去
+    /// (原来只罩图标,玩家瞄着"主页"两个字点是点不到的)。</summary>
+    private void RebuildMenuHitRects()
+    {
+        menuButtonHitRects.Clear();
+        for (int i = 0; i < menuIconRenderers.Count; i++)
+        {
+            SpriteRenderer renderer = menuIconRenderers[i];
+            if (renderer == null)
+            {
+                menuButtonHitRects.Add(new Rect(0f, 0f, 0f, 0f));   // 占位,保持下标与按钮一一对应
+                continue;
+            }
+
+            Vector3 center = stageRoot.InverseTransformPoint(renderer.bounds.center);
+            Vector3 extents = stageRoot.InverseTransformVector(renderer.bounds.extents);
+            float halfX = Mathf.Abs(extents.x) + MenuHitPadX;
+            float halfY = Mathf.Abs(extents.y);
+
+            menuButtonHitRects.Add(new Rect(
+                center.x - halfX,
+                center.y - halfY - MenuHitExtendDown,
+                halfX * 2f,
+                halfY * 2f + MenuHitExtendDown));
         }
     }
 
@@ -4403,14 +4440,11 @@ public class LijiangEchoGameController : MonoBehaviour
     /// 并且纵向同时罩住图标和它下面的文字标签 —— 原来只罩图标,瞄着文字点是点不到的。</summary>
     private int HitMenuButton(Vector3 localPoint)
     {
-        if (Mathf.Abs(localPoint.y - MenuHitCenterY) > MenuHitHalfY)
+        Vector2 point = new Vector2(localPoint.x, localPoint.y);
+        for (int i = 0; i < menuButtonHitRects.Count; i++)
         {
-            return -1;
-        }
-
-        for (int i = 0; i < MenuButtons.Length; i++)
-        {
-            if (Mathf.Abs(localPoint.x - MenuButtons[i].X) < MenuHitHalfX)
+            Rect rect = menuButtonHitRects[i];
+            if (rect.width > 0f && rect.Contains(point))
             {
                 return i;
             }
@@ -4487,6 +4521,7 @@ public class LijiangEchoGameController : MonoBehaviour
         menuClickArmed = false;
         menuHoverIndex = -1;
         menuIconRenderers.Clear();
+        menuButtonHitRects.Clear();
     }
 
     private void MenuActionBack()
