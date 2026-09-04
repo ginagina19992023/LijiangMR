@@ -62,6 +62,12 @@ public class IntroStageController : MonoBehaviour
     // 准确的结束时间还没定(需求「开发前需确认」第 3 条),定了直接在 Inspector 里填。
     [SerializeField] private float preLevelVideoEndTime;
 
+    // 参考视频「点击图标出现的提示demo」:走到卡点后左上角浮现一个纹样(呼吸缩放),
+    // 点它才进对应的绘制界面 —— 不是走到就自动弹描绘台。位置/大小可在 Inspector 里调。
+    [SerializeField] private Vector3 gateGlyphPosition = new Vector3(-1.32f, 0.58f, -0.55f);
+    [SerializeField] private float gateGlyphHeight = 0.46f;
+    [SerializeField] private float gateGlyphHitPadding = 0.16f;   // 点击判定比图形稍放宽,VR 里好点
+
     private float introWalkTimer;
     private float introVideoStartTime;               // 视频段起始的 stageTimer(手动走完时刻不定,视频计时以此为基准)
     private const float IntroWalkSpeed = 2.4f;        // 摇杆满推时的推进倍率
@@ -73,6 +79,13 @@ public class IntroStageController : MonoBehaviour
     private TraceStageController traceModule;         // 本场景里的描绘模块,反复 Begin/Teardown 三次
     private int traceIndex;                           // 下一次要画第几个图案(0/1/2);==traceGates.Length 表示三次都画完
     private bool tracing;                             // 正在描绘:行进段暂停
+
+    // 卡点上的浮动纹样:等玩家点它才进描绘
+    private GameObject gateGlyph;
+    private readonly List<GameObject> gateGlyphObjects = new List<GameObject>();
+    private readonly List<LijiangEchoStageKit.MotionItem> gateGlyphMotions = new List<LijiangEchoStageKit.MotionItem>();
+    private bool awaitingGlyphClick;
+    private bool glyphPointerHeldPrev;                // 上升沿检测,避免一直按住反复触发
 
     private IEnumerator Start()
     {
@@ -117,6 +130,12 @@ public class IntroStageController : MonoBehaviour
 
         if (!preLevelStarted)
         {
+            if (awaitingGlyphClick)
+            {
+                UpdateGateGlyph();   // 停在卡点,纹样浮在左上角等着被点
+                return;
+            }
+
             // 本段前进的终点:走到当前卡点就停住,必须画完这一次才放行(需求第 3 条验收项)。
             float walkLimit = CurrentWalkLimit();
 
@@ -141,7 +160,7 @@ public class IntroStageController : MonoBehaviour
             {
                 if (traceIndex < traceGates.Length)
                 {
-                    BeginTraceSegment();          // 到卡点 → 拉起第 traceIndex 次绘制
+                    ShowGateGlyph();              // 到卡点 → 左上角浮现纹样,等点击(不直接弹描绘台)
                 }
                 else
                 {
@@ -189,7 +208,73 @@ public class IntroStageController : MonoBehaviour
         return Mathf.Clamp01(traceGates[traceIndex]) * IntroWalkDuration;
     }
 
-    // 走到卡点 → 拉起这一次绘制。行进画面收起,手柄射线交给描绘模块。
+    // ————————————————————— 卡点浮动纹样(点它才进描绘) —————————————————————
+
+    // 走到卡点 → 左上角浮现「这一次要描的那个纹样」,呼吸缩放,等玩家点。
+    // 参考视频:点击图标出现的提示demo。走不过去 + 必须点 = 需求第 3 条的「完成才能继续」。
+    private void ShowGateGlyph()
+    {
+        if (awaitingGlyphClick || !TraceStageController.TryGetPatternArt(traceIndex, out string artPath, out RectInt artCrop))
+        {
+            return;
+        }
+
+        gateGlyph = LijiangEchoStageKit.AddCroppedSprite(
+            stageRoot, gateGlyphObjects, artPath, "卡点浮动纹样_" + traceIndex,
+            artCrop, gateGlyphPosition, gateGlyphHeight, 60, 0.95f, false);
+        LijiangEchoStageKit.RegisterMotion(
+            gateGlyphMotions, gateGlyph, LijiangEchoStageKit.MotionKind.Pulse, 0.045f, 2.1f, 0f);
+
+        LijiangEchoStageKit.PlaySfx("swipe", 0.4f);   // 浮现提示音
+        awaitingGlyphClick = true;
+        glyphPointerHeldPrev = true;                  // 首帧不算点击:防止上一段残留的按住被当成点它
+    }
+
+    // 纹样浮着的时候:刷新手柄射线,命中纹样且扳机/鼠标按下的上升沿 → 进这一次绘制。
+    private void UpdateGateGlyph()
+    {
+        LijiangEchoStageKit.UpdateControllerInput(stageRoot);   // 这一段要交互,射线得可见可用
+        LijiangEchoStageKit.UpdateMotions(gateGlyphMotions);
+
+        bool pressedNow = false;
+        if (LijiangEchoStageKit.TryGetActivePointer(stageRoot, out Vector3 point, out bool held))
+        {
+            float halfW = gateGlyphHeight * 0.5f + gateGlyphHitPadding;
+            float halfH = gateGlyphHeight * 0.5f + gateGlyphHitPadding;
+            bool inside = Mathf.Abs(point.x - gateGlyphPosition.x) <= halfW
+                       && Mathf.Abs(point.y - gateGlyphPosition.y) <= halfH;
+            pressedNow = inside && held && !glyphPointerHeldPrev;
+            glyphPointerHeldPrev = held;
+        }
+        else
+        {
+            glyphPointerHeldPrev = false;
+        }
+
+        if (pressedNow)
+        {
+            HideGateGlyph();
+            BeginTraceSegment();
+        }
+    }
+
+    private void HideGateGlyph()
+    {
+        awaitingGlyphClick = false;
+        gateGlyphMotions.Clear();
+        for (int i = 0; i < gateGlyphObjects.Count; i++)
+        {
+            if (gateGlyphObjects[i] != null)
+            {
+                Destroy(gateGlyphObjects[i]);
+            }
+        }
+
+        gateGlyphObjects.Clear();
+        gateGlyph = null;
+    }
+
+    // 点了纹样 → 拉起这一次绘制。行进画面收起,手柄射线交给描绘模块。
     private void BeginTraceSegment()
     {
         tracing = true;

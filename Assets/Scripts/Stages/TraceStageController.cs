@@ -35,6 +35,33 @@ public class TraceStageController : MonoBehaviour
     };
     private readonly string[] completionSounds = { "snake", "swipe", "coin" };
 
+    /// <summary>绘制次数(= 图案数)。调用方用它判断还剩几次。</summary>
+    public static int PatternCount => 3;
+
+    /// <summary>取第 index 个图案的素材路径与裁剪框。行进段的「浮动纹样」用它,
+    /// 保证卡点上飘的那个纹样和点进去要描的是同一张图。</summary>
+    public static bool TryGetPatternArt(int index, out string resourcePath, out RectInt crop)
+    {
+        string[] paths = { "pattern/snake_trace", "pattern/bird_trace", "pattern/coin_trace" };
+        RectInt[] crops =
+        {
+            new RectInt(273, 2314, 1951, 2547),
+            new RectInt(1822, 2125, 2973, 2185),
+            new RectInt(995, 836, 1335, 1359)
+        };
+
+        if (index < 0 || index >= paths.Length)
+        {
+            resourcePath = null;
+            crop = default;
+            return false;
+        }
+
+        resourcePath = paths[index];
+        crop = crops[index];
+        return true;
+    }
+
     private Transform stageRoot;
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<LijiangEchoStageKit.MotionItem> motions = new List<LijiangEchoStageKit.MotionItem>();
