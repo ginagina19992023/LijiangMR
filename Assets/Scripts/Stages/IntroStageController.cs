@@ -87,7 +87,9 @@ public class IntroStageController : MonoBehaviour
     // 已导入 Resources/LijiangEchoArt/transition/(第二关卡箭头 → gate_arrow、提示字幕背景 → hint_bubble、
     // 提示字幕(有字) → hint_bubble_text)。箭头指向浮动纹样,气泡在下方给文字提示。
     [SerializeField] private bool showGateHintArt = true;
-    [SerializeField] private Vector3 gateArrowOffset = new Vector3(0.42f, -0.30f, 0.01f); // 相对纹样的偏移
+    // 箭头相对纹样的偏移。横向会自动朝外(见 GateArrowPosition),所以这里填正数即可。
+    // 0.42 相对停靠位偏大,收到 0.34 让箭头更贴着纹样。
+    [SerializeField] private Vector3 gateArrowOffset = new Vector3(0.34f, -0.28f, 0.01f);
     [SerializeField] private float gateArrowHeight = 0.34f;
     [SerializeField] private Vector3 gateBubblePosition = new Vector3(0f, -0.60f, -0.52f);
     [SerializeField] private float gateBubbleWidth = 2.30f;
@@ -245,13 +247,16 @@ public class IntroStageController : MonoBehaviour
         return gateGlyphPositions[Mathf.Clamp(index, 0, gateGlyphPositions.Length - 1)];
     }
 
-    /// <summary>箭头相对纹样的位置。纹样落在右侧时把横向偏移镜像过来,
-    /// 让箭头始终待在纹样朝画面中心的那一侧,不会甩出视野。</summary>
+    /// <summary>箭头相对纹样的位置。横向偏移【朝外】——纹样在右就往右让、在左就往左让,
+    /// 这样箭头始终紧贴着自己那个纹样。
+    /// (曾经写成朝中心镜像:蛇纹停在 0.62、偏移 0.42 取反后落到 0.20,几乎跑到正中间去了。)</summary>
     private Vector3 GateArrowPosition(int index)
     {
         Vector3 stop = GateGlyphPosition(index);
         Vector3 offset = gateArrowOffset;
-        if (stop.x > 0.05f)
+
+        // 居中的那个(铜钱)没有"外侧"可言,保持偏移原样放在它右边。
+        if (stop.x < -0.05f)
         {
             offset.x = -offset.x;
         }
