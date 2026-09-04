@@ -70,8 +70,15 @@ public class IntroStageController : MonoBehaviour
 
     // 卡点纹样:跟着漂浮素材一起从远处飘来,到卡点【停在玩家面前】不再前进也不淡出,
     // 同时下方出现提示面板;玩家点它 → 进绘制 → 纹样和提示一起消失 → 继续走,直到下一个飘来。
-    // gateGlyphPosition 是它停下来的位置(玩家面前偏左上),觉得远/近/偏就调这个。
-    [SerializeField] private Vector3 gateGlyphPosition = new Vector3(-0.62f, 0.34f, -0.50f);
+    // 三次的停靠位【错落开】,不要都停在同一个地方:
+    //   ① 蛇纹 → 右侧   ② 鸟纹 → 左侧   ③ 铜钱 → 正中间
+    // 下标 = 第几次绘制。数量不够时最后一个复用,所以只填一个就等于三次都用它。
+    [SerializeField] private Vector3[] gateGlyphPositions =
+    {
+        new Vector3( 0.62f, 0.34f, -0.50f),   // ① 蛇纹 · 右
+        new Vector3(-0.62f, 0.34f, -0.50f),   // ② 鸟纹 · 左
+        new Vector3( 0f,    0.34f, -0.50f)    // ③ 铜钱 · 中
+    };
     [SerializeField] private float gateGlyphHeight = 0.52f;
     [SerializeField] private float gateGlyphLeadIn = 5.0f;   // 提前多久开始飘来(走位单位)
     [SerializeField] private float gateGlyphHitPadding = 0.16f;   // 点击判定比图形稍放宽,VR 里好点
@@ -226,7 +233,33 @@ public class IntroStageController : MonoBehaviour
 
     // ————————————————————— 卡点浮动纹样(点它才进描绘) —————————————————————
 
-    // 走到卡点 → 左上角浮现「这一次要描的那个纹样」,呼吸缩放,等玩家点。
+    /// <summary>第 index 次绘制的纹样停靠位(① 右 ② 左 ③ 中)。
+    /// 数组不够长时复用最后一个,空数组给个居中的安全默认值。</summary>
+    private Vector3 GateGlyphPosition(int index)
+    {
+        if (gateGlyphPositions == null || gateGlyphPositions.Length == 0)
+        {
+            return new Vector3(0f, 0.34f, -0.50f);
+        }
+
+        return gateGlyphPositions[Mathf.Clamp(index, 0, gateGlyphPositions.Length - 1)];
+    }
+
+    /// <summary>箭头相对纹样的位置。纹样落在右侧时把横向偏移镜像过来,
+    /// 让箭头始终待在纹样朝画面中心的那一侧,不会甩出视野。</summary>
+    private Vector3 GateArrowPosition(int index)
+    {
+        Vector3 stop = GateGlyphPosition(index);
+        Vector3 offset = gateArrowOffset;
+        if (stop.x > 0.05f)
+        {
+            offset.x = -offset.x;
+        }
+
+        return stop + offset;
+    }
+
+    // 走到卡点 → 纹样停在自己那个位置,呼吸缩放,等玩家点。
     // 参考视频:点击图标出现的提示demo。走不过去 + 必须点 = 需求第 3 条的「完成才能继续」。
     private void ShowGateGlyph()
     {
@@ -250,7 +283,7 @@ public class IntroStageController : MonoBehaviour
 
             GameObject arrow = LijiangEchoStageKit.AddIcon(
                 stageRoot, gateGlyphObjects, "transition/gate_arrow", "卡点指向箭头",
-                gateGlyphPosition + gateArrowOffset, gateArrowHeight, 61, 0.96f);
+                GateArrowPosition(traceIndex), gateArrowHeight, 61, 0.96f);
             LijiangEchoStageKit.RegisterMotion(
                 gateGlyphMotions, arrow, LijiangEchoStageKit.MotionKind.FloatX, 0.03f, 2.6f, 0f);
         }
@@ -271,8 +304,9 @@ public class IntroStageController : MonoBehaviour
         {
             float halfW = gateGlyphHeight * 0.5f + gateGlyphHitPadding;
             float halfH = gateGlyphHeight * 0.5f + gateGlyphHitPadding;
-            bool inside = Mathf.Abs(point.x - gateGlyphPosition.x) <= halfW
-                       && Mathf.Abs(point.y - gateGlyphPosition.y) <= halfH;
+            Vector3 stop = GateGlyphPosition(traceIndex);
+            bool inside = Mathf.Abs(point.x - stop.x) <= halfW
+                       && Mathf.Abs(point.y - stop.y) <= halfH;
             pressedNow = inside && held && !glyphPointerHeldPrev;
             glyphPointerHeldPrev = held;
         }
@@ -455,9 +489,13 @@ public class IntroStageController : MonoBehaviour
         float gateTime = Mathf.Clamp01(traceGates[gateIndex]) * introWalkDuration;
         float startTime = Mathf.Max(0f, gateTime - gateGlyphLeadIn);
 
-        // 从远处偏一侧飘来,终点是「玩家面前」的停靠位(gateGlyphPosition)。
-        float fromSide = gateIndex % 2 == 0 ? -1f : 1f;
-        Vector3 startCenter = new Vector3(fromSide * 1.15f, gateGlyphPosition.y * 0.35f, 5.6f);
+        // 从远处偏一侧飘来,终点是这一次自己的停靠位(① 右 ② 左 ③ 中)。
+        // 从落点同一侧飘进来更自然:落右边的就从右边来,居中的按序号左右交替。
+        Vector3 stop = GateGlyphPosition(gateIndex);
+        float fromSide = Mathf.Abs(stop.x) > 0.05f
+            ? Mathf.Sign(stop.x)
+            : (gateIndex % 2 == 0 ? -1f : 1f);
+        Vector3 startCenter = new Vector3(fromSide * 1.15f, stop.y * 0.35f, 5.6f);
 
         GameObject glyphObject = LijiangEchoStageKit.AddCroppedSprite(
             stageRoot, spawnedObjects, artPath, "卡点浮动纹样_" + gateIndex,
@@ -467,7 +505,7 @@ public class IntroStageController : MonoBehaviour
         {
             Renderer = glyphObject.GetComponent<SpriteRenderer>(),
             StartCenter = startCenter,
-            EndCenter = gateGlyphPosition,
+            EndCenter = stop,
             StartHeight = gateGlyphHeight * 0.22f,   // 远处小,飘近变大
             EndHeight = gateGlyphHeight,
             StartTime = startTime,
