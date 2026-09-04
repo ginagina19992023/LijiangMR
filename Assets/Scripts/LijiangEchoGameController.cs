@@ -477,7 +477,10 @@ public class LijiangEchoGameController : MonoBehaviour
     private int cardPageIndex;
 
     // 需求第 8 条:卡面翻页按钮的位置/大小/点击判定半宽(原 0.42 太小且不可点)。
-    private const float CardArrowX = 2.45f;
+    // 原来是 2.45,但 TryProjectRay 只接受 |x| <= 2.25 的落点(:2040),
+    // 导致点箭头时 GetMenuPointer 永远失败 → 翻页判定拿不到 → 落到"离开"分支直接退回选关。
+    // 收进 1.95 让箭头整体落在可命中范围内。
+    private const float CardArrowX = 1.95f;
     private const float CardArrowY = -0.02f;
     private const float CardArrowSize = 0.62f;
     private const float CardArrowHitHalf = 0.46f;   // 判定比图标再放宽一圈,VR 里好点
@@ -4126,8 +4129,9 @@ public class LijiangEchoGameController : MonoBehaviour
         AddIcon("cards/right_button", "右翻页按钮", new Vector3(CardArrowX, CardArrowY, -0.12f), CardArrowSize, 10, 0.98f);
 
         // 页码:让玩家知道一共 15 张、现在第几张(原来完全没有提示,看起来就像"只有一张")。
+        // 字号 0.16 是我随手填的,比菜单文字(0.018~0.024)大了七八倍,屏幕上巨大;按同一量级取 0.022。
         cardPageLabel = AddText($"{cardPageIndex + 1} / {cardPagePaths.Length}",
-            new Vector3(0f, -1.12f, -0.14f), 0.16f, new Color(1f, 0.94f, 0.78f, 0.92f), 12);
+            new Vector3(0f, -1.05f, -0.14f), 0.022f, new Color(1f, 0.94f, 0.78f, 0.92f), 12);
 
         GameObject donePattern = AddCroppedSprite(
             donePaths[selectedLevel],
@@ -4173,7 +4177,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
         // 需求第 8 条:去掉原来的 stageTimer > 10f 自动跳走 —— 15 张卡面 10 秒根本看不完,
         // 这正是「只显示一张」的观感来源。现在必须玩家主动确认才离开。
-        if (AdvancePressed())
+        // 进入卡面后给 0.6s 缓冲:从结算界面点进来的那一下如果被按住,不会立刻又把卡面翻过去。
+        if (stageTimer > 0.6f && AdvancePressed())
         {
             PlaySfx("page_close", 0.68f);
             ShowSelect();
