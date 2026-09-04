@@ -37,6 +37,10 @@ public class IntroStageController : MonoBehaviour
         public float FloatPhase;
         public Vector3 StartRotation;
         public Vector3 EndRotation;
+
+        // 卡点纹样专用:普通漂浮物快到终点就淡出飘走,纹样要「停在玩家面前不消失」等着被点。
+        public bool HoldAtEnd;
+        public int GateIndex;      // -1 = 普通漂浮物;>=0 = 第几个卡点的纹样
     }
 
     private Transform stageRoot;
@@ -225,12 +229,13 @@ public class IntroStageController : MonoBehaviour
     // 参考视频:点击图标出现的提示demo。走不过去 + 必须点 = 需求第 3 条的「完成才能继续」。
     private void ShowGateGlyph()
     {
-        if (awaitingGlyphClick || !TraceStageController.TryGetPatternArt(traceIndex, out string artPath, out RectInt artCrop))
+        if (awaitingGlyphClick)
         {
             return;
         }
 
-        // 需求第 3 条:提示字幕气泡和左上角纹样【同时出现】,一起收。
+        // 纹样本身不在这里生成 —— 它是 AddGateGlyphFly 造的漂浮物,跟着别的素材一路飘来,
+        // 走到卡点走位被钳住,它也就停在玩家面前了。这里只补「停住那一刻」才出现的提示面板。
         if (showGateHintArt)
         {
             LijiangEchoStageKit.AddLayer(
@@ -241,17 +246,7 @@ public class IntroStageController : MonoBehaviour
                 gateBubblePosition + new Vector3(0f, 0f, -0.01f), gateBubbleWidth, 59, 0.98f);
             LijiangEchoStageKit.RegisterMotion(
                 gateGlyphMotions, bubbleText, LijiangEchoStageKit.MotionKind.FloatY, 0.012f, 1.6f, 0.5f);
-        }
 
-        gateGlyph = LijiangEchoStageKit.AddCroppedSprite(
-            stageRoot, gateGlyphObjects, artPath, "卡点浮动纹样_" + traceIndex,
-            artCrop, gateGlyphPosition, gateGlyphHeight, 60, 0.95f, false);
-        LijiangEchoStageKit.RegisterMotion(
-            gateGlyphMotions, gateGlyph, LijiangEchoStageKit.MotionKind.Pulse, 0.045f, 2.1f, 0f);
-
-        // 箭头指向纹样,和纹样、气泡同时出现。
-        if (showGateHintArt)
-        {
             GameObject arrow = LijiangEchoStageKit.AddIcon(
                 stageRoot, gateGlyphObjects, "transition/gate_arrow", "卡点指向箭头",
                 gateGlyphPosition + gateArrowOffset, gateArrowHeight, 61, 0.96f);
@@ -259,7 +254,7 @@ public class IntroStageController : MonoBehaviour
                 gateGlyphMotions, arrow, LijiangEchoStageKit.MotionKind.FloatX, 0.03f, 2.6f, 0f);
         }
 
-        LijiangEchoStageKit.PlaySfx("swipe", 0.4f);   // 浮现提示音
+        LijiangEchoStageKit.PlaySfx("swipe", 0.4f);   // 停住 + 提示面板出现的提示音
         awaitingGlyphClick = true;
         glyphPointerHeldPrev = true;                  // 首帧不算点击:防止上一段残留的按住被当成点它
     }
@@ -292,9 +287,11 @@ public class IntroStageController : MonoBehaviour
         }
     }
 
+    // 玩家点了纹样:纹样和提示面板【一起消失】,然后继续往前走,直到下一个纹样飘到面前。
     private void HideGateGlyph()
     {
         awaitingGlyphClick = false;
+        RemoveGateGlyphFly(traceIndex);   // 摘掉停在面前的那个纹样
         gateGlyphMotions.Clear();
         for (int i = 0; i < gateGlyphObjects.Count; i++)
         {
@@ -407,6 +404,13 @@ public class IntroStageController : MonoBehaviour
         AddFly("transition/person_4", "漂浮人物四", new RectInt(1935, 355, 54, 69), new Vector3(-3.0f, -0.18f, -0.32f), new Vector3(3.0f, 0.04f, -0.32f), 0.17f, 0.35f, 27.0f, 33.4f, 31, 0.92f);
         AddFly("transition/beast", "迎面兽纹", new RectInt(2642, 45, 475, 391), new Vector3(3.25f, 0.08f, -0.36f), new Vector3(-3.1f, -0.02f, -0.36f), 0.42f, 1.05f, 27.3f, 34.0f, 40, 0.98f);
 
+        // 卡点纹样:跟着漂浮物一起从远处飘来,到卡点正好停在玩家面前(走位停了它就停)。
+        // 放在边框之前生成,保证边框仍盖在最上层。
+        for (int g = 0; g < traceGates.Length; g++)
+        {
+            AddGateGlyphFly(g);
+        }
+
         // 过场边框(静态,保持各自 alpha —— 旧版这两项虽登记了淡入表但并未被动画驱动)。
         LijiangEchoStageKit.AddLayer(stageRoot, spawnedObjects, "transition/hollow_frame", "过场镂空边框",
             Vector3.zero, LijiangEchoStageKit.MainCanvasWidth, 90, 0.76f, introScrollRoot);
@@ -435,6 +439,65 @@ public class IntroStageController : MonoBehaviour
         }
 
         return time;                              // 第一批(0 ~ 8.9)原样
+    }
+
+    /// <summary>生成第 gateIndex 个卡点的纹样。它是一个特殊的漂浮物:
+    /// 从远处跟着别的漂浮素材一起飘来,但【终点时间正好是卡点】,而走位在卡点被钳住,
+    /// 所以它自然停在玩家面前不再前进,也不淡出(HoldAtEnd),等玩家点它。</summary>
+    private void AddGateGlyphFly(int gateIndex)
+    {
+        if (!TraceStageController.TryGetPatternArt(gateIndex, out string artPath, out RectInt artCrop))
+        {
+            return;
+        }
+
+        float gateTime = Mathf.Clamp01(traceGates[gateIndex]) * introWalkDuration;
+        float startTime = Mathf.Max(0f, gateTime - gateGlyphLeadIn);
+
+        // 从远处偏一侧飘来,终点是「玩家面前」的停靠位(gateGlyphPosition)。
+        float fromSide = gateIndex % 2 == 0 ? -1f : 1f;
+        Vector3 startCenter = new Vector3(fromSide * 1.15f, gateGlyphPosition.y * 0.35f, 5.6f);
+
+        GameObject glyphObject = LijiangEchoStageKit.AddCroppedSprite(
+            stageRoot, spawnedObjects, artPath, "卡点浮动纹样_" + gateIndex,
+            artCrop, startCenter, gateGlyphHeight * 0.22f, 60, 0f, false, introScrollRoot);
+
+        flyItems.Add(new FlyItem
+        {
+            Renderer = glyphObject.GetComponent<SpriteRenderer>(),
+            StartCenter = startCenter,
+            EndCenter = gateGlyphPosition,
+            StartHeight = gateGlyphHeight * 0.22f,   // 远处小,飘近变大
+            EndHeight = gateGlyphHeight,
+            StartTime = startTime,
+            EndTime = gateTime,
+            TargetAlpha = 0.97f,
+            FloatPhase = gateIndex * 1.31f,
+            StartRotation = Vector3.zero,
+            EndRotation = Vector3.zero,
+            HoldAtEnd = true,
+            GateIndex = gateIndex
+        });
+    }
+
+    /// <summary>玩家点了纹样 → 把这个卡点的纹样从漂浮表里摘掉并销毁(和提示面板一起消失)。</summary>
+    private void RemoveGateGlyphFly(int gateIndex)
+    {
+        for (int i = flyItems.Count - 1; i >= 0; i--)
+        {
+            FlyItem item = flyItems[i];
+            if (item.GateIndex != gateIndex || !item.HoldAtEnd)
+            {
+                continue;
+            }
+
+            if (item.Renderer != null)
+            {
+                Destroy(item.Renderer.gameObject);
+            }
+
+            flyItems.RemoveAt(i);
+        }
     }
 
     private void AddFly(string resourcePath, string objectName, RectInt topLeftCrop,
@@ -486,7 +549,11 @@ public class IntroStageController : MonoBehaviour
             float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, introWalkTimer));
             float eased = Mathf.SmoothStep(0f, 1f, progress);
             float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, introWalkTimer));
-            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, introWalkTimer));
+
+            // 卡点纹样不淡出:普通漂浮物飘到跟前就散掉,纹样要停在原地保持清晰,等玩家点。
+            float fadeOut = item.HoldAtEnd
+                ? 1f
+                : 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, introWalkTimer));
             float alpha = item.TargetAlpha * Mathf.Min(fadeIn, fadeOut);
 
             Vector3 center = Vector3.Lerp(item.StartCenter, item.EndCenter, eased);
