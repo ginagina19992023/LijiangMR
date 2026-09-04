@@ -194,6 +194,38 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<GameObject> menuObjects = new List<GameObject>();
+    // ——— 9.1 需求第 6 条:暂停面板 ———
+    // 原实现的问题:①图标只有 0.42,VR 里太小;②判定区 y 只覆盖 |y-0.05|<0.34(到 -0.29 为止),
+    // 而文字标签在 y=-0.38 —— 玩家瞄着"主页"两个字点,永远点不到,表现就是"点了没反应";
+    // ③视觉位置和判定位置是两处硬编码的数字,改一处忘一处就"错位"。
+    // 现在合并成一张表:画图标、画文字、点击判定全读它,不可能再对不上。
+    private struct MenuButtonSpec
+    {
+        public string IconPath;
+        public string Label;
+        public float X;
+    }
+
+    private static readonly MenuButtonSpec[] MenuButtons =
+    {
+        new MenuButtonSpec { IconPath = "ui/home",  Label = "主页", X = -1.30f },
+        new MenuButtonSpec { IconPath = "ui/music", Label = "音乐", X = -0.44f },
+        new MenuButtonSpec { IconPath = "ui/skip",  Label = "跳过", X =  0.44f },
+        new MenuButtonSpec { IconPath = "ui/back",  Label = "返回", X =  1.30f }
+    };
+
+    private const float MenuIconSize = 0.66f;      // 0.42 → 0.66,VR 里看得清
+    private const float MenuIconY = 0.12f;
+    private const float MenuLabelY = -0.34f;
+    private const float MenuHitCenterY = -0.08f;   // 判定区中心:同时罩住图标和它下面的文字
+    private const float MenuHitHalfY = 0.52f;
+    private const float MenuHitHalfX = 0.42f;      // 0.32 → 0.42,相邻按钮间距 0.86 不会重叠
+    private const string MenuPrefabPath = "LijiangEchoMenu/PauseMenu";   // 有这个 Prefab 就用它
+
+    private readonly List<SpriteRenderer> menuIconRenderers = new List<SpriteRenderer>();
+    private int menuHoverIndex = -1;
+    private bool menuClickArmed;  // 按下后一直"待命",直到真的点到按钮或松手才作废(防止边缘帧丢点击)
+
     private bool menuPaused;      // 菜单打开时是否已暂停(冻结进度+音频)
     private bool menuPressPrev;   // 上一帧是否在按住(菜单点击的上升沿检测)
     private bool menuMuted;       // 菜单「音乐」开关:是否静音
@@ -4237,18 +4269,70 @@ public class LijiangEchoGameController : MonoBehaviour
             return;
         }
 
+        menuIconRenderers.Clear();
+        menuHoverIndex = -1;
+        menuClickArmed = false;
+
+        // 可编辑 Prefab 优先(和纹样 Prefab 同一套路):
+        // Resources/LijiangEchoMenu/PauseMenu 存在就直接实例化它,视觉全由你在 Prefab 里决定;
+        // 删掉 Prefab 就回退到下面的代码生成,游戏照常。
+        GameObject menuPrefab = Resources.Load<GameObject>(MenuPrefabPath);
+        if (menuPrefab != null)
+        {
+            GameObject instance = Instantiate(menuPrefab, stageRoot);
+            instance.transform.localPosition = Vector3.zero;
+            instance.transform.localRotation = Quaternion.identity;
+            instance.transform.localScale = Vector3.one;
+            RegisterMenuObject(instance);
+            CollectMenuIconRenderers(instance.transform);
+            return;
+        }
+
         RegisterMenuObject(AddLayer("transition/purple_frame", "系统菜单暗幕", Vector3.zero, MainCanvasWidth, 80, 0.32f));
         RegisterMenuObject(AddLayer("ui/card_back", "系统菜单面板", new Vector3(0f, 0.04f, -0.64f), 3.75f, 82, 0.78f));
 
-        RegisterMenuObject(AddIcon("ui/home", "菜单主页", new Vector3(-1.08f, 0.05f, -0.7f), 0.42f, 86, 0.96f));
-        RegisterMenuObject(AddIcon("ui/music", "菜单音乐", new Vector3(-0.36f, 0.05f, -0.7f), 0.42f, 86, 0.96f));
-        RegisterMenuObject(AddIcon("ui/skip", "菜单跳过", new Vector3(0.36f, 0.05f, -0.7f), 0.42f, 86, 0.96f));
-        RegisterMenuObject(AddIcon("ui/back", "菜单返回", new Vector3(1.08f, 0.05f, -0.7f), 0.42f, 86, 0.96f));
+        // 图标与文字位置全部读 MenuButtons 表 —— 点击判定读同一张表,不可能对不上。
+        for (int i = 0; i < MenuButtons.Length; i++)
+        {
+            MenuButtonSpec spec = MenuButtons[i];
+            GameObject icon = AddIcon(spec.IconPath, "菜单" + spec.Label,
+                new Vector3(spec.X, MenuIconY, -0.7f), MenuIconSize, 86, 0.96f);
+            RegisterMenuObject(icon);
+            menuIconRenderers.Add(icon != null ? icon.GetComponent<SpriteRenderer>() : null);
 
-        RegisterMenuObject(AddText("主页", new Vector3(-1.08f, -0.38f, -0.72f), 0.018f, Color.white, 90).gameObject);
-        RegisterMenuObject(AddText("音乐", new Vector3(-0.36f, -0.38f, -0.72f), 0.018f, Color.white, 90).gameObject);
-        RegisterMenuObject(AddText("跳过", new Vector3(0.36f, -0.38f, -0.72f), 0.018f, Color.white, 90).gameObject);
-        RegisterMenuObject(AddText("返回", new Vector3(1.08f, -0.38f, -0.72f), 0.018f, Color.white, 90).gameObject);
+            RegisterMenuObject(AddText(spec.Label, new Vector3(spec.X, MenuLabelY, -0.72f),
+                0.024f, Color.white, 90).gameObject);
+        }
+    }
+
+    /// <summary>从 Prefab 实例里按名字找回四个图标的渲染器,用于悬停高亮。
+    /// Prefab 里把图标物件命名成「菜单主页 / 菜单音乐 / 菜单跳过 / 菜单返回」即可被认出。</summary>
+    private void CollectMenuIconRenderers(Transform root)
+    {
+        for (int i = 0; i < MenuButtons.Length; i++)
+        {
+            Transform found = FindDeepChild(root, "菜单" + MenuButtons[i].Label);
+            menuIconRenderers.Add(found != null ? found.GetComponent<SpriteRenderer>() : null);
+        }
+    }
+
+    private static Transform FindDeepChild(Transform root, string name)
+    {
+        if (root.name == name)
+        {
+            return root;
+        }
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindDeepChild(root.GetChild(i), name);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private void RegisterMenuObject(GameObject item)
@@ -4277,23 +4361,87 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         bool pressing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.5f ||
                         (Mouse.current != null && Mouse.current.leftButton.isPressed);
-        bool clicked = pressing && !menuPressPrev; // 上升沿=本帧点下
+
+        // 需求第 6 条:原来「按下那一帧射线没落在面板上就永久丢掉这次点击」——
+        // VR 里手一抖就点不动。改成按下后保持"待命",直到真的点到某个按钮、或者松手才作废。
+        if (pressing && !menuPressPrev)
+        {
+            menuClickArmed = true;
+        }
+
+        if (!pressing)
+        {
+            menuClickArmed = false;
+        }
+
         menuPressPrev = pressing;
-        if (!clicked || !GetMenuPointer(out Vector3 lp))
+
+        int hover = GetMenuPointer(out Vector3 lp) ? HitMenuButton(lp) : -1;
+        UpdateMenuHoverVisual(hover);   // 先给悬停反馈:玩家能看见自己指着哪个
+
+        if (hover < 0 || !menuClickArmed)
         {
             return;
         }
 
-        if (Mathf.Abs(lp.y - 0.05f) > 0.34f)
+        menuClickArmed = false;
+        switch (hover)
         {
-            return; // 不在这排图标的高度上
+            case 0: MenuActionHome(); break;
+            case 1: MenuActionMusic(); break;
+            case 2: MenuActionSkip(); break;
+            case 3: MenuActionBack(); break;
+        }
+    }
+
+    /// <summary>射线落点命中哪个按钮(-1 = 没命中)。判定区读 MenuButtons 同一张表,
+    /// 并且纵向同时罩住图标和它下面的文字标签 —— 原来只罩图标,瞄着文字点是点不到的。</summary>
+    private int HitMenuButton(Vector3 localPoint)
+    {
+        if (Mathf.Abs(localPoint.y - MenuHitCenterY) > MenuHitHalfY)
+        {
+            return -1;
         }
 
-        // 图标横向位置:主页 -1.08 / 音乐 -0.36 / 跳过 0.36 / 返回 1.08(半宽 0.32)
-        if (Mathf.Abs(lp.x + 1.08f) < 0.32f) { MenuActionHome(); }
-        else if (Mathf.Abs(lp.x + 0.36f) < 0.32f) { MenuActionMusic(); }
-        else if (Mathf.Abs(lp.x - 0.36f) < 0.32f) { MenuActionSkip(); }
-        else if (Mathf.Abs(lp.x - 1.08f) < 0.32f) { MenuActionBack(); }
+        for (int i = 0; i < MenuButtons.Length; i++)
+        {
+            if (Mathf.Abs(localPoint.x - MenuButtons[i].X) < MenuHitHalfX)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>悬停高亮:指着的那个放大并提亮。没有这个反馈,玩家分不清"没点到"还是"功能坏了"。</summary>
+    private void UpdateMenuHoverVisual(int hover)
+    {
+        if (hover != menuHoverIndex)
+        {
+            menuHoverIndex = hover;
+            if (hover >= 0)
+            {
+                PlaySfx("swipe", 0.22f);
+            }
+        }
+
+        for (int i = 0; i < menuIconRenderers.Count; i++)
+        {
+            SpriteRenderer renderer = menuIconRenderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            bool on = i == hover;
+            renderer.transform.localScale = Vector3.one * (on ? 1.18f : 1f);
+            Color color = renderer.color;
+            color.r = on ? 1f : 0.82f;
+            color.g = on ? 1f : 0.82f;
+            color.b = on ? 1f : 0.82f;
+            renderer.color = color;
+        }
     }
 
     // 取菜单指针在舞台平面上的落点:哪只手扳机压得深用哪只;编辑器退回鼠标。
@@ -4331,6 +4479,9 @@ public class LijiangEchoGameController : MonoBehaviour
             menuPaused = false;
         }
         menuPressPrev = false;
+        menuClickArmed = false;
+        menuHoverIndex = -1;
+        menuIconRenderers.Clear();
     }
 
     private void MenuActionBack()
