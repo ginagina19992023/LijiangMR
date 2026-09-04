@@ -21,7 +21,7 @@ public class LijiangEchoPauseMenu : MonoBehaviour
 {
     private const string MenuPrefabPath = "LijiangEchoMenu/PauseMenu";
 
-    private const float IconSize = 0.66f;
+    private const float IconSize = 0.58f;
     private const float IconY = 0.12f;
     private const float LabelY = -0.34f;
     private const float HitPadX = 0.14f;         // 横向放宽,VR 里好点
@@ -36,16 +36,22 @@ public class LijiangEchoPauseMenu : MonoBehaviour
 
     private static readonly ButtonSpec[] Buttons =
     {
-        new ButtonSpec { IconPath = "ui/home",  Label = "主页", X = -1.30f },
-        new ButtonSpec { IconPath = "ui/music", Label = "音乐", X = -0.44f },
-        new ButtonSpec { IconPath = "ui/skip",  Label = "跳过", X =  0.44f },
-        new ButtonSpec { IconPath = "ui/back",  Label = "返回", X =  1.30f }
+        new ButtonSpec { IconPath = "ui/home",  Label = "主页", X = -1.50f },
+        new ButtonSpec { IconPath = "ui/music", Label = "音乐", X = -0.50f },
+        new ButtonSpec { IconPath = "ui/skip",  Label = "跳过", X =  0.50f },
+        new ButtonSpec { IconPath = "ui/back",  Label = "返回", X =  1.50f }
     };
 
     private Transform menuRoot;
     private readonly List<GameObject> spawnedObjects = new List<GameObject>();
     private readonly List<SpriteRenderer> iconRenderers = new List<SpriteRenderer>();
     private readonly List<Rect> hitRects = new List<Rect>();
+
+    // 悬停高亮必须在【作者摆好的缩放和颜色】基础上做增量。
+    // 曾经直接写 localScale = Vector3.one,把 Prefab 里图标 0.6 的缩放整个抹掉 ——
+    // 菜单一打开四个图标被放大 1.67 倍,挤成一团,手调过的视觉居中偏移也跟着被放大。
+    private readonly List<Vector3> iconBaseScales = new List<Vector3>();
+    private readonly List<Color> iconBaseColors = new List<Color>();
 
     private bool open;
     private bool muted;
@@ -186,13 +192,20 @@ public class LijiangEchoPauseMenu : MonoBehaviour
         }
     }
 
-    /// <summary>判定区按图标实际所在位置和包围盒算,所以 Prefab 里怎么摆就点哪。</summary>
+    /// <summary>判定区按图标实际所在位置和包围盒算,所以 Prefab 里怎么摆就点哪。
+    /// 顺便记下作者摆好的缩放和颜色,悬停高亮只在这个基础上做增量,不覆盖。</summary>
     private void RebuildHitRects()
     {
         hitRects.Clear();
+        iconBaseScales.Clear();
+        iconBaseColors.Clear();
+
         for (int i = 0; i < iconRenderers.Count; i++)
         {
             SpriteRenderer renderer = iconRenderers[i];
+            iconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
+            iconBaseColors.Add(renderer != null ? renderer.color : Color.white);
+
             if (renderer == null)
             {
                 hitRects.Add(new Rect(0f, 0f, 0f, 0f));   // 占位,保持下标对应
@@ -303,13 +316,14 @@ public class LijiangEchoPauseMenu : MonoBehaviour
                 continue;
             }
 
+            // 在作者摆好的缩放/颜色上做增量,不覆盖(否则 Prefab 里调的大小和视觉居中全被抹掉)。
             bool on = i == hover;
-            renderer.transform.localScale = Vector3.one * (on ? 1.18f : 1f);
-            Color color = renderer.color;
-            color.r = on ? 1f : 0.82f;
-            color.g = on ? 1f : 0.82f;
-            color.b = on ? 1f : 0.82f;
-            renderer.color = color;
+            Vector3 baseScale = i < iconBaseScales.Count ? iconBaseScales[i] : Vector3.one;
+            Color baseColor = i < iconBaseColors.Count ? iconBaseColors[i] : Color.white;
+
+            renderer.transform.localScale = baseScale * (on ? 1.18f : 1f);
+            float dim = on ? 1f : 0.82f;
+            renderer.color = new Color(baseColor.r * dim, baseColor.g * dim, baseColor.b * dim, baseColor.a);
         }
     }
 

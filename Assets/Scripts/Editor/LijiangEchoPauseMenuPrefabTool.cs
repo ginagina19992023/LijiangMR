@@ -12,22 +12,26 @@ using UnityEngine;
 /// 【注意】四个图标物件的名字不能改:菜单主页 / 菜单音乐 / 菜单跳过 / 菜单返回。
 /// 运行时按这几个名字找回它们 —— 悬停高亮和【点击判定区】都依赖这个,改名了这个按钮就点不动。
 ///
-/// 位置和间距随便调:判定区是运行时按图标实际所在位置和包围盒算出来的(RebuildMenuHitRects),
-/// 你在 Prefab 里怎么摆,能点的地方就在哪。根物件上的整体缩放也会保留。
+/// 【怎么调间距】拖每个按钮的【按钮组】空物件(按钮主页 / 按钮音乐 / 按钮跳过 / 按钮返回),
+/// 图标和文字是它的子物件,会一起走。不要单独拖图标 —— 那样文字会留在原地。
+/// 判定区是运行时按图标实际所在位置和包围盒算出来的(RebuildMenuHitRects),
+/// 你怎么摆,能点的地方就在哪。根物件上的整体缩放也会保留。
 /// </summary>
 public static class LijiangEchoPauseMenuPrefabTool
 {
     private const string PrefabPath = "Assets/Resources/LijiangEchoMenu/PauseMenu.prefab";
     private const string ArtRoot = "Assets/Resources/LijiangEchoArt/";
 
-    // 与 LijiangEchoGameController 里的 MenuButtons / 尺寸常量保持一致。
-    private const float IconSize = 0.66f;
+    // 间距按「缝隙/图标」比例定,不能只放大图标不放大间距:
+    // 原始版 0.42 图标 / 0.72 间距,比例 0.71;曾经改成 0.66 图标 / 0.86 间距,比例掉到 0.30,反而更挤。
+    // 现在 0.58 图标 / 1.00 间距,比例 0.72,和原始手感一致,且最外侧 1.50+0.29=1.79 仍在面板半宽 1.875 内。
+    private const float IconSize = 0.58f;
     private const float IconY = 0.12f;
-    private const float LabelY = -0.34f;
+    private const float LabelOffsetY = -0.46f;   // 文字相对【图标】的偏移(文字是图标的子物件)
 
     private static readonly string[] IconArt = { "ui/home", "ui/music", "ui/skip", "ui/back" };
     private static readonly string[] Labels = { "主页", "音乐", "跳过", "返回" };
-    private static readonly float[] PositionsX = { -1.30f, -0.44f, 0.44f, 1.30f };
+    private static readonly float[] PositionsX = { -1.50f, -0.50f, 0.50f, 1.50f };
 
     [MenuItem("漓江回声/暂停面板/生成可编辑暂停面板 Prefab", false, 0)]
     private static void GeneratePrefab()
@@ -46,12 +50,20 @@ public static class LijiangEchoPauseMenuPrefabTool
         AddSprite(root.transform, "系统菜单面板", "ui/card_back",
             new Vector3(0f, 0.04f, -0.64f), 3.75f, 82, 0.78f);
 
+        // 每个按钮包一个【按钮组】空物件,图标和文字都是它的子物件。
+        // 你在 Prefab 里只需要拖「按钮主页」这一个空物件,图标和文字一起走 ——
+        // 之前图标和文字是兄弟节点,拖了图标文字留在原地,四个按钮的图文全对错位了。
+        // 不把文字直接挂在图标下面,是因为图标带缩放(targetSize/贴图尺寸),文字会被一起缩掉。
         for (int i = 0; i < IconArt.Length; i++)
         {
-            // 名字必须是「菜单+标签」,运行时靠它找回来做悬停高亮。
-            AddSprite(root.transform, "菜单" + Labels[i], IconArt[i],
-                new Vector3(PositionsX[i], IconY, -0.7f), IconSize, 86, 0.96f, true);
-            AddLabel(root.transform, Labels[i], new Vector3(PositionsX[i], LabelY, -0.72f));
+            GameObject group = new GameObject("按钮" + Labels[i]);
+            group.transform.SetParent(root.transform, false);
+            group.transform.localPosition = new Vector3(PositionsX[i], IconY, -0.7f);
+
+            // 图标名字必须是「菜单+标签」,运行时靠它找回来做悬停高亮和点击判定。
+            AddSprite(group.transform, "菜单" + Labels[i], IconArt[i],
+                Vector3.zero, IconSize, 86, 0.96f, true);
+            AddLabel(group.transform, Labels[i], new Vector3(0f, LabelOffsetY, -0.02f));
         }
 
         PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);

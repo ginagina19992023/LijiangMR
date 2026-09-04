@@ -215,13 +215,13 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private static readonly MenuButtonSpec[] MenuButtons =
     {
-        new MenuButtonSpec { IconPath = "ui/home",  Label = "主页", X = -1.30f },
-        new MenuButtonSpec { IconPath = "ui/music", Label = "音乐", X = -0.44f },
-        new MenuButtonSpec { IconPath = "ui/skip",  Label = "跳过", X =  0.44f },
-        new MenuButtonSpec { IconPath = "ui/back",  Label = "返回", X =  1.30f }
+        new MenuButtonSpec { IconPath = "ui/home",  Label = "主页", X = -1.50f },
+        new MenuButtonSpec { IconPath = "ui/music", Label = "音乐", X = -0.50f },
+        new MenuButtonSpec { IconPath = "ui/skip",  Label = "跳过", X =  0.50f },
+        new MenuButtonSpec { IconPath = "ui/back",  Label = "返回", X =  1.50f }
     };
 
-    private const float MenuIconSize = 0.66f;      // 0.42 → 0.66,VR 里看得清
+    private const float MenuIconSize = 0.58f;      // 图标 0.58 / 间距 1.00,缝隙比 0.72,与原始手感一致
     private const float MenuIconY = 0.12f;
     private const float MenuLabelY = -0.34f;
     private const string MenuPrefabPath = "LijiangEchoMenu/PauseMenu";   // 有这个 Prefab 就用它
@@ -231,6 +231,12 @@ public class LijiangEchoGameController : MonoBehaviour
     // 判定区不再读 MenuButtons 的硬编码 X,而是从图标【实际所在位置和包围盒】算出来。
     // 否则用 Prefab 时你在里面挪了图标,视觉跟着走、判定还留在代码表的位置上,就点不中。
     private readonly List<Rect> menuButtonHitRects = new List<Rect>();
+
+    // 悬停高亮必须在【作者摆好的缩放和颜色】基础上做增量。曾经直接写 localScale = Vector3.one,
+    // 把 Prefab 里图标 0.6 的缩放整个抹掉 —— 菜单一开图标被放大 1.67 倍挤成一团,
+    // 手调过的视觉居中偏移也跟着被放大。
+    private readonly List<Vector3> menuIconBaseScales = new List<Vector3>();
+    private readonly List<Color> menuIconBaseColors = new List<Color>();
     private const float MenuHitPadX = 0.14f;        // 横向再放宽一点,VR 里好点
     private const float MenuHitExtendDown = 0.42f;  // 向下延伸罩住图标底下的文字标签
     private int menuHoverIndex = -1;
@@ -4332,9 +4338,15 @@ public class LijiangEchoGameController : MonoBehaviour
     private void RebuildMenuHitRects()
     {
         menuButtonHitRects.Clear();
+        menuIconBaseScales.Clear();
+        menuIconBaseColors.Clear();
+
         for (int i = 0; i < menuIconRenderers.Count; i++)
         {
             SpriteRenderer renderer = menuIconRenderers[i];
+            menuIconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
+            menuIconBaseColors.Add(renderer != null ? renderer.color : Color.white);
+
             if (renderer == null)
             {
                 menuButtonHitRects.Add(new Rect(0f, 0f, 0f, 0f));   // 占位,保持下标与按钮一一对应
@@ -4480,13 +4492,14 @@ public class LijiangEchoGameController : MonoBehaviour
                 continue;
             }
 
+            // 在作者摆好的缩放/颜色上做增量,不覆盖(否则 Prefab 里调的大小和视觉居中全被抹掉)。
             bool on = i == hover;
-            renderer.transform.localScale = Vector3.one * (on ? 1.18f : 1f);
-            Color color = renderer.color;
-            color.r = on ? 1f : 0.82f;
-            color.g = on ? 1f : 0.82f;
-            color.b = on ? 1f : 0.82f;
-            renderer.color = color;
+            Vector3 baseScale = i < menuIconBaseScales.Count ? menuIconBaseScales[i] : Vector3.one;
+            Color baseColor = i < menuIconBaseColors.Count ? menuIconBaseColors[i] : Color.white;
+
+            renderer.transform.localScale = baseScale * (on ? 1.18f : 1f);
+            float dim = on ? 1f : 0.82f;
+            renderer.color = new Color(baseColor.r * dim, baseColor.g * dim, baseColor.b * dim, baseColor.a);
         }
     }
 
