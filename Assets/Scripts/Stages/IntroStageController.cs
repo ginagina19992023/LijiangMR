@@ -65,13 +65,15 @@ public class IntroStageController : MonoBehaviour
     [SerializeField] private bool twoHandTrace = true;
 
     // 需求第 5 条:视频播到指定位置就切打击界面,不播多余片段。单位秒,0 = 完整播到片尾。
-    // 准确的结束时间还没定(需求「开发前需确认」第 3 条),定了直接在 Inspector 里填。
-    [SerializeField] private float preLevelVideoEndTime;
+    // 队友已确认掐点为 7 秒。
+    [SerializeField] private float preLevelVideoEndTime = 7f;
 
-    // 参考视频「点击图标出现的提示demo」:走到卡点后左上角浮现一个纹样(呼吸缩放),
-    // 点它才进对应的绘制界面 —— 不是走到就自动弹描绘台。位置/大小可在 Inspector 里调。
-    [SerializeField] private Vector3 gateGlyphPosition = new Vector3(-1.32f, 0.58f, -0.55f);
-    [SerializeField] private float gateGlyphHeight = 0.46f;
+    // 卡点纹样:跟着漂浮素材一起从远处飘来,到卡点【停在玩家面前】不再前进也不淡出,
+    // 同时下方出现提示面板;玩家点它 → 进绘制 → 纹样和提示一起消失 → 继续走,直到下一个飘来。
+    // gateGlyphPosition 是它停下来的位置(玩家面前偏左上),觉得远/近/偏就调这个。
+    [SerializeField] private Vector3 gateGlyphPosition = new Vector3(-0.62f, 0.34f, -0.50f);
+    [SerializeField] private float gateGlyphHeight = 0.52f;
+    [SerializeField] private float gateGlyphLeadIn = 5.0f;   // 提前多久开始飘来(走位单位)
     [SerializeField] private float gateGlyphHitPadding = 0.16f;   // 点击判定比图形稍放宽,VR 里好点
 
     // 需求第 3 条「加入补充的箭头,字幕等美术素材」。素材来自 docs/漓江9.1改/第二关卡/,
@@ -80,7 +82,7 @@ public class IntroStageController : MonoBehaviour
     [SerializeField] private bool showGateHintArt = true;
     [SerializeField] private Vector3 gateArrowOffset = new Vector3(0.42f, -0.30f, 0.01f); // 相对纹样的偏移
     [SerializeField] private float gateArrowHeight = 0.34f;
-    [SerializeField] private Vector3 gateBubblePosition = new Vector3(0f, -0.78f, -0.52f);
+    [SerializeField] private Vector3 gateBubblePosition = new Vector3(0f, -0.60f, -0.52f);
     [SerializeField] private float gateBubbleWidth = 2.30f;
 
     private float introWalkTimer;
@@ -96,7 +98,6 @@ public class IntroStageController : MonoBehaviour
     private bool tracing;                             // 正在描绘:行进段暂停
 
     // 卡点上的浮动纹样:等玩家点它才进描绘
-    private GameObject gateGlyph;
     private readonly List<GameObject> gateGlyphObjects = new List<GameObject>();
     private readonly List<LijiangEchoStageKit.MotionItem> gateGlyphMotions = new List<LijiangEchoStageKit.MotionItem>();
     private bool awaitingGlyphClick;
@@ -147,7 +148,7 @@ public class IntroStageController : MonoBehaviour
         {
             if (awaitingGlyphClick)
             {
-                UpdateGateGlyph();   // 停在卡点,纹样浮在左上角等着被点
+                UpdateGateGlyph();   // 停在卡点,纹样已飘到面前,等着被点
                 return;
             }
 
@@ -175,7 +176,7 @@ public class IntroStageController : MonoBehaviour
             {
                 if (traceIndex < traceGates.Length)
                 {
-                    ShowGateGlyph();              // 到卡点 → 左上角浮现纹样,等点击(不直接弹描绘台)
+                    ShowGateGlyph();              // 到卡点 → 纹样停住 + 提示面板出现,等点击
                 }
                 else
                 {
@@ -302,7 +303,7 @@ public class IntroStageController : MonoBehaviour
         }
 
         gateGlyphObjects.Clear();
-        gateGlyph = null;
+
     }
 
     // 点了纹样 → 拉起这一次绘制。行进画面收起,手柄射线交给描绘模块。
@@ -532,6 +533,7 @@ public class IntroStageController : MonoBehaviour
             EndTime = endTime,
             TargetAlpha = alpha,
             FloatPhase = spatialIndex * 0.73f,
+            GateIndex = -1,
             StartRotation = new Vector3(0f, -direction * 3f, -direction * 2f),
             EndRotation = new Vector3(0f, direction * 18f, direction * (10f + spatialIndex % 3 * 4f))
         });
