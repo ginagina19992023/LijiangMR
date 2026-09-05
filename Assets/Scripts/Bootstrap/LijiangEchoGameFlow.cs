@@ -25,6 +25,9 @@ public class LijiangEchoGameFlow : MonoBehaviour
     private AudioSource ambienceSource;
     private AudioSource sfxSource;
 
+    private bool transitioning;    // 正在切场景:期间来的请求排队,不并发(见 RequestStage)
+    private string pendingStage;   // 切换中收到的最后一次请求
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -110,7 +113,7 @@ public class LijiangEchoGameFlow : MonoBehaviour
     /// <summary>卸载当前阶段场景并加载下一个阶段场景（新拆分出的场景之间跳转）。</summary>
     public void GoToStage(string sceneName)
     {
-        StartCoroutine(GoToStageRoutine(sceneName));
+        RequestStage(sceneName);
     }
 
     /// <summary>选关确认后，桥接进入尚未拆分的旧版流程（从过场动画开始）。</summary>
@@ -118,14 +121,51 @@ public class LijiangEchoGameFlow : MonoBehaviour
     {
         SelectedLevel = selectedLevel;
         LijiangEchoGameController.ExternalSelectedLevel = selectedLevel;
-        StartCoroutine(GoToStageRoutine(LegacyMainScene));
+        RequestStage(LegacyMainScene);
+    }
+
+    /// <summary>
+    /// 场景切换必须【串行】。以前 GoToStage/EnterLegacyFlow 直接各起一个协程,而
+    /// currentStageScene 只在协程最后一行才更新 —— 两次切换一重叠就会:
+    /// A 卸掉当前场景、正在加载目标场景时,B 读到的 currentStageScene 已经是"已卸载"状态,
+    /// 于是 B 跳过卸载直接加载,最后两个场景同时留在内存里(上一个场景叠在新场景下面)。
+    /// 暂停菜单能在任意时刻发起切换,让这个隐患变得很容易撞上。
+    ///
+    /// 现在:切换中再来的请求只记下【最后一次】,等当前这次切完再执行。
+    /// </summary>
+    private void RequestStage(string sceneName)
+    {
+        if (transitioning)
+        {
+            pendingStage = sceneName;
+            return;
+        }
+
+        StartCoroutine(RunStageTransitions(sceneName));
+    }
+
+    private IEnumerator RunStageTransitions(string firstScene)
+    {
+        transitioning = true;
+
+        string target = firstScene;
+        while (!string.IsNullOrEmpty(target))
+        {
+            yield return GoToStageRoutine(target);
+            target = pendingStage;
+            pendingStage = null;
+        }
+
+        transitioning = false;
     }
 
     private IEnumerator GoToStageRoutine(string sceneName)
     {
         if (currentStageScene.IsValid() && currentStageScene.isLoaded)
         {
-            yield return SceneManager.UnloadSceneAsync(currentStageScene);
+            Scene unloading = currentStageScene;
+            currentStageScene = default;   // 先清空句柄:卸载期间别让任何人以为"当前还有场景"
+            yield return SceneManager.UnloadSceneAsync(unloading);
         }
 
         AsyncOperation load = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
