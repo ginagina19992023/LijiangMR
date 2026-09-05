@@ -54,6 +54,8 @@ public class LijiangEchoPauseMenu : MonoBehaviour
     // 菜单一打开四个图标被放大 1.67 倍,挤成一团,手调过的视觉居中偏移也跟着被放大。
     private readonly List<Vector3> iconBaseScales = new List<Vector3>();
     private readonly List<Color> iconBaseColors = new List<Color>();
+    private readonly List<Vector3> iconBasePositions = new List<Vector3>();
+    private readonly List<Vector2> iconContentOffsets = new List<Vector2>();   // 可见内容相对自身原点的偏移
 
     private bool open;
     private bool muted;
@@ -208,8 +210,11 @@ public class LijiangEchoPauseMenu : MonoBehaviour
         hitRects.Clear();
         iconBaseScales.Clear();
         iconBaseColors.Clear();
+        iconBasePositions.Clear();
+        iconContentOffsets.Clear();
 
-        // 先取各图标在菜单局部坐标下的中心。
+        // 取各图标【可见内容】在菜单局部坐标下的中心 —— 不是 transform、也不是 bounds,
+        // 那两个给的是贴图物理中心,和眼睛看到的位置差着留白那一截。
         int count = iconRenderers.Count;
         Vector3[] centers = new Vector3[count];
         bool[] valid = new bool[count];
@@ -218,12 +223,19 @@ public class LijiangEchoPauseMenu : MonoBehaviour
             SpriteRenderer renderer = iconRenderers[i];
             iconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
             iconBaseColors.Add(renderer != null ? renderer.color : Color.white);
+            iconBasePositions.Add(renderer != null ? renderer.transform.localPosition : Vector3.zero);
 
+            Vector2 contentOffset = Vector2.zero;
             valid[i] = renderer != null;
             if (valid[i])
             {
-                centers[i] = menuRoot.InverseTransformPoint(renderer.bounds.center);
+                Vector3 visible = LijiangEchoStageKit.GetSpriteVisibleCenter(renderer.sprite);
+                contentOffset = new Vector2(visible.x, visible.y);
+                Vector3 worldContent = renderer.transform.TransformPoint(visible);
+                centers[i] = menuRoot.InverseTransformPoint(worldContent);
             }
+
+            iconContentOffsets.Add(contentOffset);
         }
 
         for (int i = 0; i < count; i++)
@@ -366,8 +378,20 @@ public class LijiangEchoPauseMenu : MonoBehaviour
             bool on = i == hover;
             Vector3 baseScale = i < iconBaseScales.Count ? iconBaseScales[i] : Vector3.one;
             Color baseColor = i < iconBaseColors.Count ? iconBaseColors[i] : Color.white;
+            Vector3 basePosition = i < iconBasePositions.Count ? iconBasePositions[i] : renderer.transform.localPosition;
+            Vector2 contentOffset = i < iconContentOffsets.Count ? iconContentOffsets[i] : Vector2.zero;
 
-            renderer.transform.localScale = baseScale * (on ? 1.18f : 1f);
+            float k = on ? 1.18f : 1f;
+            renderer.transform.localScale = baseScale * k;
+
+            // 缩放要绕【可见内容中心】,不能绕自身原点:内容不居中时绕原点放大会把图标甩向一边,
+            // 看起来就像判定点和图标对不上。补偿量 = 内容偏移 × 基础缩放 × (k-1)。
+            Vector3 compensation = new Vector3(
+                contentOffset.x * baseScale.x,
+                contentOffset.y * baseScale.y,
+                0f) * (k - 1f);
+            renderer.transform.localPosition = basePosition - compensation;
+
             float dim = on ? 1f : 0.82f;
             renderer.color = new Color(baseColor.r * dim, baseColor.g * dim, baseColor.b * dim, baseColor.a);
         }

@@ -237,6 +237,8 @@ public class LijiangEchoGameController : MonoBehaviour
     // 手调过的视觉居中偏移也跟着被放大。
     private readonly List<Vector3> menuIconBaseScales = new List<Vector3>();
     private readonly List<Color> menuIconBaseColors = new List<Color>();
+    private readonly List<Vector3> menuIconBasePositions = new List<Vector3>();
+    private readonly List<Vector2> menuIconContentOffsets = new List<Vector2>();   // 可见内容相对自身原点的偏移
     private const float MenuHitHalfXMin = 0.18f;    // 判定半宽下限:按钮挨得再近也还点得到
     private const float MenuHitHalfXMax = 0.60f;    // 上限:按钮拉得再开,也别宽到吃掉隔壁
     private const float MenuHitHalfY = 0.34f;       // 纵向半高(图标那一行)
@@ -4342,7 +4344,11 @@ public class LijiangEchoGameController : MonoBehaviour
         menuButtonHitRects.Clear();
         menuIconBaseScales.Clear();
         menuIconBaseColors.Clear();
+        menuIconBasePositions.Clear();
+        menuIconContentOffsets.Clear();
 
+        // 取各图标【可见内容】的中心 —— 不是 transform、也不是 bounds,
+        // 那两个给的是贴图物理中心,和眼睛看到的位置差着留白那一截。
         int count = menuIconRenderers.Count;
         Vector3[] centers = new Vector3[count];
         bool[] valid = new bool[count];
@@ -4351,12 +4357,23 @@ public class LijiangEchoGameController : MonoBehaviour
             SpriteRenderer renderer = menuIconRenderers[i];
             menuIconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
             menuIconBaseColors.Add(renderer != null ? renderer.color : Color.white);
+            menuIconBasePositions.Add(renderer != null ? renderer.transform.localPosition : Vector3.zero);
 
+            Vector2 contentOffset = Vector2.zero;
             valid[i] = renderer != null;
             if (valid[i])
             {
-                centers[i] = stageRoot.InverseTransformPoint(renderer.bounds.center);
+                // 走 StageKit 的版本:它先用 Tight 网格顶点(不要求贴图可读),再退到像素质心。
+                // 本类自己那个 GetSpriteVisibleCenter 只有像素质心一条路,而 UI 图标 isReadable=0,
+                // 对它们会直接落回 bounds.center —— 也就是回到「拿物理中心当触发点」这个 bug。
+                // (那个方法留给音符继续用,行为不动。)
+                Vector3 visible = LijiangEchoStageKit.GetSpriteVisibleCenter(renderer.sprite);
+                contentOffset = new Vector2(visible.x, visible.y);
+                Vector3 worldContent = renderer.transform.TransformPoint(visible);
+                centers[i] = stageRoot.InverseTransformPoint(worldContent);
             }
+
+            menuIconContentOffsets.Add(contentOffset);
         }
 
         for (int i = 0; i < count; i++)
@@ -4532,8 +4549,19 @@ public class LijiangEchoGameController : MonoBehaviour
             bool on = i == hover;
             Vector3 baseScale = i < menuIconBaseScales.Count ? menuIconBaseScales[i] : Vector3.one;
             Color baseColor = i < menuIconBaseColors.Count ? menuIconBaseColors[i] : Color.white;
+            Vector3 basePosition = i < menuIconBasePositions.Count ? menuIconBasePositions[i] : renderer.transform.localPosition;
+            Vector2 contentOffset = i < menuIconContentOffsets.Count ? menuIconContentOffsets[i] : Vector2.zero;
 
-            renderer.transform.localScale = baseScale * (on ? 1.18f : 1f);
+            float k = on ? 1.18f : 1f;
+            renderer.transform.localScale = baseScale * k;
+
+            // 缩放绕【可见内容中心】而不是自身原点:内容不居中时绕原点放大会把图标甩向一边。
+            Vector3 compensation = new Vector3(
+                contentOffset.x * baseScale.x,
+                contentOffset.y * baseScale.y,
+                0f) * (k - 1f);
+            renderer.transform.localPosition = basePosition - compensation;
+
             float dim = on ? 1f : 0.82f;
             renderer.color = new Color(baseColor.r * dim, baseColor.g * dim, baseColor.b * dim, baseColor.a);
         }

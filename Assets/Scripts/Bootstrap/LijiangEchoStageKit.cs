@@ -920,6 +920,104 @@ public static class LijiangEchoStageKit
         renderer.transform.localScale = Vector3.one * scale;
     }
 
+    private static readonly Dictionary<Sprite, Vector3> visibleCenterCache = new Dictionary<Sprite, Vector3>();
+
+    /// <summary>取 Sprite【不透明像素真实中心】相对自身原点(pivot)的局部偏移。
+    ///
+    /// 为什么不能用 sprite.bounds.center 或 transform.position:
+    /// FullRect 精灵的 bounds.center 恒为 0(= pivot 几何中心),完全反映不出内容偏心;
+    /// 而这些图标贴图内容不居中、四周留白很多,物理中心和眼睛看到的中心差很远。
+    /// 拿物理中心做点击判定或缩放轴心,就会出现「看到的排布」和「能点的排布」对不上。
+    /// (LijiangEchoGameController.GetSpriteVisibleCenter 是同一套逻辑,那边为音符踩过同一个坑。)
+    ///
+    /// 贴图未开 Read/Write 时 GetPixels32 会抛异常,回退到 bounds.center —— 不会比原来更差。
+    /// 结果按精灵缓存,每张只算一次。</summary>
+    public static Vector3 GetSpriteVisibleCenter(Sprite sprite)
+    {
+        if (sprite == null)
+        {
+            return Vector3.zero;
+        }
+
+        if (visibleCenterCache.TryGetValue(sprite, out Vector3 cached))
+        {
+            return cached;
+        }
+
+        Vector3 result = sprite.bounds.center;   // 最后的回退值
+
+        // ① 首选 Tight 网格顶点:它就是不透明区域的轮廓,而且【不要求贴图可读】。
+        // 本项目的 UI 图标全是 spriteMeshType: 1(Tight) 且 isReadable: 0,
+        // 所以只有这条路走得通 —— 下面的像素质心对它们会直接抛异常。
+        Vector2[] vertices = sprite.vertices;
+        if (vertices != null && vertices.Length > 0)
+        {
+            Vector2 min = vertices[0];
+            Vector2 max = vertices[0];
+            for (int i = 1; i < vertices.Length; i++)
+            {
+                min = Vector2.Min(min, vertices[i]);
+                max = Vector2.Max(max, vertices[i]);
+            }
+
+            result = (Vector3)((min + max) * 0.5f);
+            visibleCenterCache[sprite] = result;
+            return result;
+        }
+
+        // ② 退而求其次:按 alpha 加权采像素质心(需要贴图开 Read/Write)。
+        try
+        {
+            Texture2D texture = sprite.texture;
+            Rect tr = sprite.textureRect;
+            int rx = Mathf.Clamp(Mathf.RoundToInt(tr.x), 0, texture.width - 1);
+            int ry = Mathf.Clamp(Mathf.RoundToInt(tr.y), 0, texture.height - 1);
+            int rw = Mathf.Clamp(Mathf.RoundToInt(tr.width), 1, texture.width - rx);
+            int rh = Mathf.Clamp(Mathf.RoundToInt(tr.height), 1, texture.height - ry);
+
+            Color32[] pixels = texture.GetPixels32();
+            double sumX = 0d;
+            double sumY = 0d;
+            double sumA = 0d;
+            for (int y = 0; y < rh; y++)
+            {
+                int row = (ry + y) * texture.width;
+                for (int x = 0; x < rw; x++)
+                {
+                    byte a = pixels[row + rx + x].a;
+                    if (a == 0)
+                    {
+                        continue;
+                    }
+
+                    sumX += (x + 0.5d) * a;
+                    sumY += (y + 0.5d) * a;
+                    sumA += a;
+                }
+            }
+
+            if (sumA > 0d)
+            {
+                // 质心(像素) → 相对 pivot 的局部单位偏移。
+                float cx = (float)(sumX / sumA);
+                float cy = (float)(sumY / sumA);
+                float pivotX = sprite.pivot.x;
+                float pivotY = sprite.pivot.y;
+                result = new Vector3(
+                    (cx - pivotX) / sprite.pixelsPerUnit,
+                    (cy - pivotY) / sprite.pixelsPerUnit,
+                    0f);
+            }
+        }
+        catch (UnityException)
+        {
+            // 贴图没开 Read/Write:保留 bounds.center 回退值。
+        }
+
+        visibleCenterCache[sprite] = result;
+        return result;
+    }
+
     private static void PlaceVisibleCenter(Transform itemTransform, SpriteRenderer renderer, Vector3 targetCenter)
     {
         if (renderer == null || renderer.sprite == null)
