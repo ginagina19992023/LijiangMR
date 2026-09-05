@@ -237,8 +237,10 @@ public class LijiangEchoGameController : MonoBehaviour
     // 手调过的视觉居中偏移也跟着被放大。
     private readonly List<Vector3> menuIconBaseScales = new List<Vector3>();
     private readonly List<Color> menuIconBaseColors = new List<Color>();
-    private const float MenuHitPadX = 0.14f;        // 横向再放宽一点,VR 里好点
-    private const float MenuHitExtendDown = 0.42f;  // 向下延伸罩住图标底下的文字标签
+    private const float MenuHitHalfXMin = 0.18f;    // 判定半宽下限:按钮挨得再近也还点得到
+    private const float MenuHitHalfXMax = 0.60f;    // 上限:按钮拉得再开,也别宽到吃掉隔壁
+    private const float MenuHitHalfY = 0.34f;       // 纵向半高(图标那一行)
+    private const float MenuHitExtendDown = 0.42f;  // 再向下延伸罩住图标底下的文字标签
     private int menuHoverIndex = -1;
     private bool menuClickArmed;  // 按下后一直"待命",直到真的点到按钮或松手才作废(防止边缘帧丢点击)
 
@@ -4341,28 +4343,50 @@ public class LijiangEchoGameController : MonoBehaviour
         menuIconBaseScales.Clear();
         menuIconBaseColors.Clear();
 
-        for (int i = 0; i < menuIconRenderers.Count; i++)
+        int count = menuIconRenderers.Count;
+        Vector3[] centers = new Vector3[count];
+        bool[] valid = new bool[count];
+        for (int i = 0; i < count; i++)
         {
             SpriteRenderer renderer = menuIconRenderers[i];
             menuIconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
             menuIconBaseColors.Add(renderer != null ? renderer.color : Color.white);
 
-            if (renderer == null)
+            valid[i] = renderer != null;
+            if (valid[i])
+            {
+                centers[i] = stageRoot.InverseTransformPoint(renderer.bounds.center);
+            }
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!valid[i])
             {
                 menuButtonHitRects.Add(new Rect(0f, 0f, 0f, 0f));   // 占位,保持下标与按钮一一对应
                 continue;
             }
 
-            Vector3 center = stageRoot.InverseTransformPoint(renderer.bounds.center);
-            Vector3 extents = stageRoot.InverseTransformVector(renderer.bounds.extents);
-            float halfX = Mathf.Abs(extents.x) + MenuHitPadX;
-            float halfY = Mathf.Abs(extents.y);
+            // 宽度由到最近邻居的一半距离决定,不用 renderer.bounds ——
+            // 图标贴图四周带大片透明留白,bounds 一撑开主页那个框就盖住整排,点哪儿都是主页。
+            float nearest = float.MaxValue;
+            for (int j = 0; j < count; j++)
+            {
+                if (j != i && valid[j])
+                {
+                    nearest = Mathf.Min(nearest, Mathf.Abs(centers[j].x - centers[i].x));
+                }
+            }
+
+            float halfX = nearest >= float.MaxValue
+                ? MenuHitHalfXMax
+                : Mathf.Clamp(nearest * 0.5f - 0.02f, MenuHitHalfXMin, MenuHitHalfXMax);
 
             menuButtonHitRects.Add(new Rect(
-                center.x - halfX,
-                center.y - halfY - MenuHitExtendDown,
+                centers[i].x - halfX,
+                centers[i].y - MenuHitHalfY - MenuHitExtendDown,
                 halfX * 2f,
-                halfY * 2f + MenuHitExtendDown));
+                MenuHitHalfY * 2f + MenuHitExtendDown));
         }
     }
 
@@ -4457,19 +4481,31 @@ public class LijiangEchoGameController : MonoBehaviour
 
     /// <summary>射线落点命中哪个按钮(-1 = 没命中)。判定区读 MenuButtons 同一张表,
     /// 并且纵向同时罩住图标和它下面的文字标签 —— 原来只罩图标,瞄着文字点是点不到的。</summary>
+    /// <summary>命中取【中心最近的】那个,不是第一个匹配到的。
+    /// 万一判定框还有重叠,也不会像以前那样一律落到下标 0(主页)。</summary>
     private int HitMenuButton(Vector3 localPoint)
     {
         Vector2 point = new Vector2(localPoint.x, localPoint.y);
+        int best = -1;
+        float bestDistance = float.MaxValue;
+
         for (int i = 0; i < menuButtonHitRects.Count; i++)
         {
             Rect rect = menuButtonHitRects[i];
-            if (rect.width > 0f && rect.Contains(point))
+            if (rect.width <= 0f || !rect.Contains(point))
             {
-                return i;
+                continue;
+            }
+
+            float distance = Mathf.Abs(point.x - rect.center.x);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
             }
         }
 
-        return -1;
+        return best;
     }
 
     /// <summary>悬停高亮:指着的那个放大并提亮。没有这个反馈,玩家分不清"没点到"还是"功能坏了"。</summary>

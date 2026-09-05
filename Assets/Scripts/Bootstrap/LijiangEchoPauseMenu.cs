@@ -24,8 +24,10 @@ public class LijiangEchoPauseMenu : MonoBehaviour
     private const float IconSize = 0.58f;
     private const float IconY = 0.12f;
     private const float LabelY = -0.34f;
-    private const float HitPadX = 0.14f;         // 横向放宽,VR 里好点
-    private const float HitExtendDown = 0.42f;   // 向下延伸罩住图标底下的文字标签
+    private const float HitHalfXMin = 0.18f;     // 判定半宽下限:按钮挨得再近也还点得到
+    private const float HitHalfXMax = 0.60f;     // 上限:按钮拉得再开,也别宽到吃掉隔壁
+    private const float HitHalfY = 0.34f;        // 纵向半高(图标那一行)
+    private const float HitExtendDown = 0.42f;   // 再向下延伸罩住图标底下的文字标签
 
     private struct ButtonSpec
     {
@@ -192,7 +194,14 @@ public class LijiangEchoPauseMenu : MonoBehaviour
         }
     }
 
-    /// <summary>判定区按图标实际所在位置和包围盒算,所以 Prefab 里怎么摆就点哪。
+    /// <summary>判定区按图标【实际所在位置】算,但宽度由【相邻按钮的间距】推出来,不用包围盒。
+    ///
+    /// 为什么不用 renderer.bounds:这些图标贴图内容不居中、四周带大片透明留白,
+    /// bounds 包含全部留白,一撑开主页那个框就能盖住整排按钮 ——
+    /// 而命中取第一个匹配,结果就是「点哪儿都回主页」。
+    /// 改成按间距推宽度:每个框最多伸到与相邻按钮的中点,结构上不可能重叠,
+    /// 而且 Prefab 里你把按钮拉多开,判定区就跟着多宽。
+    ///
     /// 顺便记下作者摆好的缩放和颜色,悬停高亮只在这个基础上做增量,不覆盖。</summary>
     private void RebuildHitRects()
     {
@@ -200,28 +209,52 @@ public class LijiangEchoPauseMenu : MonoBehaviour
         iconBaseScales.Clear();
         iconBaseColors.Clear();
 
-        for (int i = 0; i < iconRenderers.Count; i++)
+        // 先取各图标在菜单局部坐标下的中心。
+        int count = iconRenderers.Count;
+        Vector3[] centers = new Vector3[count];
+        bool[] valid = new bool[count];
+        for (int i = 0; i < count; i++)
         {
             SpriteRenderer renderer = iconRenderers[i];
             iconBaseScales.Add(renderer != null ? renderer.transform.localScale : Vector3.one);
             iconBaseColors.Add(renderer != null ? renderer.color : Color.white);
 
-            if (renderer == null)
+            valid[i] = renderer != null;
+            if (valid[i])
+            {
+                centers[i] = menuRoot.InverseTransformPoint(renderer.bounds.center);
+            }
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!valid[i])
             {
                 hitRects.Add(new Rect(0f, 0f, 0f, 0f));   // 占位,保持下标对应
                 continue;
             }
 
-            Vector3 center = menuRoot.InverseTransformPoint(renderer.bounds.center);
-            Vector3 extents = menuRoot.InverseTransformVector(renderer.bounds.extents);
-            float halfX = Mathf.Abs(extents.x) + HitPadX;
-            float halfY = Mathf.Abs(extents.y);
+            // 到最近邻居的一半距离(留一点缝),再夹到合理区间。
+            float nearest = float.MaxValue;
+            for (int j = 0; j < count; j++)
+            {
+                if (j == i || !valid[j])
+                {
+                    continue;
+                }
+
+                nearest = Mathf.Min(nearest, Mathf.Abs(centers[j].x - centers[i].x));
+            }
+
+            float halfX = nearest >= float.MaxValue
+                ? HitHalfXMax
+                : Mathf.Clamp(nearest * 0.5f - 0.02f, HitHalfXMin, HitHalfXMax);
 
             hitRects.Add(new Rect(
-                center.x - halfX,
-                center.y - halfY - HitExtendDown,
+                centers[i].x - halfX,
+                centers[i].y - HitHalfY - HitExtendDown,
                 halfX * 2f,
-                halfY * 2f + HitExtendDown));
+                HitHalfY * 2f + HitExtendDown));
         }
     }
 
@@ -283,18 +316,31 @@ public class LijiangEchoPauseMenu : MonoBehaviour
         }
     }
 
+    /// <summary>命中取【中心最近的】那个,不是第一个匹配到的。
+    /// 万一判定框还有重叠,也不会像以前那样一律落到下标 0(主页)。</summary>
     private int HitButton(Vector3 localPoint)
     {
         Vector2 p = new Vector2(localPoint.x, localPoint.y);
+        int best = -1;
+        float bestDistance = float.MaxValue;
+
         for (int i = 0; i < hitRects.Count; i++)
         {
-            if (hitRects[i].width > 0f && hitRects[i].Contains(p))
+            Rect rect = hitRects[i];
+            if (rect.width <= 0f || !rect.Contains(p))
             {
-                return i;
+                continue;
+            }
+
+            float distance = Mathf.Abs(p.x - rect.center.x);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
             }
         }
 
-        return -1;
+        return best;
     }
 
     private void UpdateHoverVisual(int hover)
