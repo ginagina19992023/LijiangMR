@@ -2026,16 +2026,24 @@ public class LijiangEchoGameController : MonoBehaviour
         bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
                         (!leftControllerTracked && rightControllerTracked);
         Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = useRight ? rightControllerTracked : leftControllerTracked;
         drawing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.35f;
 
-        if (controller != null && TryProjectControllerRay(controller, out localPoint))
+        // 同 GetMenuPointer:必须先判 tracked,否则 PC 上会拿没在跟踪的手柄锚点发射线,
+        // 鼠标兜底永远走不到。
+        if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
         {
             return true;
         }
 
-        if (Mouse.current != null && cameraAnchor != null)
+        if (Mouse.current != null)
         {
-            Camera cameraComponent = cameraAnchor.GetComponent<Camera>();
+            Camera cameraComponent = cameraAnchor != null ? cameraAnchor.GetComponent<Camera>() : null;
+            if (cameraComponent == null)
+            {
+                cameraComponent = LijiangEchoStageKit.FindGameplayCamera();
+            }
+
             if (cameraComponent != null)
             {
                 Ray mouseRay = cameraComponent.ScreenPointToRay(Mouse.current.position.ReadValue());
@@ -4574,14 +4582,25 @@ public class LijiangEchoGameController : MonoBehaviour
         bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
                         (!leftControllerTracked && rightControllerTracked);
         Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
-        if (controller != null && TryProjectControllerRay(controller, out localPoint))
+        bool tracked = useRight ? rightControllerTracked : leftControllerTracked;
+
+        // 必须先判 tracked。CacheControllerAnchors 是按名字找 "LeftControllerAnchor"/"RightControllerAnchor",
+        // PC 上没接手柄时这两个物件【依然存在】,只是没在跟踪 —— 原来只判 controller != null,
+        // 就会拿一个静止在默认位置的"手柄"发射线并 return true,鼠标那条分支永远走不到:
+        // 指针不跟鼠标动,于是菜单既没有悬停高亮、点了也没反应。
+        if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
         {
             return true;
         }
 
-        if (Mouse.current != null && cameraAnchor != null)
+        if (Mouse.current != null)
         {
-            Camera cam = cameraAnchor.GetComponent<Camera>();
+            Camera cam = cameraAnchor != null ? cameraAnchor.GetComponent<Camera>() : null;
+            if (cam == null)
+            {
+                cam = LijiangEchoStageKit.FindGameplayCamera();   // 兜底,别因为取不到相机就整个失效
+            }
+
             if (cam != null)
             {
                 Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
