@@ -1,6 +1,6 @@
 # 漓江回声 · 本批验收指南(手部真资产 / 远山 / 鱼纹 / 谱面预览窗口)
 
-> 分支 **`battle-visual-hands`**(本批新改都在这)。先 `git checkout battle-visual-hands` → `git pull` → 等编译 → Console 无红报错。
+> 开发分支 **`battle-visual-hands`**(本批新改都在这);队友验收跑测请用 **`main`**。先 `git checkout battle-visual-hands` → `git pull` → 等编译 → Console 无红报错。
 > LFS:手部真图是 `7左手/7右手`,你本机装了 git-lfs 会自动还原真图(检查文件不是 131 字节)。
 > 战斗/过场用 **`漓江回声→调试`** 菜单一键进。
 
