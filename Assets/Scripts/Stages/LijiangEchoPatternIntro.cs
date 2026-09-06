@@ -1136,16 +1136,58 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         pivot.transform.localPosition = Vector3.zero;
         spawned.Add(pivot);
 
-        // AddIcon 会把 localPosition 设成 -可见中心偏移,使可见内容正好落在 0。
-        // 用 worldPositionStays:false 换父级,这个偏移原样保留,于是相对支点也是居中的。
         GameObject icon = LijiangEchoStageKit.AddIcon(
             root, spawned, art, objectName + "_图", Vector3.zero, targetHeight, order, 0f);
         if (icon != null)
         {
             icon.transform.SetParent(pivot.transform, false);
+            CenterVisibleContent(icon.transform, art);
         }
 
         return pivot.transform;
+    }
+
+    /// <summary>把贴图挪一下,让【图案本身】落在支点上,而不是让贴图的物理中心落在支点上。
+    ///
+    /// 为什么 AddIcon 自带的 PlaceVisibleCenter 不管用:它取的是 sprite.bounds.center,
+    /// 而 StageKit 是用 Resources.Load&lt;Texture2D&gt; + Sprite.Create(..., Tight) 现造的 sprite。
+    /// 这几张贴图 isReadable 都是 0 —— 没有读权限,Tight 网格根本生成不出来,只能退化成
+    /// 整张矩形,于是 bounds.center 恒等于 0,那句补偿等于没做。
+    ///
+    /// 办法:改去读【导入时就烘好的】那张 sprite(Resources.Load&lt;Sprite&gt;)。它的 Tight
+    /// 网格是在导入阶段生成的,不需要读权限,GetSpriteVisibleCenter 走顶点那条路就能拿到
+    /// 真正的可见中心。取成相对整图的比例,再换算到运行时这张图的实际大小上,和分辨率无关。
+    ///
+    /// ⚠️ 只在这套入场动画里这么做。StageKit 的 PlaceVisibleCenter 全工程都在用,
+    /// 而其它界面(比如暂停菜单的图标)是在它「不生效」的前提下手调过位置的,
+    /// 去动那边会把已经摆好的东西全推歪。</summary>
+    private static void CenterVisibleContent(Transform icon, string art)
+    {
+        SpriteRenderer renderer = icon.GetComponent<SpriteRenderer>();
+        if (renderer == null || renderer.sprite == null)
+        {
+            return;
+        }
+
+        Sprite imported = Resources.Load<Sprite>(LijiangEchoStageKit.ArtRoot + art);
+        if (imported == null || imported.pixelsPerUnit <= 0f)
+        {
+            return;
+        }
+
+        Vector2 fullSize = imported.rect.size / imported.pixelsPerUnit;
+        if (fullSize.x <= 0.0001f || fullSize.y <= 0.0001f)
+        {
+            return;
+        }
+
+        // 可见中心相对整图中心的偏移,化成 -0.5~0.5 的比例
+        Vector3 center = LijiangEchoStageKit.GetSpriteVisibleCenter(imported);
+        Vector2 fraction = new Vector2(center.x / fullSize.x, center.y / fullSize.y);
+
+        // 换算到运行时这张图缩放后的实际尺寸,再反向挪过去
+        Vector3 localSize = Vector3.Scale(renderer.sprite.bounds.size, icon.localScale);
+        icon.localPosition = new Vector3(-fraction.x * localSize.x, -fraction.y * localSize.y, 0f);
     }
 
     /// <summary>同上,但只取贴图的一块(蛇切关节用)。同样套支点,旋转绕自己发生。</summary>

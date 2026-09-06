@@ -1,4 +1,6 @@
 using Meta.XR.MRUtilityKit;
+using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,18 +20,33 @@ public static class LijiangEchoScanSceneSetup
     [MenuItem(Root + "一键搭好当前场景(Play 即可跑)", false, 0)]
     private static void SetupScene()
     {
-        EnsureCameraRig();
-        EnsureMruk();
+        bool rigAdded = EnsureCameraRig();
+        bool mrukAdded = EnsureMruk();
         GameObject scanner = EnsureScanner();
-        ApplyBackdropToCameras();
+        int cameras = ApplyBackdropToCameras();
 
         Selection.activeGameObject = scanner;
         EditorUtility.SetDirty(scanner);
 
-        Debug.Log("[漓江回声] 扫码场景已就绪。\n"
-            + "· 直接点 Play:电脑上按 1/2/3/4 = 鱼/蛇/蛙/鸟,演出出现在相机正前方\n"
-            + "· 打包上头显:把打印的二维码放进视野即可,内容是 lijiang:fish / snake / frog / bird\n"
-            + "· 入场动画演完后按 空格 / 鼠标左键 / 手柄 A 完成打击占位");
+        // 存盘。不存的话改动只活在内存里,一切场景/重开 Unity 就白干了 ——
+        // 而且从外面看场景文件还是空的,很容易以为"这菜单没生效"。
+        Scene scene = SceneManager.GetActiveScene();
+        EditorSceneManager.MarkSceneDirty(scene);
+        bool saved = !string.IsNullOrEmpty(scene.path) && EditorSceneManager.SaveScene(scene);
+
+        string report =
+            $"· OVRCameraRig:{(rigAdded ? "已添加" : "已存在 / 未找到预制件")}\n"
+            + $"· MRUK:{(mrukAdded ? "已添加并打开二维码追踪" : "已存在")}\n"
+            + $"· 扫码脚本:{scanner.name}\n"
+            + $"· 黑底:已设到 {cameras} 台相机(纯色清屏,Alpha=0)\n"
+            + $"· 场景:{(saved ? "已保存" : "未保存 —— 记得 Ctrl+S")}";
+
+        Debug.Log("[漓江回声] 扫码场景已就绪。\n" + report
+            + "\n\n直接点 Play:电脑上按 1/2/3/4 = 鱼/蛇/蛙/鸟,演出出现在相机正前方。"
+            + "\n打包上头显:把打印的二维码放进视野即可(lijiang:fish / snake / frog / bird)。"
+            + "\n入场动画演完后按 空格 / 鼠标左键 / 手柄 A 完成打击占位。");
+
+        EditorUtility.DisplayDialog("漓江回声 · 扫码场景已就绪", report + "\n\n可以直接点 Play 了。", "好");
     }
 
     /// <summary>给场景里的相机铺上黑底(纯色清屏 + Alpha 0)。
@@ -37,8 +54,9 @@ public static class LijiangEchoScanSceneSetup
     /// 电脑上看得见 —— 纹样在黑底上才看得清;头显上看不见 —— Passthrough 按 Alpha
     /// 合成,0 就是"这里全给真实世界"。和其他场景、和 LijiangEchoMrValidation 的
     /// 要求都是同一套设置。存进场景,Play 之前在 Game 视图里就已经是黑的。</summary>
-    private static void ApplyBackdropToCameras()
+    private static int ApplyBackdropToCameras()
     {
+        int touched = 0;
         Camera[] cameras = Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
         foreach (Camera cam in cameras)
         {
@@ -51,15 +69,18 @@ public static class LijiangEchoScanSceneSetup
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.04f, 0.03f, 0.055f, 0f);
             EditorUtility.SetDirty(cam);
+            touched++;
         }
+
+        return touched;
     }
 
     /// <summary>MRUK 的 Awake 里会硬性检查 OVRCameraRig,没有就直接报错。</summary>
-    private static void EnsureCameraRig()
+    private static bool EnsureCameraRig()
     {
         if (Object.FindFirstObjectByType<OVRCameraRig>() != null)
         {
-            return;
+            return false;
         }
 
         GameObject prefab = FindPrefab("OVRCameraRig");
@@ -69,19 +90,20 @@ public static class LijiangEchoScanSceneSetup
             rig.name = "OVRCameraRig";
             Undo.RegisterCreatedObjectUndo(rig, "添加 OVRCameraRig");
             RemovePlainMainCamera();
-            return;
+            return true;
         }
 
         Debug.LogWarning("[漓江回声] 没找到 OVRCameraRig 预制件。\n"
             + "请用 Meta / Tools / Building Blocks / Camera Rig 手动加一个 —— MRUK 依赖它。\n"
             + "(只在电脑上按 1/2/3/4 跑测的话,不加也能看动画,只是真扫码用不了。)");
+        return false;
     }
 
-    private static void EnsureMruk()
+    private static bool EnsureMruk()
     {
         if (Object.FindFirstObjectByType<MRUK>() != null)
         {
-            return;
+            return false;
         }
 
         GameObject prefab = FindPrefab("MRUK");
@@ -110,6 +132,8 @@ public static class LijiangEchoScanSceneSetup
             config.QRCodeTrackingEnabled = true;
             component.SceneSettings.TrackerConfiguration = config;
         }
+
+        return true;
     }
 
     private static GameObject EnsureScanner()
