@@ -933,9 +933,9 @@ MonoBehaviour:
   simulateWithKeyboard: 1
   simulateDistance: 1.2
   showStatusText: 1
-  statusTextSize: 0.022
-  statusTextDrop: 0.55
-  statusTextDistance: 1.35
+  statusTextDropDegrees: 30
+  statusTextDistance: 1.6
+  statusTextAngularSize: 6
   useBlackBackdrop: 1
   backdropColor: {r: 0.04, g: 0.03, b: 0.055, a: 0}
 --- !u!4 &2091088252
@@ -977,7 +977,9 @@ MonoBehaviour:
   twoHandSyncWindow: 0.35
   ringSize: 1.97
   spawnDistanceRatio: 2
-  hintTextRatio: 0.08
+  hintTextRatio: 0.022
+  nameTextOffsetRatio: 1.6
+  judgeTextOffsetRatio: 1.3
   noteSizeRatio: 0.55
 --- !u!114 &2091088254
 MonoBehaviour:

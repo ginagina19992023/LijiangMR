@@ -89,15 +89,21 @@ public class LijiangEchoQrScan : MonoBehaviour
         + "扫码万一不灵,靠它也能把整套演出跑完。")]
     [SerializeField] private bool allowManualTrigger = true;
 
-    [Header("提示文字")]
+    [Header("提示文字(扫码检测那一行)")]
     [SerializeField] private bool showStatusText = true;
-    [SerializeField] private float statusTextSize = 0.022f;
 
-    [Tooltip("提示文字在视野里往下压多少(米)。反馈:原来挡着画面了,所以调大。")]
-    [SerializeField] private float statusTextDrop = 0.55f;
+    [Tooltip("这一行压到视野下方多少度。反馈:要放到最下面、又必须看得见。\n"
+        + "头显竖直视野的一半大约 45°,默认 30° 是「很靠下、但整行都还在画面里」的位置;"
+        + "两行字加起来也只占到 24°~36°,不会被切掉。\n"
+        + "想更靠下就调大,但别超过 36°,再往下就要碰到画面边缘了。")]
+    [SerializeField] private float statusTextDropDegrees = 30f;
 
-    [Tooltip("提示文字离玩家多远(米)。放远一点也会显得更靠边。")]
-    [SerializeField] private float statusTextDistance = 1.35f;
+    [Tooltip("这一行离玩家多远(米)。改这个不会让字变大变小 —— 下面是按视角定大小的。")]
+    [SerializeField] private float statusTextDistance = 1.6f;
+
+    [Tooltip("这一行有多大 —— 按视角算(每行多少度),所以离多远都一样大、一样好读。\n"
+        + "6° 约等于一臂距离外的大号字。调小会变秀气但也更难读。")]
+    [SerializeField] private float statusTextAngularSize = 6f;
 
     [Header("画面底色")]
     [Tooltip("给相机铺一层黑底,和其他场景一致。\n"
@@ -1007,7 +1013,19 @@ public class LijiangEchoQrScan : MonoBehaviour
         statusRoot.SetParent(transform, false);
 
         statusText = LijiangEchoStageKit.AddText(
-            statusRoot, statusSpawned, "", Vector3.zero, statusTextSize, Color.white, 60);
+            statusRoot, statusSpawned, "", Vector3.zero, CharacterSizeForAngle(), Color.white, 60);
+    }
+
+    /// <summary>把「每行占多少度」换算成 TextMesh 的 characterSize。
+    /// TextMesh 的一行高约等于 characterSize × fontSize ÷ 10,而 StageKit 里 fontSize 固定是 72,
+    /// 所以一行高 ≈ characterSize × 7.2。要它在 statusTextDistance 处正好张开
+    /// statusTextAngularSize 度,行高就得是 2 × 距离 × tan(角度 ÷ 2)。</summary>
+    private float CharacterSizeForAngle()
+    {
+        const float LineHeightPerCharacterSize = 7.2f;   // = fontSize 72 ÷ 10
+        float angle = Mathf.Clamp(statusTextAngularSize, 0.5f, 30f);
+        float lineHeight = 2f * statusTextDistance * Mathf.Tan(angle * 0.5f * Mathf.Deg2Rad);
+        return lineHeight / LineHeightPerCharacterSize;
     }
 
     private void SetStatus(string text)
@@ -1024,7 +1042,9 @@ public class LijiangEchoQrScan : MonoBehaviour
         }
     }
 
-    /// <summary>提示挂在玩家面前、始终朝向玩家 —— 它是给人看的,不该跟着二维码歪。</summary>
+    /// <summary>提示挂在玩家视野最下方、始终正对玩家 —— 它是给人看的,不该跟着二维码歪。
+    /// 放这么低是为了不跟打击那两行字(判定在光圈上方、纹样名在光圈下方)叠在一起:
+    /// 那两行钉在二维码上,一般落在视线中段,这一行则贴着画面下沿走。</summary>
     private void FaceStatusTextToPlayer()
     {
         if (statusRoot == null)
@@ -1039,9 +1059,18 @@ public class LijiangEchoQrScan : MonoBehaviour
         }
 
         Transform head = cam.transform;
-        statusRoot.position = head.position
-            + head.forward * statusTextDistance
-            + head.up * -statusTextDrop;
-        statusRoot.rotation = Quaternion.LookRotation(statusRoot.position - head.position, Vector3.up);
+
+        // 绕头的右轴往下转:方向变了、距离不变,所以字的大小也不会跟着变。
+        // 上限 36° 是画面下沿的安全线,再低整行就要被切掉了。
+        float drop = Mathf.Clamp(statusTextDropDegrees, 0f, 36f);
+        Vector3 dir = Quaternion.AngleAxis(drop, head.right) * head.forward;
+
+        statusRoot.position = head.position + dir * statusTextDistance;
+        statusRoot.rotation = Quaternion.LookRotation(statusRoot.position - head.position, head.up);
+
+        if (statusText != null)
+        {
+            statusText.characterSize = CharacterSizeForAngle();   // 在 Inspector 里现调也能立刻看到
+        }
     }
 }
