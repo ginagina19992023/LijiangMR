@@ -64,6 +64,13 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [SerializeField] private int fishPeekCount = 2;            // 在旁边探头的
     [SerializeField] private float fishLeapHeight = 0.55f;     // 跃起弧线的高度
 
+    [Tooltip("跃起时朝【相机方向】凸出多少米。0 = 老的平面弧线;越大越有\"跳到你面前再落回圈里\"的感觉。\n"
+        + "起跳点和落点都在光圈那个平面上,凸起只发生在弧线中段。")]
+    [SerializeField] private float fishLeapDepth = 0.45f;
+
+    [Tooltip("鱼凑到最近时放大到几倍。纯靠位置变化不够明显,配合放大才看得出是冲着你来的。")]
+    [SerializeField] private float fishNearScaleBoost = 1.35f;
+
     [Header("蛇:缠绕")]
     [SerializeField] private float snakeApproachRatio = 0.35f; // 前 35% 时间用来"游过来"
     [SerializeField] private float snakeCoilRadius = 0.72f;
@@ -544,7 +551,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                 Tr = fish,
                 Sr = fish.GetComponentInChildren<SpriteRenderer>(true),
                 BaseScale = 1f,
-                From = new Vector3(side * spread, -0.45f, 0.12f),   // 圈外、偏下
+                From = new Vector3(side * spread, -0.45f, 0f),      // 圈外、偏下,和光圈同一个平面
                 To = Vector3.zero,                                   // 跳进圈心
                 StartAt = 0.12f + i * 0.18f,
                 Span = 0.42f,
@@ -599,12 +606,14 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                     continue;
                 }
 
-                // 抛物线:水平匀速,竖直先上后下,落进圈心
-                Vector3 pos = LeapPoint(a.From, a.To, p, fishLeapHeight);
-                a.Tr.localPosition = pos;
+                // 抛物线:水平匀速,竖直先上后下,中段朝相机凸出来,最后落进原平面的圈心
+                a.Tr.localPosition = LeapPoint(a.From, a.To, p, fishLeapHeight, fishLeapDepth);
 
                 // 头朝抛物线的切线方向:起跳时朝上、落下时朝下,而不是一直平着
-                float s = a.BaseScale * Mathf.Lerp(1f, 0.55f, p);   // 入水时缩小,像沉进去
+                // 大小 = 入水时缩小(像沉进去) × 离得近时放大(冲着你来)
+                float s = a.BaseScale
+                    * Mathf.Lerp(1f, 0.55f, p)
+                    * Mathf.Lerp(1f, fishNearScaleBoost, NearBulge(p));
                 FaceAlong(a.Tr, LeapTangent(a.From, a.To, p, fishLeapHeight), s, fishFacingDegrees, fishMirrorWhenLeft);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(p, 3f)));
                 continue;
@@ -634,12 +643,14 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             }
             else
             {
-                // 跃入圈心
+                // 跃入圈心。探头的鱼和跃入的鱼走同一套弧线(反馈:要统一),只是幅度小一号
                 Vector3 start = a.From + new Vector3(0f, 0.18f, 0f);
                 float h = fishLeapHeight * 0.7f;
-                a.Tr.localPosition = LeapPoint(start, Vector3.zero, leave, h);
+                a.Tr.localPosition = LeapPoint(start, Vector3.zero, leave, h, fishLeapDepth * 0.7f);
 
-                float s = a.BaseScale * Mathf.Lerp(1f, 0.5f, leave);
+                float s = a.BaseScale
+                    * Mathf.Lerp(1f, 0.5f, leave)
+                    * Mathf.Lerp(1f, fishNearScaleBoost, NearBulge(leave));
                 FaceAlong(a.Tr, LeapTangent(start, Vector3.zero, leave, h), s, fishFacingDegrees, fishMirrorWhenLeft);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(leave, 3f)));
                 SetAlpha(a.Ripple, 0f);
@@ -871,6 +882,23 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         Vector3 pos = Vector3.Lerp(from, to, p);
         pos.y += Mathf.Sin(Mathf.Clamp01(p) * Mathf.PI) * height;
         return pos;
+    }
+
+    /// <summary>同上,但弧线中段还朝【相机方向】凸出来一块。
+    ///
+    /// -Z 是靠近玩家的方向(和鸟的 depth 是同一套约定:depth 越负越近、画得越大)。
+    /// 起点和终点的 z 不动,所以鱼从原平面跳起、冲到你面前、再落回原平面的圈里。</summary>
+    private static Vector3 LeapPoint(Vector3 from, Vector3 to, float p, float height, float depth)
+    {
+        Vector3 pos = LeapPoint(from, to, p, height);
+        pos.z -= NearBulge(p) * depth;
+        return pos;
+    }
+
+    /// <summary>弧线中段的凸起量,0 → 1 → 0。也用来算"离得近所以画得大"。</summary>
+    private static float NearBulge(float p)
+    {
+        return Mathf.Sin(Mathf.Clamp01(p) * Mathf.PI);
     }
 
     /// <summary>该抛物线在 p 处的切线方向(解析求导),用来让头朝着飞行方向。</summary>
