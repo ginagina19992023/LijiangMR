@@ -44,6 +44,15 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Tooltip("中心光圈的大小。")]
     [SerializeField] private float ringSize = 0.62f;
 
+    [Header("生物大小(反馈:原来太小,统一放大约 4~5 倍)")]
+    [SerializeField] private float birdSizeBig = 1.35f;      // 原 0.30
+    [SerializeField] private float birdSizeSmall = 1.00f;    // 原 0.22
+    [SerializeField] private float fishSize = 1.20f;         // 原 0.26
+    [SerializeField] private float fishPeekSize = 1.00f;     // 原 0.22
+    [SerializeField] private float snakeHeadSize = 1.35f;    // 原 0.30
+    [SerializeField] private float snakeTailSize = 0.62f;    // 原 0.14
+    [SerializeField] private float frogSize = 1.25f;         // 原 0.28
+
     [Header("鸟:盘旋")]
     [SerializeField] private int birdCount = 4;
     [SerializeField] private float birdOrbitRadius = 0.85f;
@@ -204,7 +213,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         for (int i = 0; i < birdCount; i++)
         {
             string art = i % 2 == 0 ? BirdArtBig : BirdArtSmall;
-            float size = i % 2 == 0 ? 0.30f : 0.22f;
+            float size = i % 2 == 0 ? birdSizeBig : birdSizeSmall;
             GameObject bird = LijiangEchoStageKit.AddIcon(
                 root, spawned, art, "入场鸟_" + i, Vector3.zero, size, 30 + i, 0f);
             if (bird == null)
@@ -251,13 +260,11 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             // 越远(depth 越大)越小越淡,制造纵深
             float near = Mathf.InverseLerp(birdDepthSwing, -birdDepthSwing, depth);
             float scale = a.BaseScale * Mathf.Lerp(0.7f, 1.15f, near);
-            a.Tr.localScale = Vector3.one * scale;
-            SetAlpha(a.Tr, Mathf.Lerp(0.55f, 1f, near) * FadeOutTail(t) * local);
 
-            // 朝着飞行方向翻面,不要一直朝一边
-            bool goingLeft = Mathf.Sin(angle) > 0f;
-            Vector3 s = a.Tr.localScale;
-            a.Tr.localScale = new Vector3(goingLeft ? -Mathf.Abs(s.x) : Mathf.Abs(s.x), s.y, s.z);
+            // 头朝盘旋的切线方向(圆的切线 = 半径转 90°),而不是只做左右翻面
+            Vector3 tangent = new Vector3(-Mathf.Sin(angle), Mathf.Cos(angle) * 0.55f, 0f);
+            FaceAlong(a.Tr, tangent, scale);
+            SetAlpha(a.Tr, Mathf.Lerp(0.55f, 1f, near) * FadeOutTail(t) * local);
         }
     }
 
@@ -273,7 +280,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             float side = i % 2 == 0 ? -1f : 1f;
             float spread = 0.75f + i * 0.18f;
             GameObject fish = LijiangEchoStageKit.AddIcon(
-                root, spawned, FishArt, "入场鱼_跃入_" + i, Vector3.zero, 0.26f, 30 + i, 0f);
+                root, spawned, FishArt, "入场鱼_跃入_" + i, Vector3.zero, fishSize, 30 + i, 0f);
             if (fish == null)
             {
                 continue;
@@ -299,7 +306,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             Vector3 spot = new Vector3(side * 0.62f, -0.10f - i * 0.12f, 0.08f);
 
             GameObject fish = LijiangEchoStageKit.AddIcon(
-                root, spawned, FishArt, "入场鱼_探头_" + i, spot, 0.22f, 28 + i, 0f);
+                root, spawned, FishArt, "入场鱼_探头_" + i, spot, fishPeekSize, 28 + i, 0f);
             // 涟漪直接复用光圈贴图,缩小并降透明度,不用另做美术
             GameObject ripple = LijiangEchoStageKit.AddIcon(
                 root, spawned, RingArt, "入场鱼_涟漪_" + i, spot, ringSize * 0.34f, 26 + i, 0f);
@@ -344,14 +351,12 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                 }
 
                 // 抛物线:水平匀速,竖直先上后下,落进圈心
-                Vector3 pos = Vector3.Lerp(a.From, a.To, p);
-                pos.y += Mathf.Sin(p * Mathf.PI) * fishLeapHeight;
+                Vector3 pos = LeapPoint(a.From, a.To, p, fishLeapHeight);
                 a.Tr.localPosition = pos;
 
-                // 头朝运动方向:从左边来的朝右
-                float dir = a.To.x >= a.From.x ? 1f : -1f;
+                // 头朝抛物线的切线方向:起跳时朝上、落下时朝下,而不是一直平着
                 float s = a.BaseScale * Mathf.Lerp(1f, 0.55f, p);   // 入水时缩小,像沉进去
-                a.Tr.localScale = new Vector3(dir * s, s, s);
+                FaceAlong(a.Tr, LeapTangent(a.From, a.To, p, fishLeapHeight), s);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(p, 3f)));
                 continue;
             }
@@ -382,12 +387,11 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             {
                 // 跃入圈心
                 Vector3 start = a.From + new Vector3(0f, 0.18f, 0f);
-                Vector3 pos = Vector3.Lerp(start, Vector3.zero, leave);
-                pos.y += Mathf.Sin(leave * Mathf.PI) * fishLeapHeight * 0.7f;
-                a.Tr.localPosition = pos;
+                float h = fishLeapHeight * 0.7f;
+                a.Tr.localPosition = LeapPoint(start, Vector3.zero, leave, h);
 
                 float s = a.BaseScale * Mathf.Lerp(1f, 0.5f, leave);
-                a.Tr.localScale = Vector3.one * s;
+                FaceAlong(a.Tr, LeapTangent(start, Vector3.zero, leave, h), s);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(leave, 3f)));
                 SetAlpha(a.Ripple, 0f);
             }
@@ -405,7 +409,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         const int segments = 7;
         for (int i = 0; i < segments; i++)
         {
-            float size = Mathf.Lerp(0.30f, 0.14f, i / (float)(segments - 1));   // 头大尾细
+            float size = Mathf.Lerp(snakeHeadSize, snakeTailSize, i / (float)(segments - 1));   // 头大尾细
             GameObject seg = LijiangEchoStageKit.AddIcon(
                 root, spawned, SnakeArt, "入场蛇_" + i, Vector3.zero, size, 34 - i, 0f);
             if (seg == null)
@@ -493,12 +497,12 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         GameObject padNext = LijiangEchoStageKit.AddIcon(
             root, spawned, RingArt, "入场蛙_下一片荷叶", new Vector3(0.98f, -0.05f, -0.06f), ringSize * 0.55f, 18, 0f);
         GameObject frogObject = LijiangEchoStageKit.AddIcon(
-            root, spawned, FrogArt, "入场蛙", new Vector3(-0.95f, -0.05f, 0.10f), 0.28f, 32, 0f);
+            root, spawned, FrogArt, "入场蛙", new Vector3(-0.95f, -0.05f, 0.10f), frogSize, 32, 0f);
 
         frogPadLeft = padLeft != null ? padLeft.transform : null;
         frogPadNext = padNext != null ? padNext.transform : null;
         frog = frogObject != null ? frogObject.transform : null;
-        frogBaseScale = frog != null ? Mathf.Abs(frog.localScale.x) : 0.28f;
+        frogBaseScale = frog != null ? Mathf.Abs(frog.localScale.x) : frogSize;
         lastFrogCallAt = -1f;
     }
 
@@ -527,14 +531,16 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
 
         Vector3 pos;
-        float faceDir = 1f;
+        Vector3 heading = Vector3.right;   // 朝向:跳跃时用弧线切线,站着时水平
+        float s = frogBaseScale > 0f ? frogBaseScale : frogSize;
 
         if (t < 0.18f)
         {
             // 从画面下方跳到小荷叶上
             float p = Mathf.Clamp01(t / 0.18f);
-            pos = Vector3.Lerp(padLeftPos + new Vector3(-0.25f, -0.95f, 0f), onPadLeft, p);
-            pos.y += Mathf.Sin(p * Mathf.PI) * 0.30f;
+            Vector3 from = padLeftPos + new Vector3(-0.25f, -0.95f, 0f);
+            pos = LeapPoint(from, onPadLeft, p, 0.30f);
+            heading = LeapTangent(from, onPadLeft, p, 0.30f);
             if (t < 0.02f) { PlayFrogCall(); }
         }
         else if (t < 0.40f)
@@ -548,33 +554,32 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         {
             // 跳进中间的大光圈(主荷叶)
             float p = Mathf.Clamp01((t - 0.40f) / 0.15f);
-            pos = Vector3.Lerp(onPadLeft, center, p);
-            pos.y += Mathf.Sin(p * Mathf.PI) * 0.42f;
+            pos = LeapPoint(onPadLeft, center, p, 0.42f);
+            heading = LeapTangent(onPadLeft, center, p, 0.42f);
         }
         else if (t < 0.75f)
         {
-            // 在光圈上左右转动几下张望
+            // 在光圈上左右转动几下张望:只改朝向,不倾斜
             pos = center + new Vector3(0f, Mathf.Sin(Time.time * 3f) * 0.015f, 0f);
-            faceDir = Mathf.Sin((t - 0.55f) * 26f) >= 0f ? 1f : -1f;
+            heading = Mathf.Sin((t - 0.55f) * 26f) >= 0f ? Vector3.right : Vector3.left;
         }
         else if (t < 0.88f)
         {
             // 跳到前方渐显的下一片荷叶
             float p = Mathf.Clamp01((t - 0.75f) / 0.13f);
-            pos = Vector3.Lerp(center, padNextPos, p);
-            pos.y += Mathf.Sin(p * Mathf.PI) * 0.38f;
+            pos = LeapPoint(center, padNextPos, p, 0.38f);
+            heading = LeapTangent(center, padNextPos, p, 0.38f);
         }
         else
         {
             // 再跳出画面外
             float p = Mathf.Clamp01((t - 0.88f) / 0.12f);
-            pos = Vector3.Lerp(padNextPos, offScreen, p);
-            pos.y += Mathf.Sin(p * Mathf.PI) * 0.30f;
+            pos = LeapPoint(padNextPos, offScreen, p, 0.30f);
+            heading = LeapTangent(padNextPos, offScreen, p, 0.30f);
         }
 
         frog.localPosition = pos;
-        float s = frogBaseScale > 0f ? frogBaseScale : 0.28f;
-        frog.localScale = new Vector3(faceDir * s, s, s);
+        FaceAlong(frog, heading, s);
         SetAlpha(frog, t < 0.02f ? 0f : FadeOutTail(t));
     }
 
@@ -597,6 +602,49 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     }
 
     // ————————————————————————————— 小工具 —————————————————————————————
+
+    /// <summary>抛物线跳跃上的一点:水平匀速,竖直叠一个 sin 拱形。</summary>
+    private static Vector3 LeapPoint(Vector3 from, Vector3 to, float p, float height)
+    {
+        Vector3 pos = Vector3.Lerp(from, to, p);
+        pos.y += Mathf.Sin(Mathf.Clamp01(p) * Mathf.PI) * height;
+        return pos;
+    }
+
+    /// <summary>该抛物线在 p 处的切线方向(解析求导),用来让头朝着飞行方向。</summary>
+    private static Vector3 LeapTangent(Vector3 from, Vector3 to, float p, float height)
+    {
+        Vector3 d = to - from;                                   // 水平分量的导数
+        d.y += Mathf.Cos(Mathf.Clamp01(p) * Mathf.PI) * Mathf.PI * height;   // 拱形的导数
+        d.z = 0f;
+        return d;
+    }
+
+    /// <summary>让物件的头朝着自己的运动方向。
+    ///
+    /// 贴图默认朝右(+X)。直接用 atan2 的角度会让向左运动的物件转到 180° 而头下脚上,
+    /// 所以先把方向向量水平镜像、算出 [-90°, 90°] 内的角度,再靠负 scale.x 翻面 ——
+    /// 这样无论朝哪个方向,肚子始终朝下。
+    ///
+    /// 反馈:鱼和蛙原来只做了左右翻面、没有跟着弧线转头,跳起来看着别扭。</summary>
+    private static void FaceAlong(Transform target, Vector3 delta, float scale)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        if (delta.sqrMagnitude < 0.0000001f)
+        {
+            target.localScale = Vector3.one * scale;
+            return;
+        }
+
+        bool goingLeft = delta.x < 0f;
+        float angle = Mathf.Atan2(delta.y, Mathf.Abs(delta.x)) * Mathf.Rad2Deg;
+        target.localRotation = Quaternion.Euler(0f, 0f, angle);
+        target.localScale = new Vector3(goingLeft ? -scale : scale, scale, scale);
+    }
 
     /// <summary>最后 15% 时间整体淡出,好让③的打击环节接上去不突兀。</summary>
     private static float FadeOutTail(float t)
