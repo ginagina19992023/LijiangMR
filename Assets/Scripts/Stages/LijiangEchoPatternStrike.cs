@@ -94,8 +94,14 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [Tooltip("音符从多远飞来 —— 按光圈大小的倍数算,这样改光圈大小时布局自动跟着走。")]
     [SerializeField] private float spawnDistanceRatio = 2f;
 
-    [Tooltip("提示文字大小 —— 同样按光圈大小的倍数算。")]
-    [SerializeField] private float hintTextRatio = 0.08f;
+    [Tooltip("提示文字大小 —— 按光圈大小的倍数算。反馈:原来 0.08 太大,字比光圈一半还高、压到纹样上了。")]
+    [SerializeField] private float hintTextRatio = 0.022f;
+
+    [Tooltip("纹样名放在光圈下方多远 —— 按光圈大小的倍数算,越大越靠下。")]
+    [SerializeField] private float nameTextOffsetRatio = 1.6f;
+
+    [Tooltip("判定文字放在光圈上方多远 —— 按光圈大小的倍数算。")]
+    [SerializeField] private float judgeTextOffsetRatio = 1.3f;
 
     [Tooltip("音符画多大 —— 按光圈大小的倍数算(0.55 = 音符高度约为光圈的一半多)。\n"
         + "音符 Prefab 自带的尺寸是照战斗那个舞台配的,直接拿过来会和这里放大过的光圈不成比例,\n"
@@ -465,12 +471,13 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     private void BuildHint()
     {
         judgeText = LijiangEchoStageKit.AddText(
-            root, spawned, HintFor(pattern), new Vector3(0f, ringSize * 1.15f, 0f),
+            root, spawned, HintFor(pattern),
+            new Vector3(0f, ringSize * judgeTextOffsetRatio, 0f),
             HintTextSize, Color.white, 40);
 
         nameText = LijiangEchoStageKit.AddText(
             root, spawned, LijiangEchoQrScan.PatternName(pattern),
-            new Vector3(0f, -ringSize * 1.15f, 0f),
+            new Vector3(0f, -ringSize * nameTextOffsetRatio, 0f),
             HintTextSize, Color.white, 40);
     }
 
