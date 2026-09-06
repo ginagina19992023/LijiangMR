@@ -80,9 +80,16 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [SerializeField] private float twoHandSyncWindow = 0.35f;
 
     [Header("外观")]
-    [Tooltip("中心光圈的大小(世界单位)。必须和入场动画 LijiangEchoPatternIntro.ringSize 一致 —— "
-        + "两边不一样的话,一进打击光圈就会突然变大变小。")]
-    [SerializeField] private float ringSize = 1.97f;
+    [Tooltip("中心光圈的大小(世界单位)。"
+        + "⚠️ 扫码流程里这个值由 LijiangEchoQrScan 统一下发,和入场动画保证一样大。")]
+    [SerializeField] private float ringSize = LijiangEchoPatternIntro.DefaultRingSize;
+
+    /// <summary>光圈大小的外部入口,由扫码脚本统一下发,见 LijiangEchoPatternIntro.RingSize 的说明。</summary>
+    public float RingSize
+    {
+        get => ringSize;
+        set => ringSize = value;
+    }
 
     [Tooltip("音符从多远飞来 —— 按光圈大小的倍数算,这样改光圈大小时布局自动跟着走。")]
     [SerializeField] private float spawnDistanceRatio = 2f;

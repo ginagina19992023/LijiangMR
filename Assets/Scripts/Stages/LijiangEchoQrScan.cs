@@ -48,6 +48,11 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("扫到二维码后,动画是否一直跟着它。关掉的话只在扫到的那一刻记下位置,之后二维码动了也不跟。")]
     [SerializeField] private bool followCode = true;
 
+    [Tooltip("两段共用的光圈大小(世界单位)。"
+        + "入场动画和打击环节都由这里统一下发 —— 各模块自己序列化的值一律不作数,"
+        + "这样场景里存着的旧值(比如老的 0.62)也不会让两段光圈一大一小。")]
+    [SerializeField] private float sharedRingSize = LijiangEchoPatternIntro.DefaultRingSize;
+
     [Header("行为")]
     [Tooltip("一张码演完之后,能不能再扫一次(同一张也算)。关掉的话一次玩完就结束。")]
     [SerializeField] private bool allowRescan = true;
@@ -360,6 +365,8 @@ public class LijiangEchoQrScan : MonoBehaviour
         phase = Phase.Intro;
         SetStatus(PatternName(pattern));
 
+        // 光圈大小统一从这里下发,盖掉组件自己序列化的值
+        intro.RingSize = sharedRingSize;
         intro.Begin(pattern, anchorRoot, () => OnIntroFinished(pattern));
         Debug.Log($"[漓江回声] 扫到 {PatternName(pattern)},二维码边长 {codeSize:F3} m,演出缩放 {scale:F3}。");
         LogStageDiagnostics();
@@ -398,6 +405,7 @@ public class LijiangEchoQrScan : MonoBehaviour
             }
         }
 
+        strike.RingSize = sharedRingSize;   // 和入场同一个值,两段光圈才一样大
         strike.Begin(pattern, anchorRoot, OnStrikeFinished);
     }
 

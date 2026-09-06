@@ -31,6 +31,11 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     // ——— 各纹样用的贴图。都是工程里现成的,没有新增美术 ———
     // ⚠️ 鱼目前只有「纹样图」(select/fish_symbol),没有单独一条鱼的素材,
     //    先拿它顶着;真机看着不像"一条鱼在跳"的话,需要找美术要一张单体鱼。
+    /// <summary>两段光圈共用的大小。取的是入场动画一直以来【实际显示】的尺寸
+    /// (光圈贴图 1024px ÷ PPU 520 ≈ 1.97 单位)—— 生物大小和轨迹控制点都是照着它调的。
+    /// 三处(入场/打击/扫码下发)都引这一个常量,免得再各写各的又对不上。</summary>
+    public const float DefaultRingSize = 1.97f;
+
     private const string RingArt = "battle/hit_ring_center";
     private const string FishArt = "select/fish_symbol";
     private const string SnakeArt = "transition/snake";
@@ -42,8 +47,22 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Tooltip("入场动画时长(秒)。需求说 3~5 秒。")]
     [SerializeField] private float duration = 4f;
 
-    [Tooltip("中心光圈的大小(世界单位)。打击环节用的是同一个值,两边必须一致 —— 不然一进打击圈就变大变小。")]
-    [SerializeField] private float ringSize = 1.97f;
+    [Tooltip("中心光圈的大小(世界单位)。"
+        + "⚠️ 扫码流程里这个值由 LijiangEchoQrScan 统一下发,两段光圈才保证一样大;"
+        + "单独跑预览时才用这里填的值。")]
+    [SerializeField] private float ringSize = DefaultRingSize;
+
+    /// <summary>光圈大小的外部入口。
+    ///
+    /// 为什么要开这个口子:Unity【不会】用脚本里的新默认值覆盖已经存进场景的实例 ——
+    /// Scanplay 里存着的这个组件 ringSize 还是老的 0.62,而打击那边是运行时 AddComponent
+    /// 出来的、拿的是新默认值 1.97,于是两段光圈还是不一样大。
+    /// 现在由扫码脚本在开演前统一写进来,序列化里存的是多少都不影响。</summary>
+    public float RingSize
+    {
+        get => ringSize;
+        set => ringSize = value;
+    }
 
     [Header("生物大小(反馈:原来太小,统一放大约 4~5 倍)")]
     [SerializeField] private float birdSizeBig = 1.35f;      // 原 0.30

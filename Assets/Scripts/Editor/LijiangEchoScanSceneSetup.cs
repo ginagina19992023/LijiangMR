@@ -24,6 +24,7 @@ public static class LijiangEchoScanSceneSetup
         bool mrukAdded = EnsureMruk();
         GameObject scanner = EnsureScanner();
         int cameras = ApplyBackdropToCameras();
+        int rings = NormalizeRingSizes();
 
         Selection.activeGameObject = scanner;
         EditorUtility.SetDirty(scanner);
@@ -39,12 +40,13 @@ public static class LijiangEchoScanSceneSetup
             + $"· MRUK:{(mrukAdded ? "已添加并打开二维码追踪" : "已存在")}\n"
             + $"· 扫码脚本:{scanner.name}\n"
             + $"· 黑底:已设到 {cameras} 台相机(纯色清屏,Alpha=0)\n"
+            + $"· 光圈大小:刷了 {rings} 个存着旧值的组件 → {LijiangEchoPatternIntro.DefaultRingSize}\n"
             + $"· 场景:{(saved ? "已保存" : "未保存 —— 记得 Ctrl+S")}";
 
         Debug.Log("[漓江回声] 扫码场景已就绪。\n" + report
             + "\n\n直接点 Play:电脑上按 1/2/3/4 = 鱼/蛇/蛙/鸟,演出出现在相机正前方。"
             + "\n打包上头显:把打印的二维码放进视野即可(lijiang:fish / snake / frog / bird)。"
-            + "\n入场动画演完后按 空格 / 鼠标左键 / 手柄 A 完成打击占位。");
+            + "\n入场动画演完后接打击:鱼纹用对应那只手单击、蛇纹按住、蛙纹向上挥、鸟纹双手同时。");
 
         EditorUtility.DisplayDialog("漓江回声 · 扫码场景已就绪", report + "\n\n可以直接点 Play 了。", "好");
     }
@@ -73,6 +75,47 @@ public static class LijiangEchoScanSceneSetup
         }
 
         return touched;
+    }
+
+    /// <summary>把场景里已经【存过】的入场/打击组件的光圈大小刷成当前默认值。
+    ///
+    /// Unity 不会用脚本里的新默认值覆盖已序列化的实例 —— Scanplay 里存着的那个
+    /// LijiangEchoPatternIntro 光圈还是老的 0.62,而打击是运行时新建的、拿的是新默认值,
+    /// 于是两段光圈一大一小。运行时扫码脚本会统一下发一遍,这里再把存盘的值也一起刷掉,
+    /// 免得编辑器预览里看着还是旧的。</summary>
+    private static int NormalizeRingSizes()
+    {
+        int count = 0;
+
+        foreach (LijiangEchoPatternIntro intro in
+                 Object.FindObjectsByType<LijiangEchoPatternIntro>(FindObjectsSortMode.None))
+        {
+            if (intro == null || Mathf.Approximately(intro.RingSize, LijiangEchoPatternIntro.DefaultRingSize))
+            {
+                continue;
+            }
+
+            Undo.RecordObject(intro, "统一光圈大小");
+            intro.RingSize = LijiangEchoPatternIntro.DefaultRingSize;
+            EditorUtility.SetDirty(intro);
+            count++;
+        }
+
+        foreach (LijiangEchoPatternStrike strike in
+                 Object.FindObjectsByType<LijiangEchoPatternStrike>(FindObjectsSortMode.None))
+        {
+            if (strike == null || Mathf.Approximately(strike.RingSize, LijiangEchoPatternIntro.DefaultRingSize))
+            {
+                continue;
+            }
+
+            Undo.RecordObject(strike, "统一光圈大小");
+            strike.RingSize = LijiangEchoPatternIntro.DefaultRingSize;
+            EditorUtility.SetDirty(strike);
+            count++;
+        }
+
+        return count;
     }
 
     /// <summary>MRUK 的 Awake 里会硬性检查 OVRCameraRig,没有就直接报错。</summary>
