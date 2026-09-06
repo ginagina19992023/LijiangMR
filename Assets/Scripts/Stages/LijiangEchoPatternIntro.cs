@@ -71,9 +71,49 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Tooltip("鱼凑到最近时放大到几倍。纯靠位置变化不够明显,配合放大才看得出是冲着你来的。")]
     [SerializeField] private float fishNearScaleBoost = 1.35f;
 
+    // 下面这些点原来是写死在代码里的,所以轨迹只能改代码。现在搬到 Inspector,
+    // 而且在 Scene 视图里是可以直接拖的箭头(见 LijiangEchoPatternIntroEditor.OnSceneGUI)。
+    // 数组长度和上面的数量对不上时会自动按默认值重算,所以改数量不用手动补。
+    [Tooltip("每条鱼从哪里起跳。Scene 视图里可以直接拖。")]
+    [SerializeField] private Vector3[] fishLeapStarts;
+
+    [Tooltip("每条探头的鱼冒头的位置。Scene 视图里可以直接拖。")]
+    [SerializeField] private Vector3[] fishPeekSpots;
+
+    [Header("蛙:轨迹控制点(Scene 视图里可拖)")]
+    [SerializeField] private Vector3 frogPadLeftPos = new Vector3(-0.95f, -0.22f, 0.10f);   // 小荷叶
+    [SerializeField] private Vector3 frogOnPadLeft = new Vector3(-0.95f, -0.05f, 0.10f);    // 蹲在小荷叶上
+    [SerializeField] private Vector3 frogPadNextPos = new Vector3(0.98f, -0.05f, -0.06f);   // 下一片荷叶
+    [SerializeField] private Vector3 frogEnterFrom = new Vector3(-1.20f, -1.17f, 0.10f);    // 从画面外哪里进来
+    [SerializeField] private Vector3 frogExitTo = new Vector3(2.20f, 0.55f, -0.35f);        // 往画面外哪里跳走
+
+    [Header("蛇:轨迹控制点(Scene 视图里可拖)")]
+    [Tooltip("蛇从哪儿开始游过来。终点固定在光圈底部 —— 那里的顺时针切线正好是朝左,接得上。")]
+    [SerializeField] private Vector3 snakeApproachFrom = new Vector3(1.55f, -0.88f, 0.10f);
+
     [Header("蛇:缠绕")]
     [SerializeField] private float snakeApproachRatio = 0.35f; // 前 35% 时间用来"游过来"
     [SerializeField] private float snakeCoilRadius = 0.72f;
+
+    [Tooltip("蛇身切成几节。整条蛇是一张图,这里把它横向切开当关节 —— 一条僵硬的整图绕圈是不行的。")]
+    [Range(3, 24)] [SerializeField] private int snakeSegments = 10;
+
+    [Tooltip("在原图(3207×630 的坐标系)里,蛇占哪一块。切片就在这个框里横向均分。\n"
+        + "框没对准的话蛇会缺头少尾,直接在这里改数值。")]
+    [SerializeField] private RectInt snakeSourceRect = new RectInt(1700, 190, 420, 300);
+
+    [Tooltip("每一节比前一节沿路径落后多少(弧度)。越大蛇越长、关节越散。")]
+    [SerializeField] private float snakeSegmentSpacing = 0.26f;
+
+    [Tooltip("缠绕:关节绕着光圈这根「管子」转,这是管子半径(米)。0 = 平贴着圈走,完全不缠。")]
+    [SerializeField] private float snakeWindRadius = 0.12f;
+
+    [Tooltip("绕光圈一整圈的过程中,身子绕管子转几圈。转的时候一半在圈前一半在圈后。")]
+    [SerializeField] private float snakeWindTurns = 2.5f;
+
+    [Tooltip("扭动的幅度(米)与快慢。游过来的那一段主要靠它看出是活的。")]
+    [SerializeField] private float snakeWaveAmplitude = 0.07f;
+    [SerializeField] private float snakeWaveSpeed = 5f;
 
     // 转头的代码假设"贴图本身画的是朝右(+X)",但花山纹样这几张贴图各朝各的,
     // 所以留出每种生物的角度修正,方向不对直接在 Inspector 里拖,不用改代码。
@@ -136,6 +176,62 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         public float Span;         // 持续多久(归一化)
         public bool Peeking;       // 鱼:是探头的那种吗
         public Transform Ripple;   // 鱼探头时旁边的小涟漪圈
+        public int Index;          // 第几条鱼 / 第几节蛇,用来回查可拖动的控制点
+    }
+
+    /// <summary>轨迹控制点数组的长度要和数量对得上。改了数量就按默认值重铺一遍,
+    /// 这样在 Inspector 里改 fishLeapCount 不用自己去补数组。</summary>
+    private void EnsureFishPoints()
+    {
+        int leaps = Mathf.Max(0, fishLeapCount);
+        if (fishLeapStarts == null || fishLeapStarts.Length != leaps)
+        {
+            fishLeapStarts = new Vector3[leaps];
+            for (int i = 0; i < leaps; i++)
+            {
+                fishLeapStarts[i] = DefaultFishLeapStart(i);
+            }
+        }
+
+        int peeks = Mathf.Max(0, fishPeekCount);
+        if (fishPeekSpots == null || fishPeekSpots.Length != peeks)
+        {
+            fishPeekSpots = new Vector3[peeks];
+            for (int i = 0; i < peeks; i++)
+            {
+                fishPeekSpots[i] = DefaultFishPeekSpot(i);
+            }
+        }
+    }
+
+    private static Vector3 DefaultFishLeapStart(int i)
+    {
+        float side = i % 2 == 0 ? -1f : 1f;
+        float spread = 0.75f + i * 0.18f;
+        return new Vector3(side * spread, -0.45f, 0f);   // 圈外、偏下,和光圈同一个平面
+    }
+
+    private static Vector3 DefaultFishPeekSpot(int i)
+    {
+        float side = i % 2 == 0 ? 1f : -1f;
+        return new Vector3(side * 0.62f, -0.10f - i * 0.12f, 0.08f);
+    }
+
+    /// <summary>把轨迹控制点恢复成默认布局(Inspector 上有个按钮调它)。</summary>
+    public void ResetTrajectoryPoints()
+    {
+        fishLeapStarts = null;
+        fishPeekSpots = null;
+        EnsureFishPoints();
+
+        frogPadLeftPos = new Vector3(-0.95f, -0.22f, 0.10f);
+        frogOnPadLeft = new Vector3(-0.95f, -0.05f, 0.10f);
+        frogPadNextPos = new Vector3(0.98f, -0.05f, -0.06f);
+        frogEnterFrom = new Vector3(-1.20f, -1.17f, 0.10f);
+        frogExitTo = new Vector3(2.20f, 0.55f, -0.35f);
+
+        snakeApproachFrom = new Vector3(1.55f, -0.88f, 0.10f);
+        previewDirty = true;
     }
 
     // ————————————————————————————— 对外接口 —————————————————————————————
@@ -203,7 +299,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         frogPadLeft = null;
         frogPadNext = null;
         frog = null;
-        snake = null;
+        snakeJoints.Clear();
         lastFrogCallAt = -1f;
         spawned.Clear();
 
@@ -436,14 +532,10 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             }
         }
 
+        // 蛇的关节已经在 actors 里了,这里只补上不走 actors 列表的蛙
         if (frog != null)
         {
             movers.Add(frog);
-        }
-
-        if (snake != null)
-        {
-            movers.Add(snake);
         }
 
         return movers;
@@ -535,15 +627,32 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     // ————————————————————————————— 鱼:跃入与探头 —————————————————————————————
 
+    /// <summary>把 Inspector / Scene 手柄上的控制点同步到这条鱼身上。
+    /// 涟漪也跟着挪,不然拖了探头点、涟漪还留在原地。</summary>
+    private void RefreshFishPoint(Actor a)
+    {
+        if (a.Peeking)
+        {
+            if (fishPeekSpots != null && a.Index < fishPeekSpots.Length)
+            {
+                Vector3 spot = fishPeekSpots[a.Index];
+                a.From = spot + new Vector3(0f, -0.18f, 0f);
+            }
+        }
+        else if (fishLeapStarts != null && a.Index < fishLeapStarts.Length)
+        {
+            a.From = fishLeapStarts[a.Index];
+        }
+    }
+
     private void BuildFish()
     {
         PlayIntroSfx("water", 0.45f);
+        EnsureFishPoints();
 
         // 从光圈外面跃起、跳进圈里的
-        for (int i = 0; i < fishLeapCount; i++)
+        for (int i = 0; i < fishLeapStarts.Length; i++)
         {
-            float side = i % 2 == 0 ? -1f : 1f;
-            float spread = 0.75f + i * 0.18f;
             Transform fish = AddCreature(FishArt, "入场鱼_跃入_" + i, fishSize, 30 + i);
 
             actors.Add(new Actor
@@ -551,8 +660,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                 Tr = fish,
                 Sr = fish.GetComponentInChildren<SpriteRenderer>(true),
                 BaseScale = 1f,
-                From = new Vector3(side * spread, -0.45f, 0f),      // 圈外、偏下,和光圈同一个平面
-                To = Vector3.zero,                                   // 跳进圈心
+                Index = i,
+                From = fishLeapStarts[i],
+                To = Vector3.zero,          // 跳进圈心
                 StartAt = 0.12f + i * 0.18f,
                 Span = 0.42f,
                 Peeking = false
@@ -560,10 +670,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
 
         // 在圈旁探头的:头旁边有一圈更小的白色涟漪
-        for (int i = 0; i < fishPeekCount; i++)
+        for (int i = 0; i < fishPeekSpots.Length; i++)
         {
-            float side = i % 2 == 0 ? 1f : -1f;
-            Vector3 spot = new Vector3(side * 0.62f, -0.10f - i * 0.12f, 0.08f);
+            Vector3 spot = fishPeekSpots[i];
 
             Transform fish = AddCreature(FishArt, "入场鱼_探头_" + i, fishPeekSize, 28 + i);
             fish.localPosition = spot;
@@ -576,6 +685,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                 Tr = fish,
                 Sr = fish.GetComponentInChildren<SpriteRenderer>(true),
                 BaseScale = 1f,
+                Index = i,
                 From = spot + new Vector3(0f, -0.18f, 0f),   // 从水面下探上来
                 To = Vector3.zero,                            // 最后也跃入圈心
                 StartAt = 0.20f + i * 0.14f,
@@ -596,6 +706,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             {
                 continue;
             }
+
+            // 每帧回读控制点,这样在 Scene 视图里拖手柄是立刻生效的,不用重建预览
+            RefreshFishPoint(a);
 
             if (!a.Peeking)
             {
@@ -660,70 +773,145 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     // ————————————————————————————— 蛇:缠绕 —————————————————————————————
 
-    private Transform snake;
+    // 缠绕从光圈【底部】起步:底部的顺时针切线正好是"朝左",和游过来的方向接得上,
+    // 不会在切换的那一帧突然扭 90°。
+    private const float SnakeCoilStartAngle = -Mathf.PI * 0.5f;
 
+    private readonly List<Actor> snakeJoints = new List<Actor>();
+
+    /// <summary>把整张蛇图横向切成若干节,每一节是一个关节。
+    ///
+    /// 走过两次弯路,记下来:
+    ///   一开始是把【整条蛇】复制 7 份首尾排开 —— 屏幕上七条一样的蛇叠成千层。
+    ///   然后改成只用一条完整的蛇 —— 不叠了,但整图刚性地绕圈,很僵硬。
+    /// 现在按反馈做成真的关节:切片 + 沿路径依次落后 + 绕着光圈这根管子拧。</summary>
     private void BuildSnake()
     {
         // 需求:先响「嘶嘶」声,音效先于画面
         PlayIntroSfx("snake", 0.7f);
 
-        // 反馈:「感觉你没有按照节来切而是给他切成千层了」。
-        // 说得对 —— 之前这里根本没切,是把【整条蛇】复制了 7 份首尾排开,
-        // 于是屏幕上就是七条一模一样的蛇叠成千层。transition/snake 本身就已经是
-        // 一条完整的蛇(头在左、身子拱起、尾巴收细),不需要拼节,一条就够。
-        snake = AddCreature(SnakeArt, "入场蛇", snakeHeadSize, 34);
+        snakeJoints.Clear();
+
+        int count = Mathf.Max(3, snakeSegments);
+        int stepWidth = Mathf.Max(1, snakeSourceRect.width / count);
+
+        for (int i = 0; i < count; i++)
+        {
+            // 相邻切片彼此重叠一截,否则关节之间会露出缝
+            int x = snakeSourceRect.x + i * stepWidth;
+            int width = Mathf.Min(Mathf.RoundToInt(stepWidth * 1.6f),
+                snakeSourceRect.x + snakeSourceRect.width - x);
+            if (width <= 0)
+            {
+                break;
+            }
+
+            RectInt slice = new RectInt(x, snakeSourceRect.y, width, snakeSourceRect.height);
+            Transform joint = AddCroppedCreature(
+                SnakeArt, slice, "入场蛇_关节_" + i, snakeHeadSize, 34 - i);
+
+            Actor actor = new Actor
+            {
+                Tr = joint,
+                Sr = joint.GetComponentInChildren<SpriteRenderer>(true),
+                BaseScale = 1f,
+                Index = i
+            };
+
+            snakeJoints.Add(actor);
+            actors.Add(actor);
+        }
     }
 
     /// <summary>蛇:整条从右边扭动着游过来 → 缠上光圈 → 顺时针沿圈转一圈 → 消失。
     ///
-    /// 只有一条蛇,不再拼节。「扭动」用整体的正弦摆动 + 轻微的摇头来表现。</summary>
+    /// 关节全部走同一条路径,只是各自沿路径落后一点(跟随头部),所以是"跟着头走"
+    /// 而不是各转各的。路径本身是绕着光圈的一条螺旋:一边沿圈向前,一边绕着圈这根
+    /// 管子拧 —— 拧到管子背面的那半段会排到光圈后面去,缠绕感就是这么来的。</summary>
     private void UpdateSnake(float t)
     {
-        if (snake == null)
+        if (snakeJoints.Count == 0)
         {
             return;
         }
 
+        // 头部沿路径走到哪儿。负数 = 还在圈外那段直路上。
+        float head = SnakeHeadArc(t);
+
+        for (int i = 0; i < snakeJoints.Count; i++)
+        {
+            Actor a = snakeJoints[i];
+            if (a.Tr == null)
+            {
+                continue;
+            }
+
+            float u = head - i * snakeSegmentSpacing;
+            Vector3 pos = SnakePathPoint(u);
+
+            // 朝向用路径上的数值切线,连扭动带缠绕都算进去了,比单算圆的切线活
+            Vector3 tangent = SnakePathPoint(u + 0.06f) - SnakePathPoint(u - 0.06f);
+            float faceDegrees = Mathf.Atan2(tangent.y, tangent.x) * Mathf.Rad2Deg - snakeFacingDegrees;
+
+            a.Tr.localPosition = pos;
+            a.Tr.localRotation = Quaternion.Euler(0f, 0f, faceDegrees);
+            a.Tr.localScale = Vector3.one;
+
+            // 拧到光圈【后面】的关节要排到光圈后面去,不然缠绕看着还是贴在前面
+            if (a.Sr != null)
+            {
+                a.Sr.sortingOrder = pos.z < 0f ? 34 - i : 14 - i;   // 光圈是 20
+            }
+
+            // 还没进场的关节(u 太靠前)先不显示,免得凭空堆在起点
+            float entering = Mathf.InverseLerp(-SnakeApproachSpan - 0.4f, -SnakeApproachSpan, u);
+            SetAlpha(a.Tr, entering * FadeOutTail(t));
+        }
+    }
+
+    /// <summary>圈外那段直路,折算成多少"弧度"。和缠绕段共用一个参数,关节才能平滑地
+    /// 从直路过渡到圈上,不用在两套坐标之间跳。</summary>
+    private const float SnakeApproachSpan = 2.2f;
+
+    private float SnakeHeadArc(float t)
+    {
         float approach = Mathf.Clamp01(t / Mathf.Max(0.01f, snakeApproachRatio));
         float coil = Mathf.Clamp01((t - snakeApproachRatio) / Mathf.Max(0.01f, 1f - snakeApproachRatio));
 
-        Vector3 pos;
-        float faceDegrees;
-
-        // 缠绕从光圈【底部】起步,不是右侧:底部的顺时针切线正好是"朝左",
-        // 和游过来的方向接得上,不会在切换的那一帧突然扭 90°。
-        const float coilStartAngle = -Mathf.PI * 0.5f;
-
         if (coil <= 0f)
         {
-            // 从右下方圈外游过来,上下正弦摆动 = 扭动的身子
-            Vector3 from = new Vector3(1.55f, -snakeCoilRadius - 0.16f, 0.1f);
-            Vector3 to = new Vector3(0f, -snakeCoilRadius, 0f);
-            pos = Vector3.Lerp(from, to, Mathf.SmoothStep(0f, 1f, approach));
-            pos.y += Mathf.Sin(timer * 6f) * 0.09f;
-
-            // 朝左游,摆动时头跟着上下点一点
-            faceDegrees = 180f + Mathf.Sin(timer * 6f) * 12f - snakeFacingDegrees;
+            return Mathf.Lerp(-SnakeApproachSpan, 0f, Mathf.SmoothStep(0f, 1f, approach));
         }
-        else
+
+        return coil * Mathf.PI * 2f;
+    }
+
+    /// <summary>路径上参数 u 处的点。u &lt; 0 在圈外的直路上,u ≥ 0 是绕着光圈的螺旋。</summary>
+    private Vector3 SnakePathPoint(float u)
+    {
+        Vector3 ringBottom = new Vector3(0f, -snakeCoilRadius, 0f);
+
+        if (u < 0f)
         {
-            // 顺时针沿光圈转一圈:角度递减(Unity 里 y 向上,递减即顺时针)
-            float angle = coilStartAngle - coil * Mathf.PI * 2f;
-            pos = new Vector3(
-                Mathf.Cos(angle) * snakeCoilRadius,
-                Mathf.Sin(angle) * snakeCoilRadius,
-                Mathf.Sin(angle * 2f) * 0.06f);   // 缠绕感:一半在圈前一半在圈后
-
-            // 顺时针绕行的切线 = 半径方向再转 -90°
-            faceDegrees = angle * Mathf.Rad2Deg - 90f - snakeFacingDegrees;
+            // 圈外:从控制点直着游到光圈底部,垂直方向叠正弦 = 扭动
+            float k = Mathf.Clamp01(1f + u / SnakeApproachSpan);
+            Vector3 pos = Vector3.Lerp(snakeApproachFrom, ringBottom, k);
+            pos.y += Mathf.Sin(u * 3f - timer * snakeWaveSpeed) * snakeWaveAmplitude;
+            return pos;
         }
 
-        snake.localPosition = pos;
-        snake.localRotation = Quaternion.Euler(0f, 0f, faceDegrees);
-        snake.localScale = Vector3.one;
+        // 圈上:顺时针向前(角度递减),同时绕着光圈这根管子拧
+        float angle = SnakeCoilStartAngle - u;
+        Vector3 onRing = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * snakeCoilRadius;
 
-        float visible = coil <= 0f ? approach : 1f;
-        SetAlpha(snake, visible * FadeOutTail(t));
+        float wind = u * snakeWindTurns;
+        Vector3 outward = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f);   // 圈的径向
+        Vector3 axis = Vector3.forward;                                          // 圈的法向
+
+        Vector3 wrap = (outward * Mathf.Cos(wind) + axis * Mathf.Sin(wind)) * snakeWindRadius;
+        Vector3 wave = outward * (Mathf.Sin(u * 3f - timer * snakeWaveSpeed) * snakeWaveAmplitude * 0.5f);
+
+        return onRing + wrap + wave;
     }
 
     // ————————————————————————————— 蛙:占位 —————————————————————————————
@@ -759,11 +947,16 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     /// 0.88~1.00 从下一片荷叶再跳出画面外</summary>
     private void UpdateFrog(float t)
     {
-        Vector3 padLeftPos = new Vector3(-0.95f, -0.22f, 0.10f);
-        Vector3 onPadLeft = new Vector3(-0.95f, -0.05f, 0.10f);
+        // 全部来自可拖动的控制点(Scene 视图里的箭头 / Inspector 里的数值)
+        Vector3 padLeftPos = frogPadLeftPos;
+        Vector3 onPadLeft = frogOnPadLeft;
         Vector3 center = Vector3.zero;
-        Vector3 padNextPos = new Vector3(0.98f, -0.05f, -0.06f);
-        Vector3 offScreen = new Vector3(2.2f, 0.55f, -0.35f);
+        Vector3 padNextPos = frogPadNextPos;
+        Vector3 offScreen = frogExitTo;
+
+        // 荷叶本身也跟着控制点走,不然拖了点、荷叶还留在原地
+        if (frogPadLeft != null) { frogPadLeft.localPosition = padLeftPos; }
+        if (frogPadNext != null) { frogPadNext.localPosition = padNextPos; }
 
         // —— 两片小荷叶的显隐 ——
         SetAlpha(frogPadLeft, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.12f, t)) * 0.75f * FadeOutTail(t));
@@ -782,7 +975,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         {
             // 从画面下方跳到小荷叶上
             float p = Mathf.Clamp01(t / 0.18f);
-            Vector3 from = padLeftPos + new Vector3(-0.25f, -0.95f, 0f);
+            Vector3 from = frogEnterFrom;
             pos = LeapPoint(from, onPadLeft, p, 0.30f);
             heading = LeapTangent(from, onPadLeft, p, 0.30f);
             if (t < 0.02f) { PlayFrogCall(); }
@@ -868,6 +1061,24 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         // 用 worldPositionStays:false 换父级,这个偏移原样保留,于是相对支点也是居中的。
         GameObject icon = LijiangEchoStageKit.AddIcon(
             root, spawned, art, objectName + "_图", Vector3.zero, targetHeight, order, 0f);
+        if (icon != null)
+        {
+            icon.transform.SetParent(pivot.transform, false);
+        }
+
+        return pivot.transform;
+    }
+
+    /// <summary>同上,但只取贴图的一块(蛇切关节用)。同样套支点,旋转绕自己发生。</summary>
+    private Transform AddCroppedCreature(string art, RectInt crop, string objectName, float targetHeight, int order)
+    {
+        GameObject pivot = new GameObject(objectName);
+        pivot.transform.SetParent(root, false);
+        pivot.transform.localPosition = Vector3.zero;
+        spawned.Add(pivot);
+
+        GameObject icon = LijiangEchoStageKit.AddCroppedSprite(
+            root, spawned, art, objectName + "_图", crop, Vector3.zero, targetHeight, order, 0f, false);
         if (icon != null)
         {
             icon.transform.SetParent(pivot.transform, false);
