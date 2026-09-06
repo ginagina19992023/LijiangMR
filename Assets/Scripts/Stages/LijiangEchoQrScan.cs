@@ -60,6 +60,12 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("演完之后隔多久才接受下一次扫码,免得站着不动被反复触发。")]
     [SerializeField] private float rescanCooldown = 2f;
 
+    [Tooltip("二维码追踪没配起来时,隔多久重试一次(秒)。")]
+    [SerializeField] private float trackerRetryInterval = 2f;
+
+    [Tooltip("最多重试几次。系统在会话刚起来那零点几秒是配不上的,要给它时间。")]
+    [SerializeField] private int trackerMaxAttempts = 8;
+
     [Header("电脑上跑测(没有头显时)")]
     [Tooltip("在编辑器里按 1/2/3/4 直接触发鱼/蛇/蛙/鸟,跳过真实扫码。真机上不影响。")]
     [SerializeField] private bool simulateWithKeyboard = true;
@@ -237,6 +243,8 @@ public class LijiangEchoQrScan : MonoBehaviour
             RequestQrTracking();
         }
 
+        UpdateTrackerRetry();
+
         if (phase == Phase.WaitingForCode)
         {
             PollForAlreadyDetectedCodes();
@@ -308,7 +316,71 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         trackingRequested = true;
         SetStatus("把二维码放进视野");
-        Debug.Log("[漓江回声] 二维码追踪已开启,等待识别。");
+        Debug.Log("[漓江回声] 已向系统请求二维码追踪,等待生效。");
+    }
+
+    // 追踪器重试
+    private int trackerAttempts;
+    private float nextTrackerRetryAt;
+
+    /// <summary>盯着追踪器有没有【真的】开起来,没开就重来。
+    ///
+    /// 真机日志里查出来的:
+    ///   ErrorUnknown: Unable to fully satisfy requested tracker configuration
+    ///   MRUK Shared: queryCompleteEvent->result returned error code: -2
+    /// 时间是启动后 0.2 秒 —— 那会儿空间子系统还没就绪,配置就失败了。
+    ///
+    /// 而 MRUK 自己【不会重试】:ConfigureTrackerAndLogResult 之前就把
+    /// _lastRequestedConfiguration 设成了目标值,之后 _lastRequestedConfiguration != desiredConfig
+    /// 永远不成立,失败一次这一整局就再也不配了 —— 表现就是"码放眼前毫无反应"。
+    ///
+    /// 办法:把请求的配置先关掉再打开,desiredConfig 变了,MRUK 就会重新配一次。</summary>
+    private void UpdateTrackerRetry()
+    {
+        MRUK mruk = MRUK.Instance;
+        if (!trackingRequested || mruk == null || mruk.SceneSettings == null)
+        {
+            return;
+        }
+
+        // 已经真的生效了就收工
+        if (mruk.TrackerConfiguration.QRCodeTrackingEnabled)
+        {
+            if (trackerAttempts > 0)
+            {
+                Debug.Log($"[漓江回声] 二维码追踪已生效(重试了 {trackerAttempts} 次)。");
+                trackerAttempts = -1;   // 只报一次
+            }
+
+            return;
+        }
+
+        if (trackerAttempts < 0 || trackerAttempts >= trackerMaxAttempts || Time.time < nextTrackerRetryAt)
+        {
+            return;
+        }
+
+        trackerAttempts++;
+        nextTrackerRetryAt = Time.time + trackerRetryInterval;
+
+        // 关掉再打开 = 让 MRUK 觉得"要的配置变了",它才肯再配一次
+        OVRAnchor.TrackerConfiguration off = mruk.SceneSettings.TrackerConfiguration;
+        off.QRCodeTrackingEnabled = false;
+        mruk.SceneSettings.TrackerConfiguration = off;
+
+        OVRAnchor.TrackerConfiguration on = off;
+        on.QRCodeTrackingEnabled = true;
+        mruk.SceneSettings.TrackerConfiguration = on;
+
+        SetStatus($"正在开启扫码…({trackerAttempts})");
+        Debug.Log($"[漓江回声] 二维码追踪还没生效,重试第 {trackerAttempts} 次。");
+
+        if (trackerAttempts >= trackerMaxAttempts)
+        {
+            SetStatus("扫码开不起来\n请退出应用重进,或检查系统权限");
+            Debug.LogError("[漓江回声] 二维码追踪重试用尽,仍未生效。"
+                + "检查:头显系统是否 v74+、应用的「空间数据」权限是否允许。");
+        }
     }
 
     private void OnTrackableAdded(MRUKTrackable trackable)
