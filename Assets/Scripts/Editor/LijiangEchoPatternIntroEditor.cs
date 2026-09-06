@@ -54,10 +54,13 @@ public class LijiangEchoPatternIntroEditor : Editor
 
                     if (GUILayout.Button(label, GUILayout.Height(46)))
                     {
-                        previewOn.boolValue = true;
-                        previewPattern.enumValueIndex = (int)pattern;
-                        previewTime.floatValue = 0f;
-                        autoPlay.boolValue = true;
+                        // 走组件自己的方法,顺便把上一次的残留状态(时间、时钟基准、
+                        // 脏标记)一并重置 —— 关掉再打开就是靠这个恢复的
+                        Undo.RecordObject(target, "打开入场动画预览");
+                        serializedObject.ApplyModifiedProperties();
+                        ((LijiangEchoPatternIntro)target).OpenEditorPreview(pattern);
+                        EditorUtility.SetDirty(target);
+                        serializedObject.Update();
                         FocusSceneViewOnTarget();
                     }
 
@@ -78,13 +81,26 @@ public class LijiangEchoPatternIntroEditor : Editor
 
                 if (GUILayout.Button("关闭预览", EditorStyles.miniButton, GUILayout.Width(70), GUILayout.Height(22)))
                 {
-                    previewOn.boolValue = false;
+                    Undo.RecordObject(target, "关闭入场动画预览");
+                    serializedObject.ApplyModifiedProperties();
+                    ((LijiangEchoPatternIntro)target).CloseEditorPreview();
+                    EditorUtility.SetDirty(target);
+                    serializedObject.Update();
                 }
             }
 
             EditorGUI.BeginDisabledGroup(autoPlay.boolValue);
             previewTime.floatValue = EditorGUILayout.Slider("时间轴", previewTime.floatValue, 0f, 1f);
             EditorGUI.EndDisabledGroup();
+
+            // 时间轴停在最开头时本来就什么都看不见(生物是按各自的出场时间淡入的),
+            // 不说清楚很容易以为是坏了
+            if (previewOn.boolValue && !autoPlay.boolValue && previewTime.floatValue < 0.05f)
+            {
+                EditorGUILayout.HelpBox(
+                    "时间轴停在最开头,这一刻生物本来就还没出场(全透明),所以看不到东西。"
+                    + "往右拖一点,或者点上面的播放。", MessageType.Warning);
+            }
 
             if (autoPlay.boolValue)
             {
@@ -115,8 +131,9 @@ public class LijiangEchoPatternIntroEditor : Editor
 
         serializedObject.ApplyModifiedProperties();
 
-        // 编辑模式默认不是每帧跑的,自动播放要靠这里推着走
-        if (previewOn.boolValue && autoPlay.boolValue && !Application.isPlaying)
+        // 持续推进由 LijiangEchoPatternIntroPreviewDriver 负责(挂在 EditorApplication.update 上,
+        // 和 Inspector 在不在显示无关)。这里只是让拖滑块时当场就能看到结果。
+        if (previewOn.boolValue && !Application.isPlaying)
         {
             EditorApplication.QueuePlayerLoopUpdate();
             SceneView.RepaintAll();

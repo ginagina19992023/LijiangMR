@@ -375,6 +375,66 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     private bool previewDirty;
     private float lastPreviewTime;
 
+    // 编辑模式下 Update 不是自动每帧跑的,要有人推。推的人是
+    // LijiangEchoPatternIntroPreviewDriver,它靠这张表知道"还有没有预览开着"。
+    // 之前只在 Inspector 重绘时推,所以关掉预览再打开就卡在 previewTime=0 那一帧,
+    // 而那一帧本来就是全透明的 —— 看着就像"再也打不开了"。
+    private static readonly List<LijiangEchoPatternIntro> LiveInstances = new List<LijiangEchoPatternIntro>();
+
+    public bool EditorPreviewActive => previewInEditor;
+
+    public static bool AnyEditorPreviewActive()
+    {
+        for (int i = LiveInstances.Count - 1; i >= 0; i--)
+        {
+            if (LiveInstances[i] == null)
+            {
+                LiveInstances.RemoveAt(i);
+                continue;
+            }
+
+            if (LiveInstances[i].previewInEditor)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnEnable()
+    {
+        if (!LiveInstances.Contains(this))
+        {
+            LiveInstances.Add(this);
+        }
+    }
+
+    private void OnDisable()
+    {
+        LiveInstances.Remove(this);
+    }
+
+    /// <summary>Inspector 上的按钮用它重新打开预览,顺便把该重置的都重置掉,
+    /// 免得沿用上一次的残留状态。</summary>
+    public void OpenEditorPreview(Pattern which)
+    {
+        previewInEditor = true;
+        previewPattern = which;
+        previewTime = 0f;
+        lastPreviewTime = 0f;
+        autoPlayInEditor = true;
+        lastEditorTime = 0f;
+        previewDirty = true;
+    }
+
+    public void CloseEditorPreview()
+    {
+        previewInEditor = false;
+        lastEditorTime = 0f;
+        Teardown();
+    }
+
     private void OnValidate()
     {
         // 拖时间轴不该重建预览 —— 那会把物件全删了重来,拖动时一路闪。
@@ -439,6 +499,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         pattern = previewPattern;
         onComplete = null;
         timer = 0f;
+        lastEditorTime = 0f;   // 重建后第一拍的步长按 0 算,不要把停掉的那段时间一次补上
 
         // 预览挂在本物体下面,想整体挪位置直接拖这个 GameObject 就行
         GameObject holder = new GameObject("漓江回声_扫码入场_编辑预览");
