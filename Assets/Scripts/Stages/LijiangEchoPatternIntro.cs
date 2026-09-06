@@ -95,7 +95,10 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [SerializeField] private Pattern previewPattern = Pattern.Fish;
 
     [Tooltip("时间轴:0=刚开始,1=结束。拖它就能逐帧看轨迹。")]
-    [Range(0f, 1f)] [SerializeField] private float previewTime;
+    [Range(0f, 1f)] [SerializeField] private float previewTime = 0.45f;
+
+    [Tooltip("在编辑器里自动循环播放。想停下来逐帧看就取消,然后拖上面的时间轴。")]
+    [SerializeField] private bool autoPlayInEditor = true;
 
     [Tooltip("在 Scene 视图里把每个生物的整条轨迹画成线,深度看得最清楚。")]
     [SerializeField] private bool drawPathGizmos = true;
@@ -301,11 +304,30 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             BuildPreview();
         }
 
-        if (root != null)
+        if (root == null)
         {
-            ApplyPose(Mathf.Clamp01(previewTime));
+            return;
         }
+
+        if (autoPlayInEditor)
+        {
+            // 编辑模式没有 Time.deltaTime 可用(它在编辑器里不推进),自己按真实时间算
+            float now = Time.realtimeSinceStartup;
+            float step = lastEditorTime > 0f ? Mathf.Clamp(now - lastEditorTime, 0f, 0.1f) : 0f;
+            lastEditorTime = now;
+
+            previewTime = Mathf.Repeat(previewTime + step / Mathf.Max(0.01f, duration), 1f);
+            lastPreviewTime = previewTime;   // 别让 OnValidate 误判成"改了结构参数"
+        }
+        else
+        {
+            lastEditorTime = 0f;
+        }
+
+        ApplyPose(Mathf.Clamp01(previewTime));
     }
+
+    private float lastEditorTime;
 
     private void BuildPreview()
     {
@@ -921,8 +943,19 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             return;
         }
 
+        float a = Mathf.Clamp01(alpha);
+
         Color c = sr.color;
-        c.a = Mathf.Clamp01(alpha);
+        c.a = a;
         sr.color = c;
+
+        // LijiangEchoSpriteLayer.OnValidate 会把 renderer 的颜色按它自己的 alpha 字段重刷一遍。
+        // 生成时那个字段是 0,所以编辑器里一重编译/一改 Inspector,生物就整个消失、只剩光圈。
+        // 这里把值同步过去,免得被它覆盖掉。
+        LijiangEchoSpriteLayer layer = sr.GetComponent<LijiangEchoSpriteLayer>();
+        if (layer != null)
+        {
+            layer.alpha = a;
+        }
     }
 }

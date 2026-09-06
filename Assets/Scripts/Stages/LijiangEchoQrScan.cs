@@ -1,0 +1,491 @@
+using System.Collections.Generic;
+using Meta.XR.MRUtilityKit;
+using UnityEngine;
+
+/// <summary>
+/// 扫码出纹样(见 docs/TODO-QR-PATTERN-SCAN.md)。整条链路的入口。
+///
+/// 三段:
+///   ① 扫到二维码 → 在【二维码所在的真实位置】浮现光圈       ← 本组件
+///   ② 入场动画 3~5 秒                                      ← LijiangEchoPatternIntro
+///   ③ 打击环节                                             ← 目前是占位,见文件末尾
+///
+/// 【为什么不用摄像头取帧 + ZXing】
+/// 文档里原本估的做法是自己取摄像头帧、引入 ZXing 解码、再反算二维码的空间位置。
+/// 但 Meta XR SDK 201 的 MRUK 已经把这件事做完了:系统级的 QR 追踪直接给出
+/// 【解码后的字符串】和【一个持续跟踪的世界锚点】。所以这里不引第三方库、
+/// 不自己写解码,也不用手算距离 —— 锚定精度和稳定性都由系统负责。
+///   · MRUK.Instance.QRCodeTrackingSupported   —— 设备支不支持(Quest 2 不支持)
+///   · SceneSettings.TrackerConfiguration      —— 打开 QR 追踪
+///   · SceneSettings.TrackableAdded            —— 认出来了,给一个 MRUKTrackable
+///   · MRUKTrackable.MarkerPayloadString       —— 二维码里的字符串
+///   · MRUKTrackable.transform / PlaneRect     —— 世界位姿 + 实际边长
+/// 权限 com.oculus.permission.USE_SCENE 和 USE_ANCHOR_API 工程里已经声明过了。
+///
+/// 二维码内容是我们自己定的短标识串(不是网址,免得头显系统当链接截走),
+/// 打印用的四张见 D:\Recording\qrcodes\ 或用同样的内容自己生成:
+///   lijiang:fish / lijiang:snake / lijiang:frog / lijiang:bird
+/// </summary>
+public class LijiangEchoQrScan : MonoBehaviour
+{
+    public const string PayloadPrefix = "lijiang:";
+
+    private enum Phase
+    {
+        WaitingForCode,   // 还没扫到
+        Intro,            // ② 入场动画播放中
+        Strike,           // ③ 打击环节
+        Finished          // 演完了,等着扫下一张
+    }
+
+    [Header("锚定")]
+    [Tooltip("动画整体相对二维码边长的倍数。二维码印 10cm 的话,1.0 表示演出范围约 10cm 见方 —— 通常要放大。")]
+    [SerializeField] private float sizeRelativeToCode = 6f;
+
+    [Tooltip("动画往二维码正前方(离开纸面的方向)推出多远,单位米。太小会和纸面穿插。")]
+    [SerializeField] private float liftOffPaper = 0.04f;
+
+    [Tooltip("扫到二维码后,动画是否一直跟着它。关掉的话只在扫到的那一刻记下位置,之后二维码动了也不跟。")]
+    [SerializeField] private bool followCode = true;
+
+    [Header("行为")]
+    [Tooltip("一张码演完之后,能不能再扫一次(同一张也算)。关掉的话一次玩完就结束。")]
+    [SerializeField] private bool allowRescan = true;
+
+    [Tooltip("演完之后隔多久才接受下一次扫码,免得站着不动被反复触发。")]
+    [SerializeField] private float rescanCooldown = 2f;
+
+    [Header("电脑上跑测(没有头显时)")]
+    [Tooltip("在编辑器里按 1/2/3/4 直接触发鱼/蛇/蛙/鸟,跳过真实扫码。真机上不影响。")]
+    [SerializeField] private bool simulateWithKeyboard = true;
+
+    [Header("提示文字")]
+    [SerializeField] private bool showStatusText = true;
+    [SerializeField] private float statusTextSize = 0.022f;
+
+    // ——— 运行时 ———
+    private Phase phase = Phase.WaitingForCode;
+    private LijiangEchoPatternIntro intro;
+    private Transform anchorRoot;          // 钉在二维码上的舞台根
+    private MRUKTrackable currentCode;
+    private float finishedAt = -999f;
+    private bool trackingRequested;
+    private string lastStatus;
+
+    private readonly List<MRUKTrackable> scratch = new List<MRUKTrackable>();
+    private readonly List<GameObject> statusSpawned = new List<GameObject>();
+    private Transform statusRoot;
+    private TextMesh statusText;
+
+    // ————————————————————————————— 生命周期 —————————————————————————————
+
+    private void Start()
+    {
+        intro = GetComponent<LijiangEchoPatternIntro>();
+        if (intro == null)
+        {
+            intro = gameObject.AddComponent<LijiangEchoPatternIntro>();
+        }
+
+        BuildStatusText();
+        RequestQrTracking();
+    }
+
+    private void OnDestroy()
+    {
+        MRUK mruk = MRUK.Instance;
+        if (mruk != null && mruk.SceneSettings != null)
+        {
+            mruk.SceneSettings.TrackableAdded.RemoveListener(OnTrackableAdded);
+            mruk.SceneSettings.TrackableRemoved.RemoveListener(OnTrackableRemoved);
+        }
+    }
+
+    private void Update()
+    {
+        // MRUK 可能比本组件晚一步就绪,所以没成功就每帧再试
+        if (!trackingRequested)
+        {
+            RequestQrTracking();
+        }
+
+        if (phase == Phase.WaitingForCode)
+        {
+            PollForAlreadyDetectedCodes();
+            PollKeyboardSimulation();
+        }
+        else if (phase == Phase.Strike)
+        {
+            UpdateStrike();
+        }
+        else if (phase == Phase.Finished && allowRescan && Time.time - finishedAt > rescanCooldown)
+        {
+            phase = Phase.WaitingForCode;
+            SetStatus("把二维码放进视野");
+        }
+
+        FaceStatusTextToPlayer();
+    }
+
+    // ————————————————————————————— ① 扫码 —————————————————————————————
+
+    /// <summary>打开系统的二维码追踪。MRUK 还没起来时返回 false,由 Update 继续重试。</summary>
+    private void RequestQrTracking()
+    {
+        MRUK mruk = MRUK.Instance;
+        if (mruk == null || mruk.SceneSettings == null)
+        {
+            SetStatus("等待 MRUK 初始化…");
+            return;
+        }
+
+        if (!mruk.QRCodeTrackingSupported)
+        {
+            // Quest 2 没有彩色透视摄像头,系统层面就不支持 —— 优雅降级,不要卡死
+            trackingRequested = true;
+            SetStatus(simulateWithKeyboard
+                ? "本设备不支持扫码(Quest 3/3S 才有)\n电脑上可按 1/2/3/4 试玩"
+                : "本设备不支持扫码,需要 Quest 3 / 3S");
+            Debug.LogWarning("[漓江回声] 这台设备不支持二维码追踪(Quest 2 没有彩色透视摄像头)。");
+            return;
+        }
+
+        // TrackerConfiguration 是 struct,得取出来改完再塞回去,直接改属性是改不到的
+        OVRAnchor.TrackerConfiguration config = mruk.SceneSettings.TrackerConfiguration;
+        config.QRCodeTrackingEnabled = true;
+        mruk.SceneSettings.TrackerConfiguration = config;
+
+        mruk.SceneSettings.TrackableAdded.RemoveListener(OnTrackableAdded);
+        mruk.SceneSettings.TrackableAdded.AddListener(OnTrackableAdded);
+        mruk.SceneSettings.TrackableRemoved.RemoveListener(OnTrackableRemoved);
+        mruk.SceneSettings.TrackableRemoved.AddListener(OnTrackableRemoved);
+
+        trackingRequested = true;
+        SetStatus("把二维码放进视野");
+        Debug.Log("[漓江回声] 二维码追踪已开启,等待识别。");
+    }
+
+    private void OnTrackableAdded(MRUKTrackable trackable)
+    {
+        TryStartFrom(trackable);
+    }
+
+    private void OnTrackableRemoved(MRUKTrackable trackable)
+    {
+        // 二维码从视野里消失不打断演出 —— 玩家低头看手柄就中断的话体验太差。
+        // 只是不再跟随(锚点已经失效了)。
+        if (trackable == currentCode)
+        {
+            currentCode = null;
+        }
+    }
+
+    /// <summary>本组件可能比二维码晚出现(比如切进场景时码已经在视野里了),
+    /// 那样 TrackableAdded 早就发过了,所以空闲时也主动查一遍已知的 trackable。</summary>
+    private void PollForAlreadyDetectedCodes()
+    {
+        MRUK mruk = MRUK.Instance;
+        if (mruk == null)
+        {
+            return;
+        }
+
+        mruk.GetTrackables(scratch);
+        for (int i = 0; i < scratch.Count; i++)
+        {
+            if (TryStartFrom(scratch[i]))
+            {
+                return;
+            }
+        }
+    }
+
+    private bool TryStartFrom(MRUKTrackable trackable)
+    {
+        if (phase != Phase.WaitingForCode || trackable == null || !trackable.IsTracked)
+        {
+            return false;
+        }
+
+        if (trackable.TrackableType != OVRAnchor.TrackableType.QRCode)
+        {
+            return false;
+        }
+
+        if (!TryParsePayload(trackable.MarkerPayloadString, out LijiangEchoPatternIntro.Pattern pattern))
+        {
+            // 别人的码 / 我们不认识的码:忽略,不要打断,也不要刷屏
+            return false;
+        }
+
+        currentCode = trackable;
+        BeginAt(trackable.transform, MeasureCodeSize(trackable), pattern);
+        return true;
+    }
+
+    /// <summary>二维码内容 → 纹样。只认 "lijiang:xxx",别人的二维码一律不理。</summary>
+    public static bool TryParsePayload(string payload, out LijiangEchoPatternIntro.Pattern pattern)
+    {
+        pattern = LijiangEchoPatternIntro.Pattern.Fish;
+        if (string.IsNullOrEmpty(payload))
+        {
+            return false;
+        }
+
+        string text = payload.Trim();
+        if (!text.StartsWith(PayloadPrefix, System.StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        switch (text.Substring(PayloadPrefix.Length).Trim().ToLowerInvariant())
+        {
+            case "fish": pattern = LijiangEchoPatternIntro.Pattern.Fish; return true;
+            case "snake": pattern = LijiangEchoPatternIntro.Pattern.Snake; return true;
+            case "frog": pattern = LijiangEchoPatternIntro.Pattern.Frog; return true;
+            case "bird": pattern = LijiangEchoPatternIntro.Pattern.Bird; return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>二维码印多大,系统是知道的(PlaneRect)。用它来定演出的尺度,
+    /// 这样打 A4 上的小码和打海报上的大码,观感是一致的。</summary>
+    private static float MeasureCodeSize(MRUKTrackable trackable)
+    {
+        if (trackable != null && trackable.PlaneRect.HasValue)
+        {
+            Rect rect = trackable.PlaneRect.Value;
+            float side = Mathf.Max(rect.width, rect.height);
+            if (side > 0.001f)
+            {
+                return side;
+            }
+        }
+
+        return 0.1f;   // 拿不到就按 10cm 算(我们自己打的那批就是这个量级)
+    }
+
+    // ————————————————————————————— ② 入场动画 —————————————————————————————
+
+    /// <summary>把演出钉到二维码那儿并起播。codeSize 是二维码的实际边长(米)。</summary>
+    private void BeginAt(Transform codeTransform, float codeSize, LijiangEchoPatternIntro.Pattern pattern)
+    {
+        if (anchorRoot != null)
+        {
+            Destroy(anchorRoot.gameObject);
+        }
+
+        GameObject holder = new GameObject("漓江回声_二维码锚点");
+        anchorRoot = holder.transform;
+
+        if (followCode && codeTransform != null)
+        {
+            // 挂成子物体 = 系统更新锚点位姿时,演出自动跟着走
+            anchorRoot.SetParent(codeTransform, false);
+            anchorRoot.localPosition = new Vector3(0f, 0f, liftOffPaper);
+            anchorRoot.localRotation = Quaternion.identity;
+        }
+        else if (codeTransform != null)
+        {
+            anchorRoot.SetPositionAndRotation(
+                codeTransform.position + codeTransform.forward * liftOffPaper,
+                codeTransform.rotation);
+        }
+
+        // 动画内部是按"1 米见方左右"的舞台写的,这里按二维码实际大小缩放到现场尺度
+        float scale = Mathf.Max(0.01f, codeSize * sizeRelativeToCode);
+        anchorRoot.localScale = Vector3.one * scale;
+
+        phase = Phase.Intro;
+        SetStatus(PatternName(pattern));
+
+        intro.Begin(pattern, anchorRoot, () => OnIntroFinished(pattern));
+        Debug.Log($"[漓江回声] 扫到 {PatternName(pattern)},二维码边长 {codeSize:F3} m,演出缩放 {scale:F3}。");
+    }
+
+    // ————————————————————————————— ③ 打击(占位) —————————————————————————————
+
+    private LijiangEchoPatternIntro.Pattern strikePattern;
+    private float strikeStartedAt;
+
+    private void OnIntroFinished(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        // ⚠️ 这里本该接战斗那一套(音符飞入 + 判定 + 命中反馈)。
+        // 战斗逻辑现在还锁在 LijiangEchoGameController 那 5800 行里,拆出来是
+        // docs/REFACTOR-STEP2-BATTLE-SPLIT.md 的活;等那步做完再把这里换成真打击。
+        // 在那之前先给一个能跑通闭环的占位:提示打法 → 按下 → 出音效 → 结束。
+        strikePattern = pattern;
+        strikeStartedAt = Time.time;
+        phase = Phase.Strike;
+        SetStatus(PatternName(pattern) + "\n" + StrikeHint(pattern));
+    }
+
+    private void UpdateStrike()
+    {
+        if (!LijiangEchoStageKit.NonPointerConfirmPressed())
+        {
+            // 一直没打也别永远卡着
+            if (Time.time - strikeStartedAt > 15f)
+            {
+                FinishRound();
+            }
+
+            return;
+        }
+
+        LijiangEchoStageKit.PlaySfx(StrikeSfx(strikePattern), 0.8f);
+        SetStatus(PatternName(strikePattern) + "\n命中");
+        FinishRound();
+    }
+
+    private void FinishRound()
+    {
+        phase = Phase.Finished;
+        finishedAt = Time.time;
+
+        if (intro != null)
+        {
+            intro.Teardown();
+        }
+
+        if (anchorRoot != null)
+        {
+            Destroy(anchorRoot.gameObject);
+            anchorRoot = null;
+        }
+
+        currentCode = null;
+    }
+
+    private static string StrikeHint(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case LijiangEchoPatternIntro.Pattern.Fish: return "单击 · 左右手分边";
+            case LijiangEchoPatternIntro.Pattern.Snake: return "按住不放";
+            case LijiangEchoPatternIntro.Pattern.Frog: return "滑动手柄";
+            default: return "双击 · 两只手同时";
+        }
+    }
+
+    private static string StrikeSfx(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case LijiangEchoPatternIntro.Pattern.Snake: return "snake";
+            case LijiangEchoPatternIntro.Pattern.Frog: return "swipe";
+            case LijiangEchoPatternIntro.Pattern.Bird: return "birds";
+            default: return "water";
+        }
+    }
+
+    public static string PatternName(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case LijiangEchoPatternIntro.Pattern.Fish: return "鱼纹";
+            case LijiangEchoPatternIntro.Pattern.Snake: return "蛇纹";
+            case LijiangEchoPatternIntro.Pattern.Frog: return "蛙纹";
+            default: return "鸟纹";
+        }
+    }
+
+    // ————————————————————————————— 电脑上跑测 —————————————————————————————
+
+    /// <summary>没有头显时,按 1/2/3/4 当作扫到了对应的码,演出就摆在相机正前方。
+    /// 这样在 Scanplay 场景里 Play 一下就能看整条链路,不用每次都戴头显。</summary>
+    private void PollKeyboardSimulation()
+    {
+        if (!simulateWithKeyboard)
+        {
+            return;
+        }
+
+        UnityEngine.InputSystem.Keyboard keyboard = UnityEngine.InputSystem.Keyboard.current;
+        if (keyboard == null)
+        {
+            return;
+        }
+
+        LijiangEchoPatternIntro.Pattern pattern;
+        if (keyboard.digit1Key.wasPressedThisFrame) { pattern = LijiangEchoPatternIntro.Pattern.Fish; }
+        else if (keyboard.digit2Key.wasPressedThisFrame) { pattern = LijiangEchoPatternIntro.Pattern.Snake; }
+        else if (keyboard.digit3Key.wasPressedThisFrame) { pattern = LijiangEchoPatternIntro.Pattern.Frog; }
+        else if (keyboard.digit4Key.wasPressedThisFrame) { pattern = LijiangEchoPatternIntro.Pattern.Bird; }
+        else { return; }
+
+        SimulateScan(pattern);
+    }
+
+    /// <summary>假装扫到了一张码,摆在相机正前方 0.8 米。编辑器菜单也调这个。</summary>
+    public void SimulateScan(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        if (phase != Phase.WaitingForCode)
+        {
+            return;
+        }
+
+        Camera cam = Camera.main;
+        GameObject fake = new GameObject("漓江回声_模拟二维码");
+        if (cam != null)
+        {
+            fake.transform.position = cam.transform.position + cam.transform.forward * 0.8f;
+            fake.transform.rotation = Quaternion.LookRotation(cam.transform.forward, Vector3.up);
+        }
+
+        // 模拟的码按 10cm 算,和我们打印的那批一致
+        BeginAt(fake.transform, 0.1f, pattern);
+        fake.transform.SetParent(anchorRoot != null ? anchorRoot.parent : null, true);
+        Destroy(fake, 60f);
+    }
+
+    // ————————————————————————————— 提示文字 —————————————————————————————
+
+    private void BuildStatusText()
+    {
+        if (!showStatusText)
+        {
+            return;
+        }
+
+        GameObject holder = new GameObject("漓江回声_扫码提示");
+        statusRoot = holder.transform;
+        statusRoot.SetParent(transform, false);
+
+        statusText = LijiangEchoStageKit.AddText(
+            statusRoot, statusSpawned, "", Vector3.zero, statusTextSize, Color.white, 60);
+    }
+
+    private void SetStatus(string text)
+    {
+        if (lastStatus == text)
+        {
+            return;
+        }
+
+        lastStatus = text;
+        if (statusText != null)
+        {
+            statusText.text = text;
+        }
+    }
+
+    /// <summary>提示挂在玩家面前、始终朝向玩家 —— 它是给人看的,不该跟着二维码歪。</summary>
+    private void FaceStatusTextToPlayer()
+    {
+        if (statusRoot == null)
+        {
+            return;
+        }
+
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            return;
+        }
+
+        Transform head = cam.transform;
+        statusRoot.position = head.position + head.forward * 1.1f + head.up * -0.28f;
+        statusRoot.rotation = Quaternion.LookRotation(statusRoot.position - head.position, Vector3.up);
+    }
+}

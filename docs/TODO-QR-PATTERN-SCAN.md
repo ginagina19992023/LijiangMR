@@ -199,3 +199,56 @@ Quest 3/3S 上应用**能不能拿到摄像头画面**是这个功能的生死�
 - 博物馆的实地条件确定（光照、二维码尺寸、贴在哪、玩家距离多远扫）
 
 其中**光照和距离**特别影响识别率，最好带头显去现场试一次再定二维码印多大。
+
+---
+
+## 6. 扫码已实现(2026-09-06)——但做法和上面第 4 节估的不一样
+
+**上面第 4 节写的「摄像头取帧 + 引入 ZXing 解码 + 自己反算二维码空间位置」那条路,没有走。**
+翻 Meta XR SDK 201 的时候发现这件事系统已经做完了:MRUK 提供**系统级的二维码追踪**,
+直接给出【解码后的字符串】和【一个持续跟踪的世界锚点】。
+
+所以最终:
+- ❌ 不引入 ZXing(不新增第三方依赖)
+- ❌ 不自己取摄像头帧、不自己写解码
+- ❌ 不用按二维码像素大小反算距离
+- ✅ 锚定精度和稳定性由系统负责,玩家走动时演出留在原地
+
+用到的 API(都在 `Assets/Scripts/Stages/LijiangEchoQrScan.cs` 里):
+
+| 用途 | API |
+|---|---|
+| 设备支不支持 | `MRUK.Instance.QRCodeTrackingSupported`(Quest 2 为 false) |
+| 打开追踪 | `SceneSettings.TrackerConfiguration.QRCodeTrackingEnabled = true` ⚠️ 是 struct,要取出改完塞回去 |
+| 认出来了 | `SceneSettings.TrackableAdded` → `MRUKTrackable` |
+| 二维码内容 | `MRUKTrackable.MarkerPayloadString` |
+| 世界位姿 | `MRUKTrackable.transform`(挂成子物体即可自动跟随) |
+| 二维码实际边长 | `MRUKTrackable.PlaneRect` —— 用它把演出缩放到现场尺度 |
+
+权限 `com.oculus.permission.USE_SCENE` 和 `USE_ANCHOR_API` 工程里**早就声明过了**,没动 manifest。
+
+### 怎么跑
+
+**电脑上**(不用头显):
+```
+漓江回声 / 5 调试 / 扫码 / 一键搭好当前场景(Play 即可跑)
+```
+会补齐 OVRCameraRig + MRUK + 扫码脚本三样。然后 Play,按 `1/2/3/4` = 鱼/蛇/蛙/鸟,
+演出出现在相机正前方;入场动画演完后按 空格 / 鼠标左键 / 手柄 A 完成打击占位。
+
+**头显上**:同一个场景打包上去,把打印的二维码放进视野即可。
+四张码的内容是 `lijiang:fish` / `lijiang:snake` / `lijiang:frog` / `lijiang:bird`,
+排版好的 A4 打印版在 `D:\Recording\qrcodes\漓江回声_四张二维码_A4打印版.png`。
+
+### 还剩什么没做
+
+**第③段打击目前是占位**:提示打法 → 按一下 → 出音效 → 结束。
+真打击(音符飞入 + 判定 + 命中反馈)要等 `docs/REFACTOR-STEP2-BATTLE-SPLIT.md`
+那步把战斗从 `LijiangEchoGameController` 那 5800 行里拆出来之后再接。
+接口已经留好了:`LijiangEchoQrScan.OnIntroFinished()`。
+
+### 现场还需要实测的
+
+- 二维码印多大合适(现在按 ≥8cm 出的图),玩家站多远能稳定识别
+- 展厅光照下的识别率
+- 一张码演完之后要不要能反复扫(`allowRescan`,默认开)
