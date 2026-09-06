@@ -122,6 +122,10 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         public Hand RequiredHand;   // 该用哪只手(鱼纹左右分边)
         public bool Resolved;
         public bool Hit;
+
+        // 鸟纹「镜像汇合」的分身(= 左翼)。纯视觉,不参与判定,
+        // 位置永远取本体的 x 取反,和本体对称地飞向圆心。
+        public Transform MirrorTwin;
     }
 
     // ————————————————————————————— 对外 —————————————————————————————
@@ -248,11 +252,17 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
                 default:
                 {
-                    // 鸟纹:左右各飞来一只,在圆心叠合 —— 所以要两只手同时打
-                    SpawnNote(BirdArt, "鸟纹音符_左_" + i,
-                        new Vector3(-spawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both, 30 + i * 2);
-                    SpawnNote(BirdArt, "鸟纹音符_右_" + i,
-                        new Vector3(spawnDistance, 0.35f, 0.2f), arriveAt, Hand.None, 31 + i * 2);
+                    // 鸟纹「镜像汇合」—— 和战斗里的做法完全一致(LijiangEchoGameController:3017):
+                    // 不是两张翅膀素材,而是【同一只鸟纹】原体走右侧,再生成一只水平镜像的
+                    // 分身走左侧,两只对称汇合到圆心拼成整鸟。
+                    SpawnNote(BirdArt, "鸟纹音符_" + i,
+                        new Vector3(spawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both, 30 + i * 2);
+
+                    Note original = notes[notes.Count - 1];
+                    Transform twin = LijiangEchoPatternIntro.AddCenteredSprite(
+                        root, spawned, BirdArt, "鸟纹音符_镜像分身_" + i, noteSize, 31 + i * 2);
+                    twin.localPosition = new Vector3(-spawnDistance, 0.35f, 0.2f);
+                    original.MirrorTwin = twin;
                     break;
                 }
             }
@@ -266,15 +276,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             root, spawned, art, objectName, noteSize, order);
         note.localPosition = from;
 
-        // 只有带 RequiredHand 的那一个参与判定;鸟纹右边那只只是陪着飞
-        if (hand != Hand.None || pattern != LijiangEchoPatternIntro.Pattern.Bird)
-        {
-            notes.Add(new Note { Tr = note, From = from, ArriveAt = arriveAt, RequiredHand = hand });
-        }
-        else
-        {
-            notes.Add(new Note { Tr = note, From = from, ArriveAt = arriveAt, RequiredHand = Hand.None, Resolved = true });
-        }
+        notes.Add(new Note { Tr = note, From = from, ArriveAt = arriveAt, RequiredHand = hand });
     }
 
     // ————————————————————————————— 飞入与判定 —————————————————————————————
@@ -317,16 +319,19 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             {
                 // 已判定的:命中往圆心缩、失误的继续飘走并淡出
                 float after = Mathf.Clamp01((timer - note.ArriveAt) / 0.45f);
-                LijiangEchoPatternIntro.SetAlpha(note.Tr, (1f - after) * (note.Hit ? 1f : 0.4f));
+                float resolvedAlpha = (1f - after) * (note.Hit ? 1f : 0.4f);
+                LijiangEchoPatternIntro.SetAlpha(note.Tr, resolvedAlpha);
                 if (note.Hit)
                 {
                     note.Tr.localScale = Vector3.one * Mathf.Lerp(scale, scale * 1.5f, after);
                 }
 
+                SyncMirrorTwin(note, resolvedAlpha);
                 continue;
             }
 
             LijiangEchoPatternIntro.SetAlpha(note.Tr, Mathf.Clamp01(p * 2.2f));
+            SyncMirrorTwin(note, Mathf.Clamp01(p * 2.2f));
 
             if (timer < note.ArriveAt - window)
             {
@@ -359,6 +364,27 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         {
             Finish();
         }
+    }
+
+    /// <summary>把镜像分身(左翼)摆到本体的对称位置。
+    ///
+    /// 和战斗里那段一样(LijiangEchoGameController:3444):位置取本体的 x 取反,
+    /// scale.x 取负做水平镜像,透明度同步 —— 于是两只对称地飞向圆心拼成整鸟。
+    /// 分身纯视觉,不进判定。</summary>
+    private static void SyncMirrorTwin(Note note, float alpha)
+    {
+        if (note.MirrorTwin == null || note.Tr == null)
+        {
+            return;
+        }
+
+        Vector3 pos = note.Tr.localPosition;
+        note.MirrorTwin.localPosition = new Vector3(-pos.x, pos.y, pos.z);
+
+        Vector3 scale = note.Tr.localScale;
+        note.MirrorTwin.localScale = new Vector3(-Mathf.Abs(scale.x), scale.y, scale.z);
+
+        LijiangEchoPatternIntro.SetAlpha(note.MirrorTwin, alpha);
     }
 
     private float CurrentWindow()
