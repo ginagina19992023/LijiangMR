@@ -97,6 +97,11 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [Tooltip("提示文字大小 —— 同样按光圈大小的倍数算。")]
     [SerializeField] private float hintTextRatio = 0.08f;
 
+    [Tooltip("音符画多大 —— 按光圈大小的倍数算(0.55 = 音符高度约为光圈的一半多)。\n"
+        + "音符 Prefab 自带的尺寸是照战斗那个舞台配的,直接拿过来会和这里放大过的光圈不成比例,\n"
+        + "所以量一下 Prefab 的实际高度再等比缩放。")]
+    [SerializeField] private float noteSizeRatio = 0.55f;
+
     // ——— 运行时 ———
     private Transform root;
     private readonly List<GameObject> spawned = new List<GameObject>();
@@ -211,6 +216,64 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             case LijiangEchoPatternIntro.Pattern.Bird: return settings != null && settings.mirrorDouble;
             default: return settings == null || settings.mirrorStrike;   // 鱼纹默认开
         }
+    }
+
+    /// <summary>把刚实例化出来的音符等比缩放到「光圈的 noteSizeRatio 倍」那么高。
+    ///
+    /// Prefab 自带的大小是照战斗那个舞台配的,而这里的光圈被放大到了 1.97,
+    /// 直接拿过来音符就显得很小 —— 所以量一下它渲染出来实际多高,再按比例缩。
+    /// 量的是所有子渲染器合起来的包围盒(Prefab 里常常还有一层光晕)。</summary>
+    private void FitNoteToRing(Transform note)
+    {
+        if (note == null || root == null)
+        {
+            return;
+        }
+
+        Renderer[] renderers = note.GetComponentsInChildren<Renderer>(true);
+        bool any = false;
+        Bounds world = new Bounds();
+        foreach (Renderer r in renderers)
+        {
+            if (r == null)
+            {
+                continue;
+            }
+
+            if (!any)
+            {
+                world = r.bounds;
+                any = true;
+            }
+            else
+            {
+                world.Encapsulate(r.bounds);
+            }
+        }
+
+        if (!any)
+        {
+            return;
+        }
+
+        // 世界高度换回舞台的局部单位(舞台本身被二维码大小缩放过)
+        float stageScale = Mathf.Abs(root.lossyScale.y);
+        if (stageScale < 0.0001f)
+        {
+            return;
+        }
+
+        float currentHeight = world.size.y / stageScale;
+        float targetHeight = ringSize * noteSizeRatio;
+        if (currentHeight < 0.0001f || targetHeight <= 0f)
+        {
+            return;
+        }
+
+        // 保留镜像用的负号
+        Vector3 scale = note.localScale;
+        float k = targetHeight / currentHeight;
+        note.localScale = new Vector3(scale.x * k, scale.y * k, scale.z * k);
     }
 
     private static SpriteRenderer[] CacheRenderers(Transform target, out float[] baseAlpha)
@@ -410,6 +473,8 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                         twin.transform.localPosition = new Vector3(-SpawnDistance, 0.35f, 0.2f);
                         twin.transform.localRotation = Quaternion.identity;
 
+                        FitNoteToRing(twin.transform);
+
                         Vector3 ts = twin.transform.localScale;
                         twin.transform.localScale = new Vector3(-Mathf.Abs(ts.x), ts.y, ts.z);
                         spawned.Add(twin);
@@ -417,6 +482,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                         note.MirrorTwin = twin.transform;
                         note.TwinRenderers = CacheRenderers(twin.transform, out float[] twinBase);
                         note.TwinBaseAlpha = twinBase;
+                        ApplyAlpha(note.TwinRenderers, note.TwinBaseAlpha, 0f);
                     }
 
                     break;
@@ -431,6 +497,9 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         inst.name = objectName;
         inst.transform.localPosition = from;
         inst.transform.localRotation = Quaternion.identity;
+
+        // 先按光圈等比缩放,再做镜像 —— 顺序反了的话负号会被缩放覆盖掉
+        FitNoteToRing(inst.transform);
 
         // 按飞入方向自动镜像 —— 规则和开关都取自战斗的设置资源。
         // 纹样默认朝左:从左侧飞入时镜像成朝右,头就朝着圆心(= 飞行方向)。
@@ -451,6 +520,10 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             Renderers = CacheRenderers(inst.transform, out float[] baseAlpha)
         };
         note.BaseAlpha = baseAlpha;
+
+        // 生成的这一帧先藏起来:飞入的透明度是 Update 里按进度算的,
+        // 不先压成 0 的话会在起飞点闪一帧 Prefab 自带的满透明度。
+        ApplyAlpha(note.Renderers, note.BaseAlpha, 0f);
 
         notes.Add(note);
         return note;
@@ -691,6 +764,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                 inst.name = "命中纹样";
                 inst.transform.localPosition = new Vector3(0f, 0f, -0.02f);
                 inst.transform.localRotation = Quaternion.identity;
+                FitNoteToRing(inst.transform);
                 spawned.Add(inst);
 
                 revealed = inst.transform;
