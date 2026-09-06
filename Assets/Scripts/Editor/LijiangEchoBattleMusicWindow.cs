@@ -14,7 +14,7 @@ public class LijiangEchoBattleMusicWindow : EditorWindow
     private AudioClip clip;
     private string report = string.Empty;
 
-    [MenuItem("漓江回声/音频/战斗音乐（设置 + 诊断）")]
+    [MenuItem("漓江回声/1 谱面/战斗音乐（设置 + 诊断）")]
     public static void Open()
     {
         LijiangEchoBattleMusicWindow w = GetWindow<LijiangEchoBattleMusicWindow>("战斗音乐");

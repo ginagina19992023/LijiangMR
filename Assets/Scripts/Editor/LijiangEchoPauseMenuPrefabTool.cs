@@ -33,7 +33,7 @@ public static class LijiangEchoPauseMenuPrefabTool
     private static readonly string[] Labels = { "主页", "音乐", "跳过", "返回" };
     private static readonly float[] PositionsX = { -1.50f, -0.50f, 0.50f, 1.50f };
 
-    [MenuItem("漓江回声/暂停面板/生成可编辑暂停面板 Prefab", false, 0)]
+    [MenuItem("漓江回声/2 美术Prefab/暂停面板/生成可编辑暂停面板 Prefab", false, 0)]
     private static void GeneratePrefab()
     {
         string dir = Path.GetDirectoryName(PrefabPath);
@@ -78,7 +78,7 @@ public static class LijiangEchoPauseMenuPrefabTool
                   "四个图标物件的名字(菜单主页/菜单音乐/菜单跳过/菜单返回)请勿修改。");
     }
 
-    [MenuItem("漓江回声/暂停面板/选中暂停面板 Prefab", false, 1)]
+    [MenuItem("漓江回声/2 美术Prefab/暂停面板/选中暂停面板 Prefab", false, 1)]
     private static void SelectPrefab()
     {
         GameObject saved = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);

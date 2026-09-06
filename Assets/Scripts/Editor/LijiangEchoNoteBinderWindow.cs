@@ -51,7 +51,7 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
     private static string RingLevelPath(int level0Based) => OutFolder + "/Ring_level" + level0Based + ".prefab";
     private string RingTargetPath() => ringTargetLevel == 0 ? RingGlobalPath() : RingLevelPath(ringTargetLevel - 1);
 
-    [MenuItem("漓江回声/纹样/纹样绑定总表（看清+替换每个类型的纹样）")]
+    [MenuItem("漓江回声/2 美术Prefab/纹样/纹样绑定总表（枢纽·看清与替换）")]
     public static void Open()
     {
         LijiangEchoNoteBinderWindow w = GetWindow<LijiangEchoNoteBinderWindow>("纹样绑定总表");
@@ -513,7 +513,7 @@ public class LijiangEchoNoteBinderWindow : EditorWindow
             : "复制失败。";
     }
 
-    /// <summary>写调试标记并进入指定关卡的战斗(和「漓江回声/调试/进 战斗」同机制)。</summary>
+    /// <summary>写调试标记并进入指定关卡的战斗(和「漓江回声/5 调试/进 战斗」同机制)。</summary>
     private static void EnterBattle(int level)
     {
         if (EditorApplication.isPlaying)

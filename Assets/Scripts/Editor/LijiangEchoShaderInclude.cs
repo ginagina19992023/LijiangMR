@@ -22,7 +22,7 @@ public static class LijiangEchoShaderInclude
         EditorApplication.delayCall += EnsureAll;
     }
 
-    [MenuItem("漓江回声/材质/把打击纹样 shader 加入 Always Included")]
+    [MenuItem("漓江回声/6 工程维护/把打击纹样 shader 加入 Always Included")]
     public static void EnsureAllMenu()
     {
         EnsureAll();

@@ -7,7 +7,7 @@ using UnityEngine;
 /// </summary>
 public static class LijiangEchoHitPointTool
 {
-    [MenuItem("漓江回声/打击点/生成「打击点」Prefab 模板")]
+    [MenuItem("漓江回声/2 美术Prefab/打击点/生成打击点 Prefab 模板")]
     public static void CreateHitPointPrefab()
     {
         if (!AssetDatabase.IsValidFolder("Assets/Prefabs"))

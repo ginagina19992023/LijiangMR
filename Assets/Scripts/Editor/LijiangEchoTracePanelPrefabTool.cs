@@ -36,7 +36,7 @@ public static class LijiangEchoTracePanelPrefabTool
     private const float PatternHeight = 1.30f;
     private const float PanelWidth = 4.25f;
 
-    [MenuItem("漓江回声/描绘台/生成三个可编辑描绘台 Prefab", false, 0)]
+    [MenuItem("漓江回声/2 美术Prefab/描绘台/生成三个可编辑描绘台 Prefab", false, 0)]
     private static void GenerateAll()
     {
         if (!AssetDatabase.IsValidFolder(FolderPath))

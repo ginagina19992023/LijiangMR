@@ -37,7 +37,7 @@ public static class LijiangEchoNotePrefabTool
         new Spec("Note_Frog", "battle/frog_swipe", 0.22f),
     };
 
-    [MenuItem("漓江回声/纹样/生成4个可编辑纹样Prefab")]
+    [MenuItem("漓江回声/2 美术Prefab/纹样/生成 4 个可编辑纹样 Prefab")]
     public static void GenerateNotePrefabs()
     {
         if (!AssetDatabase.IsValidFolder("Assets/Resources"))
@@ -190,7 +190,7 @@ public static class LijiangEchoNotePrefabTool
         return $"OK(内容 {maxX - minX + 1}x{maxY - minY + 1}px,scale {scale:F3})";
     }
 
-    [MenuItem("漓江回声/纹样/生成4个空纹样Prefab（占位圆点·自己填art）")]
+    [MenuItem("漓江回声/2 美术Prefab/纹样/生成 4 个空纹样 Prefab（占位）")]
     public static void GenerateEmptyNotePrefabs()
     {
         if (!EditorUtility.DisplayDialog("生成空纹样Prefab",
@@ -416,7 +416,7 @@ public static class LijiangEchoNotePrefabTool
         new HandSpec { prefabName = "Hand_Right", artRel = "battle/7右手", reach = 1.0f, height = 1.6f },
     };
 
-    [MenuItem("漓江回声/纹样/生成左右手Prefab（可自己调位置/大小/深度）")]
+    [MenuItem("漓江回声/2 美术Prefab/圆环与手/生成左右手 Prefab")]
     public static void GenerateHandPrefabs()
     {
         if (!AssetDatabase.IsValidFolder("Assets/Resources"))
@@ -532,13 +532,13 @@ public static class LijiangEchoNotePrefabTool
         return saved != null ? $"OK(reach {spec.reach}, height {spec.height})" : "保存失败";
     }
 
-    [MenuItem("漓江回声/纹样/纹样Prefab → 白剪影(统一白色)")]
+    [MenuItem("漓江回声/2 美术Prefab/纹样/切换为白剪影")]
     public static void SetWhite()
     {
         ApplyVisualMaterial(true);
     }
 
-    [MenuItem("漓江回声/纹样/纹样Prefab → 原彩色")]
+    [MenuItem("漓江回声/2 美术Prefab/纹样/切换为原彩色")]
     public static void SetColor()
     {
         ApplyVisualMaterial(false);
@@ -645,7 +645,7 @@ public static class LijiangEchoNotePrefabTool
     private const string RingArtRel = "battle/hit_ring_center";
     private const float RingTargetHeight = 0.62f;
 
-    [MenuItem("漓江回声/纹样/生成默认圆环Prefab（Ring_Center·带默认反馈脚本）")]
+    [MenuItem("漓江回声/2 美术Prefab/圆环与手/生成默认圆环 Prefab")]
     public static void GenerateRingPrefab()
     {
         string msg = BuildRing("Ring_Center", RingArtRel, RingTargetHeight);

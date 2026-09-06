@@ -38,55 +38,55 @@ public static class LijiangEchoDebugMenu
         EditorApplication.isPlaying = true;
     }
 
-    [MenuItem("漓江回声/调试/进 开始界面")]
+    [MenuItem("漓江回声/5 调试/进 开始界面")]
     private static void ToStart()
     {
         EnterStage(0, 0);
     }
 
-    [MenuItem("漓江回声/调试/进 选关")]
+    [MenuItem("漓江回声/5 调试/进 选关")]
     private static void ToSelect()
     {
         EnterStage(1, 0);
     }
 
-    [MenuItem("漓江回声/调试/进 过场(关卡1)")]
+    [MenuItem("漓江回声/5 调试/进 过场(关卡1)")]
     private static void ToIntro()
     {
         EnterStage(2, 0);
     }
 
-    [MenuItem("漓江回声/调试/进 描绘(关卡1)")]
+    [MenuItem("漓江回声/5 调试/进 描绘(关卡1)")]
     private static void ToTrace()
     {
         EnterStage(3, 0);
     }
 
-    [MenuItem("漓江回声/调试/进 战斗(关卡1)")]
+    [MenuItem("漓江回声/5 调试/进 战斗(关卡1)")]
     private static void ToBattle1()
     {
         EnterStage(4, 0);
     }
 
-    [MenuItem("漓江回声/调试/进 战斗(关卡2)")]
+    [MenuItem("漓江回声/5 调试/进 战斗(关卡2)")]
     private static void ToBattle2()
     {
         EnterStage(4, 1);
     }
 
-    [MenuItem("漓江回声/调试/进 战斗(关卡3)")]
+    [MenuItem("漓江回声/5 调试/进 战斗(关卡3)")]
     private static void ToBattle3()
     {
         EnterStage(4, 2);
     }
 
-    [MenuItem("漓江回声/调试/进 结算(关卡1)")]
+    [MenuItem("漓江回声/5 调试/进 结算(关卡1)")]
     private static void ToCard()
     {
         EnterStage(5, 0);
     }
 
-    [MenuItem("漓江回声/调试/清除调试跳转标记")]
+    [MenuItem("漓江回声/5 调试/清除调试跳转标记")]
     private static void ClearFlag()
     {
         PlayerPrefs.DeleteKey("LJ_DebugStartStage");

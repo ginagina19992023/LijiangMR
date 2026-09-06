@@ -26,7 +26,7 @@ public static class LijiangEchoSceneSplitTool
         "Directional Light"
     };
 
-    [MenuItem("漓江回声/拆分场景/搬迁 XR Rig 到 Bootstrap 场景")]
+    [MenuItem("漓江回声/6 工程维护/搬迁 XR Rig 到 Bootstrap 场景")]
     public static void MoveRigToBootstrap()
     {
         if (EditorApplication.isPlaying)

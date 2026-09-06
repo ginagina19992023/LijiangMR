@@ -10,11 +10,11 @@ using UnityEngine;
 public static class LijiangEchoBattleOptionsMenu
 {
     private const string AssetPath = "Assets/Resources/" + LijiangEchoBattleSettings.ResourceName + ".asset";
-    private const string MirrorMenu = "漓江回声/战斗选项/双击=镜像汇合(左右对飞)";
-    private const string AutoMirrorMenu = "漓江回声/战斗选项/音符按飞入方向自动镜像(总开关)";
-    private const string HandSideMenu = "漓江回声/战斗选项/左右手判定(左侧音符只响应左手)";
-    private const string BothHandsMenu = "漓江回声/战斗选项/双手音符需左右手同时打击";
-    private const string SelectMenu = "漓江回声/战斗选项/选中设置资源(在 Inspector 里改)";
+    private const string MirrorMenu = "漓江回声/4 战斗选项/双击=镜像汇合(左右对飞)";
+    private const string AutoMirrorMenu = "漓江回声/4 战斗选项/音符按飞入方向自动镜像(总开关)";
+    private const string HandSideMenu = "漓江回声/4 战斗选项/左右手判定(左侧音符只响应左手)";
+    private const string BothHandsMenu = "漓江回声/4 战斗选项/双手音符需左右手同时打击";
+    private const string SelectMenu = "漓江回声/4 战斗选项/选中设置资源(在 Inspector 里改)";
 
     /// <summary>取到资源;没有就在 Resources 下创建一份默认的。</summary>
     private static LijiangEchoBattleSettings GetOrCreate()

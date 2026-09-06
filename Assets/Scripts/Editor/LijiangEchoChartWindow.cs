@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 谱面时间轴编辑器:菜单「漓江回声/谱面/0. 打开预览窗口」。
+/// 谱面时间轴编辑器:菜单「漓江回声/1 谱面/打开谱面编辑器」。
 ///
 /// 能力:
 ///  · 从战斗音乐检测拍子(灵敏度/最小间隔滑条),或读回已有 chart_generated.txt 继续编辑;
@@ -192,7 +192,7 @@ public class LijiangEchoChartWindow : EditorWindow
         return i <= 2 ? LijiangEchoChartGenerator.ChartPathForLevel(i) : LijiangEchoChartGenerator.OutputPath;
     }
 
-    [MenuItem("漓江回声/谱面/0. 打开预览窗口")]
+    [MenuItem("漓江回声/1 谱面/打开谱面编辑器")]
     public static void Open()
     {
         LijiangEchoChartWindow w = GetWindow<LijiangEchoChartWindow>("谱面编辑器");

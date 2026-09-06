@@ -42,7 +42,7 @@ public static class LijiangEchoChartGenerator
     // 战斗关卡名(与运行时 levelNames 对应:0 蛙纹 / 1 鸟纹 / 2 鱼纹)。
     internal static readonly string[] LevelNames = { "蛙纹", "鸟纹", "鱼纹" };
 
-    [MenuItem("漓江回声/谱面/备份现有全部谱面(存原始版本)")]
+    [MenuItem("漓江回声/1 谱面/备份现有全部谱面")]
     public static void BackupAllCharts()
     {
         string dir = Path.GetFullPath(ChartFolder);
@@ -89,7 +89,7 @@ public static class LijiangEchoChartGenerator
     private const int HopSize = 512;
     internal const float SnapWindowSeconds = 0.3f; // 贴类型时,需求点吸附到最近检测点的最大距离
 
-    [MenuItem("漓江回声/谱面/1. 从音乐检测拍子生成谱面")]
+    [MenuItem("漓江回声/1 谱面/从音乐检测拍子生成谱面")]
     public static void GenerateFromMusic()
     {
         AudioClip clip = Resources.Load<AudioClip>(ClipResourcePath);
@@ -128,7 +128,7 @@ public static class LijiangEchoChartGenerator
             "好");
     }
 
-    [MenuItem("漓江回声/谱面/2. 把需求类型贴到最近拍子")]
+    [MenuItem("漓江回声/1 谱面/把需求类型贴到最近拍子")]
     public static void SnapRequirementTypes()
     {
         string genFull = Path.GetFullPath(OutputPath);
