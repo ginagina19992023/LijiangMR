@@ -333,18 +333,24 @@ public class LijiangEchoQrScan : MonoBehaviour
         GameObject holder = new GameObject("漓江回声_二维码锚点");
         anchorRoot = holder.transform;
 
+        // ⚠️ 二维码的 forward 是【从纸面指向观众】的,直接拿它当舞台朝向,舞台的 +X 就
+        // 落在玩家的左手边 —— 结果文字左右翻转、"从左飞来"也跑到右边去。绕 Y 转 180°
+        // 让舞台 +X 对上玩家的右手边(和 Unity 默认相机下 identity 可读是一回事);
+        // 这样一来局部 +Z 是扎进纸里的,所以往观众方向抬要走 -Z。
+        Quaternion faceViewer = Quaternion.Euler(0f, 180f, 0f);
+
         if (followCode && codeTransform != null)
         {
             // 挂成子物体 = 系统更新锚点位姿时,演出自动跟着走
             anchorRoot.SetParent(codeTransform, false);
             anchorRoot.localPosition = new Vector3(0f, 0f, liftOffPaper);
-            anchorRoot.localRotation = Quaternion.identity;
+            anchorRoot.localRotation = faceViewer;
         }
         else if (codeTransform != null)
         {
             anchorRoot.SetPositionAndRotation(
                 codeTransform.position + codeTransform.forward * liftOffPaper,
-                codeTransform.rotation);
+                codeTransform.rotation * faceViewer);
         }
 
         // 动画内部是按"1 米见方左右"的舞台写的,这里按二维码实际大小缩放到现场尺度

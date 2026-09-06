@@ -9,14 +9,21 @@ using UnityEngine.XR;
 ///
 /// 入场动画演完之后接这里:音符按各自的类型飞向光圈,玩家用对应的打法命中。
 ///   鱼纹 · 单击 —— 左边飞来的用左手打,右边飞来的用右手打
-///   蛇纹 · 长按 —— 按住不放,光圈从紫渐变到金,金了即满
+///   蛇纹 · 长按 —— 按住不放,音符从紫渐变到金,金了即满
 ///   蛙纹 · 挥划 —— 从下方蓄势升到圆心,过判定点后抛物线跃出;要向上挥
 ///   鸟纹 · 双击 —— 左右各飞来一只,圆心叠合;两只手要同时打
 ///
-/// 【为什么不直接调战斗那套】
-/// 战斗的判定锁在 LijiangEchoGameController 那 5800 行里,拆出来是
-/// docs/REFACTOR-STEP2-BATTLE-SPLIT.md 的活,还没做。这里按同样的规则单独实现一份,
-/// 手别映射、挥划阈值、双手同时的时间窗都对齐战斗的取值,拆分完成后可以整体换掉。
+/// 【和战斗共用同一批东西,不另做一套】
+/// 一开始我拿裸贴图自己拼音符,结果蛇纹、鸟纹和战斗完全两个样。现在:
+///   · 音符 = 直接实例化战斗的 Prefab(Resources/LijiangEchoNotes/Note_鱼/蛇/蛙/鸟)——
+///     贴图、裁剪、大小、居中、光晕全由 Prefab 决定,队友在编辑器里怎么摆这里就怎么显示
+///   · 镜像规则 = 直接读战斗的设置资源 LijiangEchoBattleSettings
+///     (autoMirrorNotesByDirection / mirrorStrike / mirrorHold / mirrorSwipe /
+///      mirrorDouble / doubleNoteMirrorConverge),不在这里另立开关
+///   · 长按变色 = 战斗那两个颜色原样照抄,而且变色的是【音符本身】不是光圈
+///
+/// 只有判定还是单独实现的:它锁在 LijiangEchoGameController 那 5800 行里,
+/// 拆出来是 docs/REFACTOR-STEP2-BATTLE-SPLIT.md 的活。阈值仍对齐战斗的取值。
 ///
 /// PC 兜底和战斗完全一致,避免两处规则打架:
 ///   鼠标左键 = 右手,Shift + 左键 = 左手,空格/回车 = 双手,↑ 键 = 向上挥
@@ -33,10 +40,10 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     }
 
     private const string RingArt = "battle/hit_ring_center";
-    private const string FishArt = "select/fish_symbol";
-    private const string SnakeArt = "transition/snake";
-    private const string FrogArt = "select/frog_symbol";
-    private const string BirdArt = "start/bird_big";
+
+    // 战斗里长按的紫→金,原样照抄(LijiangEchoGameController:3651),不另配一套颜色
+    private static readonly Color HoldPurple = new Color(0.78f, 0.48f, 1f);
+    private static readonly Color HoldGold = new Color(1f, 0.9f, 0.35f);
 
     [Header("节奏")]
     [Tooltip("一轮打几个音符(蛇纹是长按,固定一个)。")]
@@ -61,9 +68,6 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [Tooltip("没按住时读条回落的速度倍率。松手就清零太挫,留一点缓冲。")]
     [SerializeField] private float holdDecay = 0.6f;
 
-    [SerializeField] private Color holdFromColor = new Color(0.62f, 0.36f, 0.85f);   // 紫
-    [SerializeField] private Color holdToColor = new Color(1f, 0.82f, 0.25f);        // 金
-
     [Header("挥划判定")]
     [Tooltip("手柄挥动速度阈值(米/秒)。对齐战斗的 swipeMinimumSpeed。")]
     [SerializeField] private float swipeMinimumSpeed = 0.34f;
@@ -77,7 +81,6 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
     [Header("外观")]
     [SerializeField] private float ringSize = 0.62f;
-    [SerializeField] private float noteSize = 0.90f;
     [SerializeField] private float spawnDistance = 1.5f;   // 音符从多远飞来
     [SerializeField] private float hintTextSize = 0.05f;
 
@@ -97,8 +100,29 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     private int misses;
     private Action<int, int> onFinished;   // (命中数, 总数)
 
+    // 战斗的设置资源。镜像规则、鸟纹汇合与否都读它,不在这里另立一套。
+    private LijiangEchoBattleSettings settings;
+
     // 长按
     private float holdProgress;
+    private Note holdNote;
+
+    /// <summary>缩放乘在 Prefab 自己的大小上,不要用 Vector3.one 覆盖掉 ——
+    /// Prefab 里怎么摆的就得保持怎么样。镜像过的音符 x 是负的,这里保留符号。</summary>
+    private static void SetNoteScale(Note note, float k)
+    {
+        if (note == null || note.Tr == null)
+        {
+            return;
+        }
+
+        if (note.BaseScale == Vector3.zero)
+        {
+            note.BaseScale = note.Tr.localScale;
+        }
+
+        note.Tr.localScale = note.BaseScale * k;
+    }
 
     // 手柄
     private Transform leftAnchor;
@@ -126,6 +150,85 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         // 鸟纹「镜像汇合」的分身(= 左翼)。纯视觉,不参与判定,
         // 位置永远取本体的 x 取反,和本体对称地飞向圆心。
         public Transform MirrorTwin;
+
+        // Prefab 里可能有好几层(纹样 + 光晕),各层原本的透明度要留着按比例淡入,
+        // 直接统一写 1 会把光晕也拉满,和战斗看着就不一样了。战斗那边同样是这么缓存的。
+        public SpriteRenderer[] Renderers;
+        public float[] BaseAlpha;
+        public SpriteRenderer[] TwinRenderers;
+        public float[] TwinBaseAlpha;
+
+        // Prefab 自带的大小,飞入时的缩放乘在它上面
+        public Vector3 BaseScale;
+    }
+
+    /// <summary>战斗的音符 Prefab。视觉(贴图/裁剪/大小/居中/光晕)完全由 Prefab 决定,
+    /// 和战斗共用同一份 —— 队友在编辑器里怎么摆,这里就怎么显示。</summary>
+    private static GameObject LoadNotePrefab(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        return Resources.Load<GameObject>("LijiangEchoNotes/" + NotePrefabName(pattern));
+    }
+
+    private static string NotePrefabName(LijiangEchoPatternIntro.Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case LijiangEchoPatternIntro.Pattern.Snake: return "Note_Snake";
+            case LijiangEchoPatternIntro.Pattern.Frog: return "Note_Frog";
+            case LijiangEchoPatternIntro.Pattern.Bird: return "Note_Bird";
+            default: return "Note_Fish";
+        }
+    }
+
+    /// <summary>要不要按飞入方向做水平镜像 —— 规则和取值都来自战斗的设置资源,
+    /// 不在这里另立一套。资源缺失时退回和战斗脚本一样的默认值。
+    /// (鱼纹默认开:从左飞入时镜像成朝右,鱼头就朝着圆心。)</summary>
+    private bool ShouldAutoMirror()
+    {
+        if (settings != null && !settings.autoMirrorNotesByDirection)
+        {
+            return false;
+        }
+
+        switch (pattern)
+        {
+            case LijiangEchoPatternIntro.Pattern.Snake: return settings != null && settings.mirrorHold;
+            case LijiangEchoPatternIntro.Pattern.Frog: return settings != null && settings.mirrorSwipe;
+            case LijiangEchoPatternIntro.Pattern.Bird: return settings != null && settings.mirrorDouble;
+            default: return settings == null || settings.mirrorStrike;   // 鱼纹默认开
+        }
+    }
+
+    private static SpriteRenderer[] CacheRenderers(Transform target, out float[] baseAlpha)
+    {
+        SpriteRenderer[] renderers = target.GetComponentsInChildren<SpriteRenderer>(true);
+        baseAlpha = new float[renderers.Length];
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            baseAlpha[i] = renderers[i] != null ? renderers[i].color.a : 1f;
+        }
+
+        return renderers;
+    }
+
+    private static void ApplyAlpha(SpriteRenderer[] renderers, float[] baseAlpha, float k)
+    {
+        if (renderers == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+            {
+                continue;
+            }
+
+            Color c = renderers[i].color;
+            c.a = Mathf.Clamp01((baseAlpha != null && i < baseAlpha.Length ? baseAlpha[i] : 1f) * k);
+            renderers[i].color = c;
+        }
     }
 
     // ————————————————————————————— 对外 —————————————————————————————
@@ -141,6 +244,10 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         hits = 0;
         misses = 0;
         holdProgress = 0f;
+        holdNote = null;
+
+        // 直接读战斗那份设置资源,镜像规则和鸟纹汇合与否都跟着它走
+        settings = Resources.Load<LijiangEchoBattleSettings>(LijiangEchoBattleSettings.ResourceName);
 
         GameObject holder = new GameObject("漓江回声_扫码打击");
         holder.transform.SetParent(anchor, false);
@@ -161,10 +268,13 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         running = false;
         onFinished = null;
         notes.Clear();
+        holdNote = null;
         ring = null;
         ringRenderer = null;
         hint = null;
         revealed = null;
+        revealedRenderers = null;
+        revealedBaseAlpha = null;
         spawned.Clear();
 
         if (root != null)
@@ -216,11 +326,22 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             hintTextSize, Color.white, 40);
     }
 
+    /// <summary>音符全部用【战斗那套 Prefab】实例化 —— 贴图、裁剪、大小、居中、光晕
+    /// 都由 Prefab 决定,和战斗里长得一模一样。之前是拿裸贴图自己拼的,所以蛇纹、
+    /// 鸟纹跟战斗完全对不上。</summary>
     private void BuildNotes()
     {
+        GameObject prefab = LoadNotePrefab(pattern);
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[漓江回声] 找不到音符 Prefab:LijiangEchoNotes/{NotePrefabName(pattern)}");
+            return;
+        }
+
         if (pattern == LijiangEchoPatternIntro.Pattern.Snake)
         {
-            // 长按只有一个「音符」—— 就是光圈本身,不另外飞东西过来
+            // 长按:一个音符停在圆心,按住的过程中它从紫渐变到金(和战斗一致)
+            holdNote = SpawnNote(prefab, "蛇纹长按", Vector3.zero, 0f, Hand.Both);
             return;
         }
 
@@ -235,48 +356,80 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                 {
                     // 左右交替飞来,飞哪边就得用哪只手
                     bool fromLeft = i % 2 == 0;
-                    SpawnNote(FishArt, "鱼纹音符_" + i,
+                    SpawnNote(prefab, "鱼纹音符_" + i,
                         new Vector3(fromLeft ? -spawnDistance : spawnDistance, 0.1f, 0.25f),
-                        arriveAt, fromLeft ? Hand.Left : Hand.Right, 30 + i);
+                        arriveAt, fromLeft ? Hand.Left : Hand.Right);
                     break;
                 }
 
                 case LijiangEchoPatternIntro.Pattern.Frog:
                 {
                     // 从下方蓄势升上来
-                    SpawnNote(FrogArt, "蛙纹音符_" + i,
-                        new Vector3(0f, -spawnDistance, 0.2f),
-                        arriveAt, Hand.None, 30 + i);
+                    SpawnNote(prefab, "蛙纹音符_" + i,
+                        new Vector3(0f, -spawnDistance, 0.2f), arriveAt, Hand.None);
                     break;
                 }
 
                 default:
                 {
-                    // 鸟纹「镜像汇合」—— 和战斗里的做法完全一致(LijiangEchoGameController:3017):
-                    // 不是两张翅膀素材,而是【同一只鸟纹】原体走右侧,再生成一只水平镜像的
-                    // 分身走左侧,两只对称汇合到圆心拼成整鸟。
-                    SpawnNote(BirdArt, "鸟纹音符_" + i,
-                        new Vector3(spawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both, 30 + i * 2);
+                    // 鸟纹「镜像汇合」,照搬战斗(LijiangEchoGameController:3017):
+                    // 同一个 Note_Bird,原体固定从【右】飞入(= 右翼),再实例化一只
+                    // localScale.x 取负的镜像分身从【左】飞入(= 左翼),对称汇合成整鸟。
+                    Note note = SpawnNote(prefab, "鸟纹音符_" + i,
+                        new Vector3(spawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both);
 
-                    Note original = notes[notes.Count - 1];
-                    Transform twin = LijiangEchoPatternIntro.AddCenteredSprite(
-                        root, spawned, BirdArt, "鸟纹音符_镜像分身_" + i, noteSize, 31 + i * 2);
-                    twin.localPosition = new Vector3(-spawnDistance, 0.35f, 0.2f);
-                    original.MirrorTwin = twin;
+                    bool converge = settings == null || settings.doubleNoteMirrorConverge;
+                    if (converge && note != null)
+                    {
+                        GameObject twin = Instantiate(prefab, root, false);
+                        twin.name = "鸟纹音符_镜像分身_" + i;
+                        twin.transform.localPosition = new Vector3(-spawnDistance, 0.35f, 0.2f);
+                        twin.transform.localRotation = Quaternion.identity;
+
+                        Vector3 ts = twin.transform.localScale;
+                        twin.transform.localScale = new Vector3(-Mathf.Abs(ts.x), ts.y, ts.z);
+                        spawned.Add(twin);
+
+                        note.MirrorTwin = twin.transform;
+                        note.TwinRenderers = CacheRenderers(twin.transform, out float[] twinBase);
+                        note.TwinBaseAlpha = twinBase;
+                    }
+
                     break;
                 }
             }
         }
     }
 
-    private void SpawnNote(string art, string objectName, Vector3 from, float arriveAt, Hand hand, int order)
+    private Note SpawnNote(GameObject prefab, string objectName, Vector3 from, float arriveAt, Hand hand)
     {
-        // 走和入场动画同一套「图案落在支点上」的生成方式,否则一缩放就偏出去
-        Transform note = LijiangEchoPatternIntro.AddCenteredSprite(
-            root, spawned, art, objectName, noteSize, order);
-        note.localPosition = from;
+        GameObject inst = Instantiate(prefab, root, false);
+        inst.name = objectName;
+        inst.transform.localPosition = from;
+        inst.transform.localRotation = Quaternion.identity;
 
-        notes.Add(new Note { Tr = note, From = from, ArriveAt = arriveAt, RequiredHand = hand });
+        // 按飞入方向自动镜像 —— 规则和开关都取自战斗的设置资源。
+        // 纹样默认朝左:从左侧飞入时镜像成朝右,头就朝着圆心(= 飞行方向)。
+        if (from.x < 0f && ShouldAutoMirror())
+        {
+            Vector3 sc = inst.transform.localScale;
+            inst.transform.localScale = new Vector3(-Mathf.Abs(sc.x), sc.y, sc.z);
+        }
+
+        spawned.Add(inst);
+
+        Note note = new Note
+        {
+            Tr = inst.transform,
+            From = from,
+            ArriveAt = arriveAt,
+            RequiredHand = hand,
+            Renderers = CacheRenderers(inst.transform, out float[] baseAlpha)
+        };
+        note.BaseAlpha = baseAlpha;
+
+        notes.Add(note);
+        return note;
     }
 
     // ————————————————————————————— 飞入与判定 —————————————————————————————
@@ -311,26 +464,27 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
             note.Tr.localPosition = pos;
 
-            // 越近越大一点,凑到判定点时最清楚
+            // 越近越大一点。缩放乘在 Prefab 自己的大小上 —— Prefab 怎么摆的就保持怎么样,
+            // 不要用 Vector3.one 把它的尺寸覆盖掉。
             float scale = Mathf.Lerp(0.65f, 1f, p);
-            note.Tr.localScale = Vector3.one * scale;
+            SetNoteScale(note, scale);
 
             if (note.Resolved)
             {
                 // 已判定的:命中往圆心缩、失误的继续飘走并淡出
                 float after = Mathf.Clamp01((timer - note.ArriveAt) / 0.45f);
                 float resolvedAlpha = (1f - after) * (note.Hit ? 1f : 0.4f);
-                LijiangEchoPatternIntro.SetAlpha(note.Tr, resolvedAlpha);
+                ApplyAlpha(note.Renderers, note.BaseAlpha, resolvedAlpha);
                 if (note.Hit)
                 {
-                    note.Tr.localScale = Vector3.one * Mathf.Lerp(scale, scale * 1.5f, after);
+                    SetNoteScale(note, Mathf.Lerp(scale, scale * 1.5f, after));
                 }
 
                 SyncMirrorTwin(note, resolvedAlpha);
                 continue;
             }
 
-            LijiangEchoPatternIntro.SetAlpha(note.Tr, Mathf.Clamp01(p * 2.2f));
+            ApplyAlpha(note.Renderers, note.BaseAlpha, Mathf.Clamp01(p * 2.2f));
             SyncMirrorTwin(note, Mathf.Clamp01(p * 2.2f));
 
             if (timer < note.ArriveAt - window)
@@ -384,7 +538,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         Vector3 scale = note.Tr.localScale;
         note.MirrorTwin.localScale = new Vector3(-Mathf.Abs(scale.x), scale.y, scale.z);
 
-        LijiangEchoPatternIntro.SetAlpha(note.MirrorTwin, alpha);
+        ApplyAlpha(note.TwinRenderers, note.TwinBaseAlpha, alpha);
     }
 
     private float CurrentWindow()
@@ -454,15 +608,24 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         holdProgress += (held ? 1f : -holdDecay) * Time.deltaTime / Mathf.Max(0.1f, holdSeconds);
         holdProgress = Mathf.Clamp01(holdProgress);
 
-        // 光圈从紫渐变到金 —— 队友说"之前就是这样的"
-        if (ringRenderer != null)
+        // 照搬战斗(LijiangEchoGameController:3651):变色的是【音符本身】,不是光圈,
+        // 而且用的就是那两个颜色 —— 之前我把光圈染成紫金,所以看着和战斗完全两样。
+        if (holdNote != null && holdNote.Renderers != null)
         {
-            Color c = Color.Lerp(holdFromColor, holdToColor, holdProgress);
-            c.a = ringRenderer.color.a;
-            ringRenderer.color = c;
+            Color tint = Color.Lerp(HoldPurple, HoldGold, holdProgress);
+            for (int i = 0; i < holdNote.Renderers.Length; i++)
+            {
+                SpriteRenderer sr = holdNote.Renderers[i];
+                if (sr == null)
+                {
+                    continue;
+                }
 
-            float pulse = 1f + Mathf.Sin(Time.time * 6f) * 0.03f * holdProgress;
-            ring.localScale = Vector3.one * (Mathf.Lerp(0.9f, 1.12f, holdProgress) * pulse);
+                float baseA = holdNote.BaseAlpha != null && i < holdNote.BaseAlpha.Length
+                    ? holdNote.BaseAlpha[i]
+                    : 1f;
+                sr.color = new Color(tint.r, tint.g, tint.b, baseA);
+            }
         }
 
         ShowHint(holdProgress >= 1f
@@ -488,12 +651,23 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     {
         LijiangEchoStageKit.PlaySfx(HitSfx(pattern), 0.85f);
 
-        // 需求:命中后光圈中央浮现对应纹样
+        // 需求:命中后光圈中央浮现对应纹样。用的还是那个音符 Prefab,
+        // 免得又出现"打击时是一个样、浮现出来又是另一个样"。
         if (revealed == null)
         {
-            revealed = LijiangEchoPatternIntro.AddCenteredSprite(
-                root, spawned, ArtFor(pattern), "命中纹样", ringSize * 0.72f, 45);
-            revealed.localPosition = new Vector3(0f, 0f, -0.02f);
+            GameObject prefab = LoadNotePrefab(pattern);
+            if (prefab != null)
+            {
+                GameObject inst = Instantiate(prefab, root, false);
+                inst.name = "命中纹样";
+                inst.transform.localPosition = new Vector3(0f, 0f, -0.02f);
+                inst.transform.localRotation = Quaternion.identity;
+                spawned.Add(inst);
+
+                revealed = inst.transform;
+                revealedRenderers = CacheRenderers(revealed, out float[] revealedBase);
+                revealedBaseAlpha = revealedBase;
+            }
         }
 
         revealCountdown = 0.9f;
@@ -501,6 +675,8 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     }
 
     private float revealCountdown;
+    private SpriteRenderer[] revealedRenderers;
+    private float[] revealedBaseAlpha;
 
     private void LateUpdate()
     {
@@ -511,8 +687,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
         revealCountdown = Mathf.Max(0f, revealCountdown - Time.deltaTime);
         float k = revealCountdown / 0.9f;
-        LijiangEchoPatternIntro.SetAlpha(revealed, k);
-        revealed.localScale = Vector3.one * Mathf.Lerp(1.25f, 1f, k);
+        ApplyAlpha(revealedRenderers, revealedBaseAlpha, k);
     }
 
     private void Finish()
@@ -690,17 +865,6 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             case LijiangEchoPatternIntro.Pattern.Snake: return "按住不放";
             case LijiangEchoPatternIntro.Pattern.Frog: return "向上挥";
             default: return "双击 · 两只手同时";
-        }
-    }
-
-    private static string ArtFor(LijiangEchoPatternIntro.Pattern pattern)
-    {
-        switch (pattern)
-        {
-            case LijiangEchoPatternIntro.Pattern.Fish: return FishArt;
-            case LijiangEchoPatternIntro.Pattern.Snake: return SnakeArt;
-            case LijiangEchoPatternIntro.Pattern.Frog: return FrogArt;
-            default: return BirdArt;
         }
     }
 

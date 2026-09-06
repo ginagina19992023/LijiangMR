@@ -305,3 +305,29 @@ PC 兜底也和战斗、描绘完全一致,三处规则不打架:
 
 打击这边现在完全照这个来(`LijiangEchoPatternStrike.SyncMirrorTwin`),
 所以不需要找美术要单翅素材。
+
+### 修正:③ 必须和战斗共用同一批东西,不能另做一套
+
+第一版把音符拿裸贴图自己拼了,结果**蛇纹、鸟纹和战斗完全两个样**,
+鱼纹左右也没有按方向镜像。队友的原话:「明明应该直接引用是一样的才行」。改成:
+
+| 要素 | 现在的做法 |
+|---|---|
+| 音符外观 | **直接实例化战斗的 Prefab** `Resources/LijiangEchoNotes/Note_{Fish,Snake,Frog,Bird}` —— 贴图/裁剪/大小/居中/光晕全由 Prefab 决定 |
+| 左右镜像 | **直接读战斗的设置资源** `LijiangEchoBattleSettings`:`autoMirrorNotesByDirection` / `mirrorStrike` / `mirrorHold` / `mirrorSwipe` / `mirrorDouble` |
+| 鸟纹两翼 | 同样读 `doubleNoteMirrorConverge`(资源里是 1),原体从右、`scale.x` 取负的分身从左,对称汇合 |
+| 长按变色 | 战斗那两个颜色原样照抄,而且变色的是**音符本身**不是光圈 |
+| 命中浮现 | 也用同一个音符 Prefab,不会"打击一个样、浮现又一个样" |
+
+**鱼纹头朝内**就是这么来的:`mirrorStrike = 1`,从左飞入的音符 `scale.x` 取负 →
+纹样默认朝左被镜像成朝右 → 头朝着圆心(= 飞行方向)。
+
+只有**判定**还是单独实现的(锁在 `LijiangEchoGameController` 那 5800 行里,
+拆它是 STEP2 的活),但阈值全部对齐战斗取值。
+
+### 顺带修:进打击时文字左右翻转
+
+二维码的 `forward` 是**从纸面指向观众**的。直接拿它当舞台朝向,舞台的 `+X` 就落在
+玩家的**左**手边 —— 于是文字左右翻转,「从左飞来」也跑到右边去了。
+锚点绕 Y 转 180° 让 `+X` 对上玩家的右手边;局部 `+Z` 因此是扎进纸里的,
+所以往观众方向抬改走 `-Z`。
