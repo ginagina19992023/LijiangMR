@@ -85,6 +85,10 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("模拟的二维码摆在相机正前方多远(米)。太近会被近裁剪面切掉,太远看不清。")]
     [SerializeField] private float simulateDistance = 1.2f;
 
+    [Tooltip("头显里的保底触发:按手柄按键就当扫到一张码,四个纹样轮着来。"
+        + "扫码万一不灵,靠它也能把整套演出跑完。")]
+    [SerializeField] private bool allowManualTrigger = true;
+
     [Header("提示文字")]
     [SerializeField] private bool showStatusText = true;
     [SerializeField] private float statusTextSize = 0.022f;
@@ -293,6 +297,7 @@ public class LijiangEchoQrScan : MonoBehaviour
         {
             PollForAlreadyDetectedCodes();
             PollKeyboardSimulation();
+            PollManualTrigger();
         }
         else if (phase == Phase.Strike)
         {
@@ -511,7 +516,9 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         if (trackerAttempts >= trackerMaxAttempts)
         {
-            SetStatus("扫码开不起来\n请退出应用重进,或检查系统权限");
+            SetStatus(allowManualTrigger
+                ? "扫码暂时用不了\n按手柄扳机可以直接看纹样"
+                : "扫码开不起来\n请退出应用重进,或检查系统权限");
             Debug.LogError("[漓江回声] 二维码追踪重试用尽,仍未生效。"
                 + "检查:头显系统是否 v74+、应用的「空间数据」权限是否允许。");
         }
@@ -805,6 +812,44 @@ public class LijiangEchoQrScan : MonoBehaviour
         else if (keyboard.digit4Key.wasPressedThisFrame) { pattern = LijiangEchoPatternIntro.Pattern.Bird; }
         else { return; }
 
+        SimulateScan(pattern);
+    }
+
+    private int manualIndex;
+    private bool previousManualHeld;
+
+    /// <summary>头显里的保底触发:按手柄按键,直接演下一个纹样。
+    ///
+    /// 为什么要有这个:系统级二维码追踪在这台设备上一直配不起来(前置条件全部核实合格,
+    /// 仍返回 XR_ERROR_RUNTIME_FAILURE)。那件事继续查,但不该因此让整套东西在头显里
+    /// 完全没法看 —— 入场动画和打击都是好的,只是缺一个"从哪儿开始"的信号。
+    ///
+    /// 所以按一下手柄就当扫到了一张码,四个纹样轮着来。现场万一扫码不灵,
+    /// 这条也能顶着把展演跑完。</summary>
+    private void PollManualTrigger()
+    {
+        if (!allowManualTrigger)
+        {
+            return;
+        }
+
+        bool held = OVRInput.Get(OVRInput.Button.One) || OVRInput.Get(OVRInput.Button.Three)
+            || OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger, OVRInput.Controller.RTouch)
+            || OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger, OVRInput.Controller.LTouch);
+
+        bool pressed = held && !previousManualHeld;
+        previousManualHeld = held;
+
+        if (!pressed)
+        {
+            return;
+        }
+
+        LijiangEchoPatternIntro.Pattern pattern =
+            (LijiangEchoPatternIntro.Pattern)(manualIndex % 4);
+        manualIndex++;
+
+        Debug.Log($"[漓江回声] 手柄手动触发:{PatternName(pattern)}");
         SimulateScan(pattern);
     }
 
