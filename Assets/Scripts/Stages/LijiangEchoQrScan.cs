@@ -59,6 +59,9 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("在编辑器里按 1/2/3/4 直接触发鱼/蛇/蛙/鸟,跳过真实扫码。真机上不影响。")]
     [SerializeField] private bool simulateWithKeyboard = true;
 
+    [Tooltip("模拟的二维码摆在相机正前方多远(米)。太近会被近裁剪面切掉,太远看不清。")]
+    [SerializeField] private float simulateDistance = 1.2f;
+
     [Header("提示文字")]
     [SerializeField] private bool showStatusText = true;
     [SerializeField] private float statusTextSize = 0.022f;
@@ -77,6 +80,7 @@ public class LijiangEchoQrScan : MonoBehaviour
     private LijiangEchoPatternIntro intro;
     private Transform anchorRoot;          // 钉在二维码上的舞台根
     private MRUKTrackable currentCode;
+    private GameObject simulatedCode;   // 电脑上跑测时假装的那张码
     private float finishedAt = -999f;
     private bool trackingRequested;
     private string lastStatus;
@@ -340,6 +344,7 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         intro.Begin(pattern, anchorRoot, () => OnIntroFinished(pattern));
         Debug.Log($"[漓江回声] 扫到 {PatternName(pattern)},二维码边长 {codeSize:F3} m,演出缩放 {scale:F3}。");
+        LogStageDiagnostics();
     }
 
     // ————————————————————————————— ③ 打击(占位) —————————————————————————————
@@ -391,6 +396,12 @@ public class LijiangEchoQrScan : MonoBehaviour
         {
             Destroy(anchorRoot.gameObject);
             anchorRoot = null;
+        }
+
+        if (simulatedCode != null)
+        {
+            Destroy(simulatedCode);
+            simulatedCode = null;
         }
 
         currentCode = null;
@@ -465,17 +476,47 @@ public class LijiangEchoQrScan : MonoBehaviour
         }
 
         Camera cam = Camera.main;
-        GameObject fake = new GameObject("漓江回声_模拟二维码");
-        if (cam != null)
+        if (cam == null)
         {
-            fake.transform.position = cam.transform.position + cam.transform.forward * 0.8f;
-            fake.transform.rotation = Quaternion.LookRotation(cam.transform.forward, Vector3.up);
+            Debug.LogWarning("[漓江回声] 场景里没有可用的主相机(Camera.main 为空),模拟扫码没法定位。");
+            return;
         }
 
+        simulatedCode = new GameObject("漓江回声_模拟二维码");
+
+        // 朝向要和真二维码一致:真码的 transform.forward 是【从纸面指向观众】的,
+        // 舞台的 +Z 也就朝着人。所以这里用 -cam.forward,不是 cam.forward ——
+        // 写成 cam.forward 的话舞台整个背对着你,贴图是反的,liftOffPaper 还会把它往里推。
+        simulatedCode.transform.position = cam.transform.position + cam.transform.forward * simulateDistance;
+        simulatedCode.transform.rotation = Quaternion.LookRotation(-cam.transform.forward, Vector3.up);
+
         // 模拟的码按 10cm 算,和我们打印的那批一致
-        BeginAt(fake.transform, 0.1f, pattern);
-        fake.transform.SetParent(anchorRoot != null ? anchorRoot.parent : null, true);
-        Destroy(fake, 60f);
+        BeginAt(simulatedCode.transform, 0.1f, pattern);
+    }
+
+    /// <summary>把这一轮实际生成了什么、摆在哪儿打出来。
+    /// 「扫到了但什么都看不见」这种问题,光看现象没法判断是没生成、摆错地方、还是全透明。</summary>
+    private void LogStageDiagnostics()
+    {
+        if (anchorRoot == null)
+        {
+            Debug.LogWarning("[漓江回声] 舞台根没建起来。");
+            return;
+        }
+
+        Camera cam = Camera.main;
+        int sprites = anchorRoot.GetComponentsInChildren<SpriteRenderer>(true).Length;
+
+        string where = cam != null
+            ? $"距相机 {Vector3.Distance(cam.transform.position, anchorRoot.position):F2} m,"
+              + $"在相机{(Vector3.Dot(cam.transform.forward, anchorRoot.position - cam.transform.position) > 0f ? "前方" : "【后方】")}"
+            : "没有主相机";
+
+        Debug.Log($"[漓江回声] 舞台诊断:锚点世界坐标 {anchorRoot.position},缩放 {anchorRoot.lossyScale.x:F3},"
+            + $"图层数 {sprites},{where}。"
+            + $"\n相机:{(cam != null ? cam.name : "无")},"
+            + $"near {(cam != null ? cam.nearClipPlane.ToString("F3") : "-")},"
+            + $"清屏 {(cam != null ? cam.clearFlags.ToString() : "-")}");
     }
 
     // ————————————————————————————— 提示文字 —————————————————————————————
