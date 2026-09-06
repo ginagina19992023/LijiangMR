@@ -1328,8 +1328,17 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
 
         // 生物现在是「空支点 + 贴图子物体」,渲染器在子物体上,所以要往下找一层。
-        SpriteRenderer sr = target.GetComponent<SpriteRenderer>()
-            ?? target.GetComponentInChildren<SpriteRenderer>(true);
+        //
+        // ⚠️ 这里【不能用 ??】。UnityEngine.Object 重载了 ==,而 ?? 走的是 CLR 的引用判空,
+        // 两者对不上:GetComponent 拿不到组件时返回的东西在 ?? 眼里不算 null,于是右边那
+        // 半句根本不执行,sr 是个"假的非空",后面写 color 全部打了水漂 ——
+        // 光圈和提示字是直接挂渲染器的所以照常显示,套了支点的四种生物就整个不见了。
+        SpriteRenderer sr = target.GetComponent<SpriteRenderer>();
+        if (sr == null)
+        {
+            sr = target.GetComponentInChildren<SpriteRenderer>(true);
+        }
+
         if (sr == null)
         {
             return;
