@@ -933,7 +933,7 @@ MonoBehaviour:
   simulateWithKeyboard: 1
   simulateDistance: 1.2
   showStatusText: 1
-  statusTextDropDegrees: 30
+  statusTextDropDegrees: 32
   statusTextDistance: 1.6
   statusTextAngularSize: 6
   useBlackBackdrop: 1
@@ -978,8 +978,8 @@ MonoBehaviour:
   ringSize: 1.97
   spawnDistanceRatio: 2
   hintTextRatio: 0.022
-  nameTextOffsetRatio: 1.6
-  judgeTextOffsetRatio: 1.3
+  nameTextOffsetRatio: 0.7
+  judgeTextOffsetRatio: 0.7
   noteSizeRatio: 0.55
 --- !u!114 &2091088254
 MonoBehaviour:
@@ -1013,9 +1013,9 @@ MonoBehaviour:
   fishRippleRatio: 0.11
   fishLeapStarts: []
   fishPeekSpots: []
-  frogPadLeftPos: {x: -0.95, y: -0.22, z: 0.1}
-  frogPadNextPos: {x: 0.98, y: -0.22, z: -0.06}
-  frogEnterFrom: {x: -1.2, y: -1.17, z: 0.1}
+  frogPadLeftPos: {x: -1.4993385, y: -0.79236424, z: 0.1}
+  frogPadNextPos: {x: 0.98, y: -0.05, z: -0.06}
+  frogEnterFrom: {x: -1.5083921, y: -0.8361113, z: 0.1}
   frogExitTo: {x: 2.2, y: 0.55, z: -0.35}
   frogSitHeightRatio: 0.34
   frogPadScale: 1.15

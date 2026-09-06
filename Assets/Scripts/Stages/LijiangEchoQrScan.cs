@@ -93,10 +93,11 @@ public class LijiangEchoQrScan : MonoBehaviour
     [SerializeField] private bool showStatusText = true;
 
     [Tooltip("这一行压到视野下方多少度。反馈:要放到最下面、又必须看得见。\n"
-        + "头显竖直视野的一半大约 45°,默认 30° 是「很靠下、但整行都还在画面里」的位置;"
-        + "两行字加起来也只占到 24°~36°,不会被切掉。\n"
+        + "光圈边缘在视线下方 23.5°(手柄触发那种最近的摆法),所以默认 32°:"
+        + "一行字占 29°~35°,离光圈还有 5.5° 空隙,不会再压在图案上;"
+        + "而头显竖直视野的一半约 45°,整行都还稳稳在画面里。\n"
         + "想更靠下就调大,但别超过 36°,再往下就要碰到画面边缘了。")]
-    [SerializeField] private float statusTextDropDegrees = 30f;
+    [SerializeField] private float statusTextDropDegrees = 32f;
 
     [Tooltip("这一行离玩家多远(米)。改这个不会让字变大变小 —— 下面是按视角定大小的。")]
     [SerializeField] private float statusTextDistance = 1.6f;

@@ -97,11 +97,25 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [Tooltip("提示文字大小 —— 按光圈大小的倍数算。反馈:原来 0.08 太大,字比光圈一半还高、压到纹样上了。")]
     [SerializeField] private float hintTextRatio = 0.022f;
 
-    [Tooltip("纹样名放在光圈下方多远 —— 按光圈大小的倍数算,越大越靠下。")]
-    [SerializeField] private float nameTextOffsetRatio = 1.6f;
+    // 这两个别再往大调了,原因写在下面 —— 调过头字会直接飞出视野。
+    //
+    // 光圈贴图 1024×1024 里,真正画着圈的只有中间 905 像素(88.4%),
+    // 所以可见半径 = ringSize × 0.884 ÷ 2 = ringSize × 0.442。
+    // 手柄触发时舞台按 10cm 的码算,缩放 0.6、摆在 1.2 米外,于是:
+    //     光圈边缘        atan(1.97 × 0.442 × 0.6 ÷ 1.2) = 23.5°
+    //     文字比例 0.70   atan(1.97 × 0.70  × 0.6 ÷ 1.2) = 34.6°(字高 ±3.1°,即 31.4°~37.5°)
+    //     文字比例 1.30                                   = 52.0°  ← 已经在视野外
+    //     文字比例 1.60                                   = 57.6°  ← 更看不见
+    // Quest 3 竖直半视野约 48°,所以 0.70 是「离光圈有 8° 空隙、又稳稳在画面里」的位置。
+    // 二维码真扫起来时舞台更远更小,这个比例只会更宽裕,不用另调。
 
-    [Tooltip("判定文字放在光圈上方多远 —— 按光圈大小的倍数算。")]
-    [SerializeField] private float judgeTextOffsetRatio = 1.3f;
+    [Tooltip("纹样名放在光圈下方多远 —— 按光圈大小的倍数算,越大越靠下。\n"
+        + "0.70 时字在视线下方 31°~38°,光圈边缘在 23.5°,中间留了 8° 空隙。\n"
+        + "别超过 0.9,再大就要飞出视野了(手柄触发时舞台离眼睛只有 1.2 米)。")]
+    [SerializeField] private float nameTextOffsetRatio = 0.70f;
+
+    [Tooltip("判定文字放在光圈上方多远 —— 按光圈大小的倍数算。上限同上,别超过 0.9。")]
+    [SerializeField] private float judgeTextOffsetRatio = 0.70f;
 
     [Tooltip("音符画多大 —— 按光圈大小的倍数算(0.55 = 音符高度约为光圈的一半多)。\n"
         + "音符 Prefab 自带的尺寸是照战斗那个舞台配的,直接拿过来会和这里放大过的光圈不成比例,\n"
