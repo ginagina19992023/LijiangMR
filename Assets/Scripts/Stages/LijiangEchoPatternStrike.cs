@@ -156,6 +156,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     private bool previousRightPressed;
     private float leftPressedAt = -99f;
     private float rightPressedAt = -99f;
+    private Hand handsPressedThisFrame;
 
     private sealed class Note
     {
@@ -431,6 +432,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         }
 
         SampleControllers();
+        SampleHands();
         timer += Time.deltaTime;
 
         if (pattern == LijiangEchoPatternIntro.Pattern.Snake)
@@ -728,8 +730,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             case LijiangEchoPatternIntro.Pattern.Fish:
             {
                 // 单击,而且必须是对应那只手 —— 左边飞来的用左手
-                Hand pressed = HandsPressedThisFrame();
-                return (pressed & note.RequiredHand) != Hand.None;
+                return (handsPressedThisFrame & note.RequiredHand) != Hand.None;
             }
 
             case LijiangEchoPatternIntro.Pattern.Frog:
@@ -740,17 +741,20 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
             default:
             {
-                // 鸟纹:两只手要同时。允许一前一后,只要间隔在同步窗口内
-                Hand pressed = HandsPressedThisFrame();
-                float now = Time.time;
-                if ((pressed & Hand.Left) != Hand.None) { leftPressedAt = now; }
-                if ((pressed & Hand.Right) != Hand.None) { rightPressedAt = now; }
-
-                bool bothRecent = Mathf.Abs(leftPressedAt - rightPressedAt) <= twoHandSyncWindow
-                                  && now - Mathf.Min(leftPressedAt, rightPressedAt) <= twoHandSyncWindow;
-                if (bothRecent && pressed != Hand.None)
+                // 鸟纹:两只手要同时。允许一前一后,只要间隔在同步窗口内。
+                // 按下的时刻是在 SampleHands 里【每帧】记的,不是等到进判定窗口才记 ——
+                // 否则先按的那只手根本没被记下来,两只手永远凑不齐。
+                bool bothKnown = leftPressedAt > 0f && rightPressedAt > 0f;
+                if (!bothKnown)
                 {
-                    leftPressedAt = -99f;
+                    return false;
+                }
+
+                bool inSync = Mathf.Abs(leftPressedAt - rightPressedAt) <= twoHandSyncWindow;
+                bool fresh = Time.time - Mathf.Max(leftPressedAt, rightPressedAt) <= twoHandSyncWindow;
+                if (inSync && fresh)
+                {
+                    leftPressedAt = -99f;   // 一对只算一次
                     rightPressedAt = -99f;
                     return true;
                 }
@@ -876,6 +880,23 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
     // ————————————————————————————— 输入 —————————————————————————————
 
+    /// <summary>每帧采一次手部输入,并记下两只手各自最近一次按下的时刻。
+    ///
+    /// ⚠️ 必须每帧都采,不能等到"音符进了判定窗口"才采 —— 那是鸟纹判不出来的根因:
+    ///   · 按下的边沿检测(previousLeftPressed)只在窗口内更新,窗口外按的一律看不见;
+    ///     手要是在窗口打开前就按住了,整个窗口都检测不到"按下"这个动作
+    ///   · leftPressedAt / rightPressedAt 只在窗口内记,先按的那只手根本没被记下来,
+    ///     "两只手同时"这个条件就永远凑不齐 —— 鱼纹只要一只手所以没暴露,鸟纹要两只就废了
+    ///   · 一帧里如果有多个音符都在窗口内,第一个音符会把"按下"的边沿吃掉</summary>
+    private void SampleHands()
+    {
+        handsPressedThisFrame = HandsPressedThisFrame();
+
+        float now = Time.time;
+        if ((handsPressedThisFrame & Hand.Left) != Hand.None) { leftPressedAt = now; }
+        if ((handsPressedThisFrame & Hand.Right) != Hand.None) { rightPressedAt = now; }
+    }
+
     /// <summary>这一帧有哪只手「按下」了。规则对齐战斗:
     /// 手柄扳机/握把/面键各算各的手;PC 上鼠标左键=右手、Shift+左键=左手、空格/回车=双手。</summary>
     private Hand HandsPressedThisFrame()
@@ -902,10 +923,25 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             hands |= MousePointerHand();
+
+            // 鼠标一次只能代表一只手,所以「双手同时」在电脑上本来是打不出来的。
+            // 这个音符名字就叫双击 —— 那就让真的双击(同步窗口内连点两下)顶上。
+            float now = Time.time;
+            if (now - lastMouseClickAt <= twoHandSyncWindow)
+            {
+                hands |= Hand.Both;
+                lastMouseClickAt = -99f;   // 一次双击只算一次,别让第三下又凑成一对
+            }
+            else
+            {
+                lastMouseClickAt = now;
+            }
         }
 
         return hands;
     }
+
+    private float lastMouseClickAt = -99f;
 
     /// <summary>这一帧有没有手「按住」(长按用)。</summary>
     private Hand HandsHeld()
@@ -1027,7 +1063,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             case LijiangEchoPatternIntro.Pattern.Fish: return "单击 · 左边用左手,右边用右手";
             case LijiangEchoPatternIntro.Pattern.Snake: return "按住不放";
             case LijiangEchoPatternIntro.Pattern.Frog: return "向上挥";
-            default: return "双击 · 两只手同时";
+            default: return "双击 · 两只手同时(电脑上:空格,或连点两下)";
         }
     }
 
