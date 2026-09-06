@@ -164,6 +164,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   stageRoot: {fileID: 0}
+  startScreenRaise: 0.59
 --- !u!1 &144789075
 GameObject:
   m_ObjectHideFlags: 0
@@ -319,7 +320,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: -0.48, z: -0.55}
-  m_LocalScale: {x: 0.12288556, y: 0.12288556, z: 0.12288556}
+  m_LocalScale: {x: 0.12288557, y: 0.12288557, z: 0.12288557}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1311817728}
@@ -1889,7 +1890,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 1.28, y: 0.68, z: -0.61}
-  m_LocalScale: {x: 0.24577112, y: 0.24577112, z: 0.24577112}
+  m_LocalScale: {x: 0.24577114, y: 0.24577114, z: 0.24577114}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1311817728}
