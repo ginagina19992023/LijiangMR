@@ -80,9 +80,15 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     [SerializeField] private float twoHandSyncWindow = 0.35f;
 
     [Header("外观")]
-    [SerializeField] private float ringSize = 0.62f;
-    [SerializeField] private float spawnDistance = 1.5f;   // 音符从多远飞来
-    [SerializeField] private float hintTextSize = 0.05f;
+    [Tooltip("中心光圈的大小(世界单位)。必须和入场动画 LijiangEchoPatternIntro.ringSize 一致 —— "
+        + "两边不一样的话,一进打击光圈就会突然变大变小。")]
+    [SerializeField] private float ringSize = 1.97f;
+
+    [Tooltip("音符从多远飞来 —— 按光圈大小的倍数算,这样改光圈大小时布局自动跟着走。")]
+    [SerializeField] private float spawnDistanceRatio = 2f;
+
+    [Tooltip("提示文字大小 —— 同样按光圈大小的倍数算。")]
+    [SerializeField] private float hintTextRatio = 0.08f;
 
     // ——— 运行时 ———
     private Transform root;
@@ -329,12 +335,12 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     {
         judgeText = LijiangEchoStageKit.AddText(
             root, spawned, HintFor(pattern), new Vector3(0f, ringSize * 1.15f, 0f),
-            hintTextSize, Color.white, 40);
+            HintTextSize, Color.white, 40);
 
         nameText = LijiangEchoStageKit.AddText(
             root, spawned, LijiangEchoQrScan.PatternName(pattern),
             new Vector3(0f, -ringSize * 1.15f, 0f),
-            hintTextSize, Color.white, 40);
+            HintTextSize, Color.white, 40);
     }
 
     /// <summary>音符全部用【战斗那套 Prefab】实例化 —— 贴图、裁剪、大小、居中、光晕
@@ -368,7 +374,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                     // 左右交替飞来,飞哪边就得用哪只手
                     bool fromLeft = i % 2 == 0;
                     SpawnNote(prefab, "鱼纹音符_" + i,
-                        new Vector3(fromLeft ? -spawnDistance : spawnDistance, 0.1f, 0.25f),
+                        new Vector3(fromLeft ? -SpawnDistance : SpawnDistance, 0.1f, 0.25f),
                         arriveAt, fromLeft ? Hand.Left : Hand.Right);
                     break;
                 }
@@ -377,7 +383,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                 {
                     // 从下方蓄势升上来
                     SpawnNote(prefab, "蛙纹音符_" + i,
-                        new Vector3(0f, -spawnDistance, 0.2f), arriveAt, Hand.None);
+                        new Vector3(0f, -SpawnDistance, 0.2f), arriveAt, Hand.None);
                     break;
                 }
 
@@ -387,14 +393,14 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                     // 同一个 Note_Bird,原体固定从【右】飞入(= 右翼),再实例化一只
                     // localScale.x 取负的镜像分身从【左】飞入(= 左翼),对称汇合成整鸟。
                     Note note = SpawnNote(prefab, "鸟纹音符_" + i,
-                        new Vector3(spawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both);
+                        new Vector3(SpawnDistance, 0.35f, 0.2f), arriveAt, Hand.Both);
 
                     bool converge = settings == null || settings.doubleNoteMirrorConverge;
                     if (converge && note != null)
                     {
                         GameObject twin = Instantiate(prefab, root, false);
                         twin.name = "鸟纹音符_镜像分身_" + i;
-                        twin.transform.localPosition = new Vector3(-spawnDistance, 0.35f, 0.2f);
+                        twin.transform.localPosition = new Vector3(-SpawnDistance, 0.35f, 0.2f);
                         twin.transform.localRotation = Quaternion.identity;
 
                         Vector3 ts = twin.transform.localScale;
@@ -551,6 +557,11 @@ public class LijiangEchoPatternStrike : MonoBehaviour
 
         ApplyAlpha(note.TwinRenderers, note.TwinBaseAlpha, alpha);
     }
+
+    /// <summary>音符起飞点和文字位置都跟着光圈大小走,改一个数整体等比。</summary>
+    private float SpawnDistance => ringSize * spawnDistanceRatio;
+
+    private float HintTextSize => ringSize * hintTextRatio;
 
     private float CurrentWindow()
     {

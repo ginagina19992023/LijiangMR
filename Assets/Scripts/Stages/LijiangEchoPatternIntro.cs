@@ -42,8 +42,8 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Tooltip("入场动画时长(秒)。需求说 3~5 秒。")]
     [SerializeField] private float duration = 4f;
 
-    [Tooltip("中心光圈的大小。")]
-    [SerializeField] private float ringSize = 0.62f;
+    [Tooltip("中心光圈的大小(世界单位)。打击环节用的是同一个值,两边必须一致 —— 不然一进打击圈就变大变小。")]
+    [SerializeField] private float ringSize = 1.97f;
 
     [Header("生物大小(反馈:原来太小,统一放大约 4~5 倍)")]
     [SerializeField] private float birdSizeBig = 1.35f;      // 原 0.30
@@ -70,6 +70,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     [Tooltip("鱼凑到最近时放大到几倍。纯靠位置变化不够明显,配合放大才看得出是冲着你来的。")]
     [SerializeField] private float fishNearScaleBoost = 1.35f;
+
+    [Tooltip("探头的鱼旁边那圈涟漪画多大 —— 按中心光圈的倍数算。")]
+    [SerializeField] private float fishRippleRatio = 0.11f;
 
     // 下面这些点原来是写死在代码里的,所以轨迹只能改代码。现在搬到 Inspector,
     // 而且在 Scene 视图里是可以直接拖的箭头(见 LijiangEchoPatternIntroEditor.OnSceneGUI)。
@@ -636,6 +639,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         GameObject ringObject = LijiangEchoStageKit.AddIcon(
             root, spawned, RingArt, "扫码光圈", Vector3.zero, ringSize, 20, 0f);
         ring = ringObject != null ? ringObject.transform : null;
+        ringBaseScale = ring != null ? ring.localScale : Vector3.one;
     }
 
     /// <summary>光圈:开头 0.4 秒淡入并微微放大,之后保持,呼吸感靠轻微脉动。</summary>
@@ -650,9 +654,15 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         float ease = Mathf.SmoothStep(0f, 1f, appear);
         SetAlpha(ring, 0.9f * ease);
 
+        // ⚠️ 这里以前写的是 Vector3.one * k,把 AddIcon 拟合出来的缩放整个覆盖掉了 ——
+        // 于是不管 ringSize 填多少,光圈实际都按贴图原大小(1024/520 ≈ 1.97 单位)显示。
+        // 打击那边的光圈没被覆盖、老老实实是 ringSize,所以两处大小对不上。
+        // 现在乘在拟合结果上,ringSize 才真的说了算。
         float breathe = 1f + Mathf.Sin(Time.time * 2.2f) * 0.03f;
-        ring.localScale = Vector3.one * (Mathf.Lerp(0.7f, 1f, ease) * breathe);
+        ring.localScale = ringBaseScale * (Mathf.Lerp(0.7f, 1f, ease) * breathe);
     }
+
+    private Vector3 ringBaseScale = Vector3.one;
 
     // ————————————————————————————— 鸟:盘旋 —————————————————————————————
 
@@ -765,7 +775,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             Transform fish = AddCreature(FishArt, "入场鱼_探头_" + i, fishPeekSize, 28 + i);
             fish.localPosition = spot;
             // 涟漪直接复用光圈贴图,缩小并降透明度,不用另做美术
-            Transform ripple = AddCreature(RingArt, "入场鱼_涟漪_" + i, ringSize * 0.34f, 26 + i);
+            // 涟漪的倍率单独留一个字段:ringSize 这次从 0.62 改成了真实的 1.97,
+            // 如果还写死 0.34,涟漪会跟着变大三倍 —— 鱼的观感你已经验过了,不该动。
+            Transform ripple = AddCreature(RingArt, "入场鱼_涟漪_" + i, ringSize * fishRippleRatio, 26 + i);
             ripple.localPosition = spot;
 
             actors.Add(new Actor
