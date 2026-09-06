@@ -49,8 +49,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [SerializeField] private float birdSizeSmall = 1.00f;    // 原 0.22
     [SerializeField] private float fishSize = 1.20f;         // 原 0.26
     [SerializeField] private float fishPeekSize = 1.00f;     // 原 0.22
-    [SerializeField] private float snakeHeadSize = 1.35f;    // 原 0.30
-    [SerializeField] private float snakeTailSize = 0.62f;    // 原 0.14
+    [SerializeField] private float snakeHeadSize = 1.35f;    // 原 0.30,整条蛇的大小
     [SerializeField] private float frogSize = 1.25f;         // 原 0.28
 
     [Header("鸟:盘旋")]
@@ -67,6 +66,22 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Header("蛇:缠绕")]
     [SerializeField] private float snakeApproachRatio = 0.35f; // 前 35% 时间用来"游过来"
     [SerializeField] private float snakeCoilRadius = 0.72f;
+
+    // 转头的代码假设"贴图本身画的是朝右(+X)",但花山纹样这几张贴图各朝各的,
+    // 所以留出每种生物的角度修正,方向不对直接在 Inspector 里拖,不用改代码。
+    [Header("贴图朝向校正 —— 方向不对就调这里(单位:度)")]
+    [Tooltip("贴图原本朝哪边:0=朝右,90=朝上,180=朝左,-90=朝下。可以填任意角度微调。\n"
+        + "这四张纹样贴图画的都是朝左,所以默认全是 180。")]
+    [Range(-180f, 180f)] [SerializeField] private float fishFacingDegrees = 180f;
+    [Range(-180f, 180f)] [SerializeField] private float snakeFacingDegrees = 180f;
+    [Range(-180f, 180f)] [SerializeField] private float frogFacingDegrees = 180f;
+    [Range(-180f, 180f)] [SerializeField] private float birdFacingDegrees = 180f;
+
+    [Header("往左走时是否左右翻面(让肚子始终朝下)")]
+    [Tooltip("侧视的贴图(鱼、鸟)勾上;正面/俯视看不出左右的贴图(蛙)取消,免得来回闪。")]
+    [SerializeField] private bool fishMirrorWhenLeft = true;
+    [SerializeField] private bool frogMirrorWhenLeft = true;
+    [SerializeField] private bool birdMirrorWhenLeft = true;
 
     // ——— 运行时 ———
     private Transform root;
@@ -142,6 +157,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         frogPadLeft = null;
         frogPadNext = null;
         frog = null;
+        snake = null;
         lastFrogCallAt = -1f;
         spawned.Clear();
 
@@ -214,19 +230,14 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         {
             string art = i % 2 == 0 ? BirdArtBig : BirdArtSmall;
             float size = i % 2 == 0 ? birdSizeBig : birdSizeSmall;
-            GameObject bird = LijiangEchoStageKit.AddIcon(
-                root, spawned, art, "入场鸟_" + i, Vector3.zero, size, 30 + i, 0f);
-            if (bird == null)
-            {
-                continue;
-            }
+            Transform bird = AddCreature(art, "入场鸟_" + i, size, 30 + i);
 
             actors.Add(new Actor
             {
-                Tr = bird.transform,
-                Sr = bird.GetComponent<SpriteRenderer>(),
+                Tr = bird,
+                Sr = bird.GetComponentInChildren<SpriteRenderer>(true),
                 Phase = i * (Mathf.PI * 2f / Mathf.Max(1, birdCount)),
-                BaseScale = bird.transform.localScale.x,
+                BaseScale = 1f,
                 StartAt = i * 0.06f,
                 Span = 1f
             });
@@ -263,7 +274,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
             // 头朝盘旋的切线方向(圆的切线 = 半径转 90°),而不是只做左右翻面
             Vector3 tangent = new Vector3(-Mathf.Sin(angle), Mathf.Cos(angle) * 0.55f, 0f);
-            FaceAlong(a.Tr, tangent, scale);
+            FaceAlong(a.Tr, tangent, scale, birdFacingDegrees, birdMirrorWhenLeft);
             SetAlpha(a.Tr, Mathf.Lerp(0.55f, 1f, near) * FadeOutTail(t) * local);
         }
     }
@@ -279,18 +290,13 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         {
             float side = i % 2 == 0 ? -1f : 1f;
             float spread = 0.75f + i * 0.18f;
-            GameObject fish = LijiangEchoStageKit.AddIcon(
-                root, spawned, FishArt, "入场鱼_跃入_" + i, Vector3.zero, fishSize, 30 + i, 0f);
-            if (fish == null)
-            {
-                continue;
-            }
+            Transform fish = AddCreature(FishArt, "入场鱼_跃入_" + i, fishSize, 30 + i);
 
             actors.Add(new Actor
             {
-                Tr = fish.transform,
-                Sr = fish.GetComponent<SpriteRenderer>(),
-                BaseScale = fish.transform.localScale.x,
+                Tr = fish,
+                Sr = fish.GetComponentInChildren<SpriteRenderer>(true),
+                BaseScale = 1f,
                 From = new Vector3(side * spread, -0.45f, 0.12f),   // 圈外、偏下
                 To = Vector3.zero,                                   // 跳进圈心
                 StartAt = 0.12f + i * 0.18f,
@@ -305,27 +311,23 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             float side = i % 2 == 0 ? 1f : -1f;
             Vector3 spot = new Vector3(side * 0.62f, -0.10f - i * 0.12f, 0.08f);
 
-            GameObject fish = LijiangEchoStageKit.AddIcon(
-                root, spawned, FishArt, "入场鱼_探头_" + i, spot, fishPeekSize, 28 + i, 0f);
+            Transform fish = AddCreature(FishArt, "入场鱼_探头_" + i, fishPeekSize, 28 + i);
+            fish.localPosition = spot;
             // 涟漪直接复用光圈贴图,缩小并降透明度,不用另做美术
-            GameObject ripple = LijiangEchoStageKit.AddIcon(
-                root, spawned, RingArt, "入场鱼_涟漪_" + i, spot, ringSize * 0.34f, 26 + i, 0f);
-            if (fish == null)
-            {
-                continue;
-            }
+            Transform ripple = AddCreature(RingArt, "入场鱼_涟漪_" + i, ringSize * 0.34f, 26 + i);
+            ripple.localPosition = spot;
 
             actors.Add(new Actor
             {
-                Tr = fish.transform,
-                Sr = fish.GetComponent<SpriteRenderer>(),
-                BaseScale = fish.transform.localScale.x,
+                Tr = fish,
+                Sr = fish.GetComponentInChildren<SpriteRenderer>(true),
+                BaseScale = 1f,
                 From = spot + new Vector3(0f, -0.18f, 0f),   // 从水面下探上来
                 To = Vector3.zero,                            // 最后也跃入圈心
                 StartAt = 0.20f + i * 0.14f,
                 Span = 0.30f,
                 Peeking = true,
-                Ripple = ripple != null ? ripple.transform : null
+                Ripple = ripple
             });
         }
     }
@@ -356,7 +358,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
                 // 头朝抛物线的切线方向:起跳时朝上、落下时朝下,而不是一直平着
                 float s = a.BaseScale * Mathf.Lerp(1f, 0.55f, p);   // 入水时缩小,像沉进去
-                FaceAlong(a.Tr, LeapTangent(a.From, a.To, p, fishLeapHeight), s);
+                FaceAlong(a.Tr, LeapTangent(a.From, a.To, p, fishLeapHeight), s, fishFacingDegrees, fishMirrorWhenLeft);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(p, 3f)));
                 continue;
             }
@@ -391,7 +393,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
                 a.Tr.localPosition = LeapPoint(start, Vector3.zero, leave, h);
 
                 float s = a.BaseScale * Mathf.Lerp(1f, 0.5f, leave);
-                FaceAlong(a.Tr, LeapTangent(start, Vector3.zero, leave, h), s);
+                FaceAlong(a.Tr, LeapTangent(start, Vector3.zero, leave, h), s, fishFacingDegrees, fishMirrorWhenLeft);
                 SetAlpha(a.Tr, Mathf.Clamp01(1f - Mathf.Pow(leave, 3f)));
                 SetAlpha(a.Ripple, 0f);
             }
@@ -400,85 +402,70 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     // ————————————————————————————— 蛇:缠绕 —————————————————————————————
 
+    private Transform snake;
+
     private void BuildSnake()
     {
         // 需求:先响「嘶嘶」声,音效先于画面
         LijiangEchoStageKit.PlaySfx("snake", 0.7f);
 
-        // 用若干节蛇身首尾相接,靠相位差走出扭动/缠绕的感觉
-        const int segments = 7;
-        for (int i = 0; i < segments; i++)
-        {
-            float size = Mathf.Lerp(snakeHeadSize, snakeTailSize, i / (float)(segments - 1));   // 头大尾细
-            GameObject seg = LijiangEchoStageKit.AddIcon(
-                root, spawned, SnakeArt, "入场蛇_" + i, Vector3.zero, size, 34 - i, 0f);
-            if (seg == null)
-            {
-                continue;
-            }
-
-            actors.Add(new Actor
-            {
-                Tr = seg.transform,
-                Sr = seg.GetComponent<SpriteRenderer>(),
-                BaseScale = seg.transform.localScale.x,
-                Phase = i * 0.42f,      // 相邻节的落后量 = 扭动
-                StartAt = i * 0.02f,
-                Span = 1f
-            });
-        }
+        // 反馈:「感觉你没有按照节来切而是给他切成千层了」。
+        // 说得对 —— 之前这里根本没切,是把【整条蛇】复制了 7 份首尾排开,
+        // 于是屏幕上就是七条一模一样的蛇叠成千层。transition/snake 本身就已经是
+        // 一条完整的蛇(头在左、身子拱起、尾巴收细),不需要拼节,一条就够。
+        snake = AddCreature(SnakeArt, "入场蛇", snakeHeadSize, 34);
     }
 
-    /// <summary>蛇:前段从旁边扭动着游过来 → 缠上光圈 → 顺时针沿圈转一圈 → 消失。</summary>
+    /// <summary>蛇:整条从右边扭动着游过来 → 缠上光圈 → 顺时针沿圈转一圈 → 消失。
+    ///
+    /// 只有一条蛇,不再拼节。「扭动」用整体的正弦摆动 + 轻微的摇头来表现。</summary>
     private void UpdateSnake(float t)
     {
+        if (snake == null)
+        {
+            return;
+        }
+
         float approach = Mathf.Clamp01(t / Mathf.Max(0.01f, snakeApproachRatio));
         float coil = Mathf.Clamp01((t - snakeApproachRatio) / Mathf.Max(0.01f, 1f - snakeApproachRatio));
 
-        for (int i = 0; i < actors.Count; i++)
+        Vector3 pos;
+        float faceDegrees;
+
+        // 缠绕从光圈【底部】起步,不是右侧:底部的顺时针切线正好是"朝左",
+        // 和游过来的方向接得上,不会在切换的那一帧突然扭 90°。
+        const float coilStartAngle = -Mathf.PI * 0.5f;
+
+        if (coil <= 0f)
         {
-            Actor a = actors[i];
-            if (a.Tr == null)
-            {
-                continue;
-            }
+            // 从右下方圈外游过来,上下正弦摆动 = 扭动的身子
+            Vector3 from = new Vector3(1.55f, -snakeCoilRadius - 0.16f, 0.1f);
+            Vector3 to = new Vector3(0f, -snakeCoilRadius, 0f);
+            pos = Vector3.Lerp(from, to, Mathf.SmoothStep(0f, 1f, approach));
+            pos.y += Mathf.Sin(timer * 6f) * 0.09f;
 
-            // 每一节比前一节落后一点,于是整条蛇是"跟着头走"
-            float lag = a.Phase * 0.06f;
-            float ap = Mathf.Clamp01(approach - lag);
-            float cp = Mathf.Clamp01(coil - lag);
-
-            Vector3 pos;
-            if (coil <= 0f)
-            {
-                // 从右侧圈外游过来,竖直方向正弦摆动 = 扭动的身子
-                Vector3 from = new Vector3(1.55f, -0.28f, 0.1f);
-                Vector3 to = new Vector3(snakeCoilRadius, 0f, 0f);
-                pos = Vector3.Lerp(from, to, Mathf.SmoothStep(0f, 1f, ap));
-                pos.y += Mathf.Sin(timer * 6f - a.Phase * 1.6f) * 0.09f;
-            }
-            else
-            {
-                // 顺时针沿光圈转一圈:角度从 0 递减(Unity 里 y 向上,递减即顺时针)
-                float angle = -cp * Mathf.PI * 2f - a.Phase * 0.5f;
-                pos = new Vector3(
-                    Mathf.Cos(angle) * snakeCoilRadius,
-                    Mathf.Sin(angle) * snakeCoilRadius,
-                    Mathf.Sin(angle * 2f) * 0.06f);   // 缠绕感:一半在圈前一半在圈后
-            }
-
-            a.Tr.localPosition = pos;
-
-            // 让每一节朝着自己的前进方向
-            float faceAngle = coil <= 0f
-                ? 0f
-                : Mathf.Rad2Deg * (-cp * Mathf.PI * 2f - a.Phase * 0.5f) - 90f;
-            a.Tr.localRotation = Quaternion.Euler(0f, 0f, faceAngle);
-            a.Tr.localScale = Vector3.one * a.BaseScale;
-
-            float visible = coil <= 0f ? ap : 1f;
-            SetAlpha(a.Tr, visible * FadeOutTail(t));
+            // 朝左游,摆动时头跟着上下点一点
+            faceDegrees = 180f + Mathf.Sin(timer * 6f) * 12f - snakeFacingDegrees;
         }
+        else
+        {
+            // 顺时针沿光圈转一圈:角度递减(Unity 里 y 向上,递减即顺时针)
+            float angle = coilStartAngle - coil * Mathf.PI * 2f;
+            pos = new Vector3(
+                Mathf.Cos(angle) * snakeCoilRadius,
+                Mathf.Sin(angle) * snakeCoilRadius,
+                Mathf.Sin(angle * 2f) * 0.06f);   // 缠绕感:一半在圈前一半在圈后
+
+            // 顺时针绕行的切线 = 半径方向再转 -90°
+            faceDegrees = angle * Mathf.Rad2Deg - 90f - snakeFacingDegrees;
+        }
+
+        snake.localPosition = pos;
+        snake.localRotation = Quaternion.Euler(0f, 0f, faceDegrees);
+        snake.localScale = Vector3.one;
+
+        float visible = coil <= 0f ? approach : 1f;
+        SetAlpha(snake, visible * FadeOutTail(t));
     }
 
     // ————————————————————————————— 蛙:占位 —————————————————————————————
@@ -492,17 +479,16 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     private void BuildFrog()
     {
         // 小荷叶(圈外)与下一片荷叶(前方,先不显示)。都是同一张光圈贴图,只是更小。
-        GameObject padLeft = LijiangEchoStageKit.AddIcon(
-            root, spawned, RingArt, "入场蛙_小荷叶", new Vector3(-0.95f, -0.22f, 0.10f), ringSize * 0.42f, 18, 0f);
-        GameObject padNext = LijiangEchoStageKit.AddIcon(
-            root, spawned, RingArt, "入场蛙_下一片荷叶", new Vector3(0.98f, -0.05f, -0.06f), ringSize * 0.55f, 18, 0f);
-        GameObject frogObject = LijiangEchoStageKit.AddIcon(
-            root, spawned, FrogArt, "入场蛙", new Vector3(-0.95f, -0.05f, 0.10f), frogSize, 32, 0f);
+        frogPadLeft = AddCreature(RingArt, "入场蛙_小荷叶", ringSize * 0.42f, 18);
+        frogPadLeft.localPosition = new Vector3(-0.95f, -0.22f, 0.10f);
 
-        frogPadLeft = padLeft != null ? padLeft.transform : null;
-        frogPadNext = padNext != null ? padNext.transform : null;
-        frog = frogObject != null ? frogObject.transform : null;
-        frogBaseScale = frog != null ? Mathf.Abs(frog.localScale.x) : frogSize;
+        frogPadNext = AddCreature(RingArt, "入场蛙_下一片荷叶", ringSize * 0.55f, 18);
+        frogPadNext.localPosition = new Vector3(0.98f, -0.05f, -0.06f);
+
+        frog = AddCreature(FrogArt, "入场蛙", frogSize, 32);
+        frog.localPosition = new Vector3(-0.95f, -0.05f, 0.10f);
+
+        frogBaseScale = 1f;   // 支点的 1 就是已经拟合好的大小
         lastFrogCallAt = -1f;
     }
 
@@ -579,7 +565,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
 
         frog.localPosition = pos;
-        FaceAlong(frog, heading, s);
+        FaceAlong(frog, heading, s, frogFacingDegrees, frogMirrorWhenLeft);
         SetAlpha(frog, t < 0.02f ? 0f : FadeOutTail(t));
     }
 
@@ -603,6 +589,35 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     // ————————————————————————————— 小工具 —————————————————————————————
 
+    /// <summary>生成一只会动的生物,返回它的【支点】Transform。
+    ///
+    /// 这几张纹样贴图都是一大片透明底、图案缩在某个角落,所以贴图的物理中心离图案很远。
+    /// 直接转贴图物体等于绕着那个空的物理中心转,生物会甩到一边去 —— 这就是之前
+    /// 方向和位置怎么调都不对的根子。
+    ///
+    /// 办法:外面套一个空的支点物体,贴图作为子物体按「可见中心」反向偏移挂进去。
+    /// 之后动画只动支点,旋转/镜像/缩放就都是绕着生物本身发生的。
+    ///
+    /// 支点的 localScale 是 1 = 已经拟合好的目标大小,所以 Actor.BaseScale 一律填 1。</summary>
+    private Transform AddCreature(string art, string objectName, float targetHeight, int order)
+    {
+        GameObject pivot = new GameObject(objectName);
+        pivot.transform.SetParent(root, false);
+        pivot.transform.localPosition = Vector3.zero;
+        spawned.Add(pivot);
+
+        // AddIcon 会把 localPosition 设成 -可见中心偏移,使可见内容正好落在 0。
+        // 用 worldPositionStays:false 换父级,这个偏移原样保留,于是相对支点也是居中的。
+        GameObject icon = LijiangEchoStageKit.AddIcon(
+            root, spawned, art, objectName + "_图", Vector3.zero, targetHeight, order, 0f);
+        if (icon != null)
+        {
+            icon.transform.SetParent(pivot.transform, false);
+        }
+
+        return pivot.transform;
+    }
+
     /// <summary>抛物线跳跃上的一点:水平匀速,竖直叠一个 sin 拱形。</summary>
     private static Vector3 LeapPoint(Vector3 from, Vector3 to, float p, float height)
     {
@@ -622,12 +637,14 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     /// <summary>让物件的头朝着自己的运动方向。
     ///
-    /// 贴图默认朝右(+X)。直接用 atan2 的角度会让向左运动的物件转到 180° 而头下脚上,
-    /// 所以先把方向向量水平镜像、算出 [-90°, 90°] 内的角度,再靠负 scale.x 翻面 ——
-    /// 这样无论朝哪个方向,肚子始终朝下。
+    /// <paramref name="artFacingDegrees"/> 是贴图本身画的朝向(0=朝右,90=朝上,180=朝左,
+    /// -90=朝下)。以前这里写死了"贴图朝右",但花山纹样这几张各朝各的,方向自然对不上,
+    /// 现在改成每种生物在 Inspector 里各填各的。
     ///
-    /// 反馈:鱼和蛙原来只做了左右翻面、没有跟着弧线转头,跳起来看着别扭。</summary>
-    private static void FaceAlong(Transform target, Vector3 delta, float scale)
+    /// <paramref name="mirrorWhenLeft"/>:侧视的贴图(鱼、鸟)往左走时用负的 scale.x 翻面,
+    /// 肚子才不会朝天;正面/俯视的贴图关掉,免得来回闪。</summary>
+    private static void FaceAlong(Transform target, Vector3 delta, float scale,
+        float artFacingDegrees, bool mirrorWhenLeft)
     {
         if (target == null)
         {
@@ -640,9 +657,21 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             return;
         }
 
+        if (!mirrorWhenLeft)
+        {
+            float heading = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+            target.localRotation = Quaternion.Euler(0f, 0f, heading - artFacingDegrees);
+            target.localScale = Vector3.one * scale;
+            return;
+        }
+
+        // 负的 scale.x 会先把贴图整个镜像掉,贴图自带的朝向角也跟着翻,所以镜像那一支
+        // 的角度是 (贴图朝向 - 俯仰) 而不是 (俯仰)。老代码漏了这个翻转,结果往左跳的时候
+        // 头的俯仰是反的 —— 起跳该朝上却朝下。
         bool goingLeft = delta.x < 0f;
-        float angle = Mathf.Atan2(delta.y, Mathf.Abs(delta.x)) * Mathf.Rad2Deg;
-        target.localRotation = Quaternion.Euler(0f, 0f, angle);
+        float pitch = Mathf.Atan2(delta.y, Mathf.Abs(delta.x)) * Mathf.Rad2Deg;
+        target.localRotation = Quaternion.Euler(0f, 0f,
+            goingLeft ? artFacingDegrees - pitch : pitch - artFacingDegrees);
         target.localScale = new Vector3(goingLeft ? -scale : scale, scale, scale);
     }
 
@@ -659,7 +688,9 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             return;
         }
 
-        SpriteRenderer sr = target.GetComponent<SpriteRenderer>();
+        // 生物现在是「空支点 + 贴图子物体」,渲染器在子物体上,所以要往下找一层。
+        SpriteRenderer sr = target.GetComponent<SpriteRenderer>()
+            ?? target.GetComponentInChildren<SpriteRenderer>(true);
         if (sr == null)
         {
             return;
