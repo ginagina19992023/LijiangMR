@@ -576,8 +576,26 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         GameObject controllerObject = new GameObject("漓江回声_运行时关卡控制器");
+
+        // 必须显式放进旧主场景:sceneLoaded 回调触发时,活动场景往往还是 Bootstrap
+        // (GoToStageRoutine 是加载【完成后】才 SetActiveScene),new GameObject 会落在 Bootstrap 里,
+        // 那样它又变成了"卸不掉的常驻控制器"——正是要根除的那个毛病。
+        Scene home = SceneManager.GetSceneByName(LijiangEchoGameFlow.LegacyMainScene);
+        if (home.IsValid() && home.isLoaded)
+        {
+            SceneManager.MoveGameObjectToScene(controllerObject, home);
+        }
+
         controllerObject.AddComponent<LijiangEchoGameController>();
-        Debug.Log("[漓江回声] 已创建运行时关卡控制器");
+        Debug.Log("[漓江回声] 已创建运行时关卡控制器(随旧主场景生死)");
+    }
+
+    private void OnDestroy()
+    {
+        if (instance == this)
+        {
+            instance = null;   // 随场景销毁后要清掉,否则下次进旧主场景会被当成"已存在实例"而不重建
+        }
     }
 
     private void Awake()
@@ -589,7 +607,13 @@ public class LijiangEchoGameController : MonoBehaviour
         }
 
         instance = this;
-        DontDestroyOnLoad(gameObject);
+
+        // 【不再 DontDestroyOnLoad】本控制器只服务旧主场景,就该随那个场景生死:
+        // 场景卸载它一起销毁 → 不会在 Stage_Start/Select/Intro 里继续吃按键、
+        // 不会带着过期的 currentStage 在新场景之上重建旧阶段;
+        // 场景重新加载则是全新实例,Start 协程自然会重新读 ExternalStartStage,
+        // 也就不需要 RestartForSceneReload 那种补丁。
+        // (物件本身由 TryCreateRuntimeController 放进旧主场景,见那里。)
         EnsureAudioSources();
 
         // 读战斗选项资源(Resources/LijiangEchoBattleSettings)。审核组员在该资源上勾选即可生效,
