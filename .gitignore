@@ -48,3 +48,14 @@ crashlytics-build.properties
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# ── 构建产物(每次出包自动重新生成,不进仓库)────────────────────
+# Built_package_android 曾有 2.8GB / 1976 个文件,进库会撑爆仓库,走 LFS 也白吃配额。
+/Built_package_android/
+/Build/
+/Builds/
+*_BurstDebugInformation_DoNotShip/
+*_BackUpThisFolder_ButDontShipItWithYourGame/
+*.apk
+*.aab
+*.symbols.zip

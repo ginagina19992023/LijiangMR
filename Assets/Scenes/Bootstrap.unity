@@ -264,6 +264,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 27b138616643fd9ec98e526f994e733f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  stageAnchorOffset: {x: 0, y: 0, z: 0}
 --- !u!1 &150131423
 GameObject:
   m_ObjectHideFlags: 0

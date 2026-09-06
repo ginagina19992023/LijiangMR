@@ -164,7 +164,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   stageRoot: {fileID: 0}
-  startScreenRaise: 0.59
+  startScreenRaise: 0
 --- !u!1 &144789075
 GameObject:
   m_ObjectHideFlags: 0
