@@ -10,6 +10,14 @@ using UnityEngine.XR;
 /// 漓江回声 MR 的运行时关卡控制器。
 /// 不需要手动拖拽到场景里，播放后会自动在玩家前方搭出开始、选关、过场、打击和卡片流程。
 /// </summary>
+/// <remarks>
+/// 【关于 ShowStart / ShowSelect / ShowIntro / ShowTrace 这四段】
+/// 它们对应的阶段早已拆成 Stage_Start / Stage_Select / Stage_Intro(描绘是其中的模块),
+/// 所有【外部入口】已经改为经 GameFlow 切到那些场景,这四段现在【谁也调不到】,只是内部互相引用。
+/// 之所以还留着:它们和战斗共用了一批方法(TryProjectRay / BuildBattleHands / LoadChartIfAvailable
+/// / 手部动画常量 等)交错在一起,盲删会连带删掉战斗要用的东西 —— 已经踩过一次。
+/// 删除计划见 docs/REFACTOR-STEP2-BATTLE-SPLIT.md 第 1 节:必须一次删一个方法、每删一个编译一次。
+/// </remarks>
 public class LijiangEchoGameController : MonoBehaviour
 {
     private enum Stage
@@ -84,10 +92,40 @@ public class LijiangEchoGameController : MonoBehaviour
         public float[] MirrorTwinBaseAlpha;
     }
 
+    private sealed class IntroFadeItem
+    {
+        public SpriteRenderer Renderer;
+        public float TargetAlpha;
+    }
+
+    private sealed class IntroFlyItem
+    {
+        public SpriteRenderer Renderer;
+        public Vector3 StartCenter;
+        public Vector3 EndCenter;
+        public float StartHeight;
+        public float EndHeight;
+        public float StartTime;
+        public float EndTime;
+        public float TargetAlpha;
+        public float FloatPhase;
+        public Vector3 StartRotation;
+        public Vector3 EndRotation;
+    }
+
+    private sealed class IntroFocusItem
+    {
+        public SpriteRenderer PanelRenderer;
+        public TextMesh Caption;
+        public float StartTime;
+        public float EndTime;
+    }
+
     private const string ArtRoot = "LijiangEchoArt/";
     private const float PixelsPerUnit = 520f;
     private const float MainCanvasWidth = 5.65f;
     private const float WideStripWidth = 6.05f;
+    private const float IntroWalkDuration = 38.85f;
     // 视频段(悬浮过场之后的入关动画)推进:优先等视频真正播完(不再被总时长硬砍断);
     // 视频迟迟没开始播(坏/无资源)= 判定跳过,避免长时间黑屏;再加一个绝对上限兜底。
     private const float PreLevelNoVideoSkip = 2.5f;  // 进入视频段 2.5s 还没开始播 → 跳过(短黑屏)
@@ -126,6 +164,7 @@ public class LijiangEchoGameController : MonoBehaviour
     private const float StageDistance = 2.35f;
     private const float StageWorldScale = 0.78f;
     private const float TracePlaneZ = -0.72f;
+    private const float TracePointTolerance = 0.105f;
     private static readonly RectInt HitBlockCrop = new RectInt(833, 728, 585, 1120);
     private static readonly RectInt FrogSwipeCrop = new RectInt(469, 133, 724, 625);
     private static readonly RectInt SnakeDoneCrop = new RectInt(1258, 2332, 948, 2510);
@@ -238,6 +277,10 @@ public class LijiangEchoGameController : MonoBehaviour
     private bool menuMuted;       // 菜单「音乐」开关:是否静音
     private readonly List<MotionItem> motionItems = new List<MotionItem>();
     private readonly List<RhythmNote> activeNotes = new List<RhythmNote>();
+    private readonly List<IntroFadeItem> introWalkItems = new List<IntroFadeItem>();
+    private readonly List<IntroFadeItem> introPreLevelItems = new List<IntroFadeItem>();
+    private readonly List<IntroFlyItem> introFlyItems = new List<IntroFlyItem>();
+    private readonly List<IntroFocusItem> introFocusItems = new List<IntroFocusItem>();
     private readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
     private readonly Dictionary<string, Texture2D> solidTextureCache = new Dictionary<string, Texture2D>();
     // 每个精灵"不透明像素真实中心"相对 pivot 的偏移(局部单位),缓存;贴图不可读时回退到 bounds.center。
@@ -285,18 +328,26 @@ public class LijiangEchoGameController : MonoBehaviour
     private float hitFlashTimer;
     private bool introPreLevelStarted;
     private bool introPreLevelFinished;
+    private bool traceCompleted;
     private float traceCompleteTimer;
     private int tracePointIndex;
+    private Vector3[] tracePoints;
+    private LineRenderer traceMirrorDrawRenderer;
+    private Transform traceMirrorPointer;
     private Transform leftHandPivot;
     private Transform rightHandPivot;
     private SpriteRenderer leftHandRenderer;
     private SpriteRenderer rightHandRenderer;
     private float leftHandStrikeTimer;
     private float rightHandStrikeTimer;
+    private LineRenderer traceDrawRenderer;
+    private Transform tracePointer;
+    private TextMesh traceFeedbackText;
     private Vector3 previousTracePointer;
     private bool hasPreviousTracePointer;
     // 真·双手独立描绘:左手描左半,右手描右半,各自进度、各自判定,两半都完成才算成功。
     private bool traceTwoHands;
+    private Vector3[] traceLeftPoints;
     private int traceLeftIndex;
     private Vector3 previousTraceLeftPointer;
     private bool hasPreviousTraceLeftPointer;
@@ -314,6 +365,8 @@ public class LijiangEchoGameController : MonoBehaviour
     private SpriteRenderer startButtonPanelRenderer;
     private SpriteRenderer startButtonRenderer;
 
+    private SpriteRenderer[] selectCards;
+    private SpriteRenderer[] selectNumbers;
     private SpriteRenderer patternRenderer;
     private SpriteRenderer ringRenderer;
     private SpriteRenderer progressFillRenderer;
@@ -343,6 +396,27 @@ public class LijiangEchoGameController : MonoBehaviour
     private Vector3 ringBaseScale = Vector3.one;
 
     private readonly string[] levelNames = { "蛙纹", "鸟纹", "鱼纹" };
+    private readonly string[] levelCardPaths =
+    {
+        "select/frog_card",
+        "select/bird_card",
+        "select/fish_card"
+    };
+
+    private readonly string[] levelSymbolPaths =
+    {
+        "select/frog_symbol",
+        "select/bird_symbol",
+        "select/fish_symbol"
+    };
+
+    private readonly string[] levelNumberPaths =
+    {
+        "ui/number_1",
+        "ui/number_2",
+        "ui/number_3"
+    };
+
     private readonly string[] tracePaths =
     {
         "pattern/snake_trace",
@@ -383,6 +457,14 @@ public class LijiangEchoGameController : MonoBehaviour
         "cards/fang_info"
     };
 
+    private readonly string[] introFocusPaths =
+    {
+        "transition/snake",
+        "transition/beast",
+        "transition/coin"
+    };
+
+    private const string IntroPreLevelVideoPath = "LijiangEchoVideos/pre_level.mp4";
 
     private readonly Vector3[] selectNumberPositions =
     {
@@ -621,16 +703,16 @@ public class LijiangEchoGameController : MonoBehaviour
         }
         else if (ExternalStartStage.HasValue)
         {
-            // 独立阶段场景(Stage_Intro)已跑完前置阶段 → 旧主场景从指定阶段直接开始。
+            // 独立阶段场景(如 Stage_Intro)已跑完前置阶段 → 旧主场景从指定阶段直接开始。
             selectedLevel = ExternalSelectedLevel ?? 0;
             int startStage = ExternalStartStage.Value;
             ExternalStartStage = null; // 用一次即清除
             if (startStage != BattleStageIndex)
             {
-                // 开始/选关/过场/描绘都已经拆走,本控制器只剩战斗及其之后。
-                // 收到别的值说明有调用方还在用旧编号,记一条日志好定位,行为上按战斗处理。
-                Debug.LogWarning($"[漓江回声] ExternalStartStage={startStage} 已不再由旧主场景实现" +
-                                 "(该阶段已拆成独立场景),按战斗处理。");
+                // 开始/选关/过场/描绘都已拆成独立场景,不该再让旧主场景来演。
+                // 收到别的编号说明有调用方还在用旧值 —— 记一条日志好定位,行为上按战斗处理。
+                Debug.LogWarning($"[漓江回声] ExternalStartStage={startStage} 对应的阶段已拆成独立场景," +
+                                 "旧主场景按战斗处理。");
             }
 
             ShowBattle();
@@ -882,9 +964,16 @@ public class LijiangEchoGameController : MonoBehaviour
         hitFlashTimer = 0f;
         introPreLevelStarted = false;
         introPreLevelFinished = false;
+        traceCompleted = false;
         traceCompleteTimer = 0f;
         tracePointIndex = 0;
+        tracePoints = null;
+        traceDrawRenderer = null;
+        tracePointer = null;
+        traceMirrorDrawRenderer = null;
+        traceMirrorPointer = null;
         traceTwoHands = false;
+        traceLeftPoints = null;
         traceLeftIndex = 0;
         hasPreviousTraceLeftPointer = false;
         leftHandPivot = null;
@@ -893,6 +982,7 @@ public class LijiangEchoGameController : MonoBehaviour
         rightHandRenderer = null;
         leftHandStrikeTimer = 0f;
         rightHandStrikeTimer = 0f;
+        traceFeedbackText = null;
         startButtonPanelRenderer = null;
         startButtonRenderer = null;
         hasPreviousTracePointer = false;
@@ -925,6 +1015,8 @@ public class LijiangEchoGameController : MonoBehaviour
             battleMusicSource.Stop();
             battleMusicSource.clip = null;
         }
+        selectCards = null;
+        selectNumbers = null;
         menuObjects.Clear();
         if (menuPaused)
         {
@@ -938,6 +1030,10 @@ public class LijiangEchoGameController : MonoBehaviour
         comboRipples.Clear();
         comboRippleTimer = 0f;
         EditorBattleTime = -1f; // 离开战斗:编辑器不再跟随
+        introWalkItems.Clear();
+        introPreLevelItems.Clear();
+        introFlyItems.Clear();
+        introFocusItems.Clear();
 
         foreach (GameObject item in spawnedObjects)
         {
@@ -975,7 +1071,8 @@ public class LijiangEchoGameController : MonoBehaviour
 #endif
         Debug.Log($"[漓江回声] 调试:直接进入阶段 {stageIndex}(关卡 {selectedLevel}）");
 
-        // 开始/选关/过场/描绘都已经拆成独立场景,本控制器不再实现它们 —— 转交 GameFlow 去加载对应场景。
+        // 开始/选关/过场/描绘都已拆成独立场景。这里改为转交 GameFlow 去加载对应场景,
+        // 不再走本控制器里那几份旧实现(它们只是暂时留着,见文件顶部说明)。
         switch (stageIndex)
         {
             case 0: GoToSplitStage("Stage_Start"); break;
@@ -1002,6 +1099,1382 @@ public class LijiangEchoGameController : MonoBehaviour
         LijiangEchoGameFlow.Instance.GoToStage(sceneName);
     }
 
+    private void ShowStart()
+    {
+        ResetStage(Stage.Start);
+        PlayStageLoop("ambience_water", 0.32f);
+        PlaySfx("birds", 0.22f);
+
+        AddLayer("start/frame_16_9", "开始界面底框", Vector3.zero, MainCanvasWidth, -20, 0.04f);
+        AddLayer("start/back_mountain_1", "开始远山一", new Vector3(0f, -0.02f, 0.34f), WideStripWidth, -16, 0.9f);
+        AddLayer("start/back_mountain_2", "开始远山二", new Vector3(0f, -0.02f, 0.25f), WideStripWidth, -15, 0.82f);
+        AddLayer("start/back_mountain_3", "开始远山三", new Vector3(0f, -0.02f, 0.16f), WideStripWidth, -14, 0.78f);
+        AddLayer("start/back_building", "开始建筑", new Vector3(0f, -0.02f, 0.07f), WideStripWidth, -13, 0.88f);
+
+        GameObject cloudOne = AddLayer("start/back_cloud_1", "开始后云一", new Vector3(-0.02f, -0.02f, -0.04f), WideStripWidth, -10, 0.76f);
+        GameObject cloudTwo = AddLayer("start/back_cloud_2", "开始后云二", new Vector3(0.02f, -0.02f, -0.12f), WideStripWidth, -9, 0.62f);
+        RegisterMotion(cloudOne, MotionKind.FloatX, 0.045f, 0.55f, 0f);
+        RegisterMotion(cloudTwo, MotionKind.FloatX, 0.032f, 0.42f, 1.4f);
+
+        AddLayer("start/front_mountain_left", "开始前山左", new Vector3(0f, -0.02f, -0.25f), WideStripWidth, -6);
+        AddLayer("start/front_mountain_right", "开始前山右", new Vector3(0f, -0.02f, -0.32f), WideStripWidth, -5);
+
+        GameObject frontCloudLeft = AddLayer("start/front_cloud_left", "开始前云左", new Vector3(0f, -0.02f, -0.40f), WideStripWidth, -3, 0.9f);
+        GameObject frontCloudRight = AddLayer("start/front_cloud_right", "开始前云右", new Vector3(0f, -0.02f, -0.46f), WideStripWidth, -2, 0.9f);
+        RegisterMotion(frontCloudLeft, MotionKind.FloatX, 0.038f, 0.5f, 2f);
+        RegisterMotion(frontCloudRight, MotionKind.FloatX, 0.036f, 0.48f, 4f);
+
+        GameObject buttonPanel = AddIcon("start/start_ui", "进入游戏主按钮", new Vector3(0f, -0.38f, -0.53f), 0.52f, 5, 0.98f);
+        GameObject button = AddIcon("start/start_button", "开始按钮高光", new Vector3(0f, -0.48f, -0.55f), 0.095f, 6, 0.88f);
+        startButtonPanelRenderer = buttonPanel.GetComponent<SpriteRenderer>();
+        startButtonRenderer = button.GetComponent<SpriteRenderer>();
+        RegisterMotion(buttonPanel, MotionKind.Pulse, 0.01f, 2.1f, 0.7f);
+        RegisterMotion(button, MotionKind.Pulse, 0.022f, 2.4f, 0f);
+
+        GameObject ball = AddIcon("start/embroidered_ball", "绣球", new Vector3(0f, 0.23f, -0.66f), 0.72f, 7, 0.96f);
+        GameObject birdBig = AddIcon("start/bird_big", "大鸟", new Vector3(1.28f, 0.68f, -0.61f), 0.19f, 8, 0.92f);
+        GameObject birdSmall = AddIcon("start/bird_small", "小鸟", new Vector3(1.74f, 0.52f, -0.63f), 0.16f, 8, 0.78f);
+        RegisterMotion(ball, MotionKind.FloatY, 0.035f, 1.4f, 0f);
+        RegisterMotion(birdBig, MotionKind.FloatY, 0.025f, 2.1f, 1.2f);
+        RegisterMotion(birdSmall, MotionKind.FloatY, 0.022f, 1.8f, 2.8f);
+
+        AddIcon("start/progress_bar", "开始进度底条", new Vector3(0f, -0.74f, -0.2f), 0.12f, 9, 0.82f);
+        GameObject pattern = AddIcon("start/progress_pattern", "开始进度纹样", new Vector3(-0.72f, -0.74f, -0.21f), 0.08f, 10, 0.95f);
+        RegisterMotion(pattern, MotionKind.FloatX, 0.34f, 0.72f, 1.7f);
+
+        AddLayer("start/start_border", "开始外框纹样", new Vector3(0f, -0.02f, -0.23f), WideStripWidth, 24, 0.95f);
+
+        AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.28f), 0.24f, 30, 0.88f);
+    }
+
+    private void UpdateStart()
+    {
+        Rect startButtonBounds = new Rect(-0.72f, -0.72f, 1.44f, 0.58f);
+        bool hovered = TryGetControllerHover(startButtonBounds, out bool pointerPressed);
+        if (startButtonPanelRenderer != null)
+        {
+            startButtonPanelRenderer.color = hovered
+                ? Color.white
+                : new Color(1f, 1f, 1f, 0.92f);
+        }
+
+        if (startButtonRenderer != null)
+        {
+            startButtonRenderer.color = hovered
+                ? new Color(1f, 0.9f, 0.42f, 1f)
+                : new Color(1f, 1f, 1f, 0.88f);
+        }
+
+        if (pointerPressed || NonPointerConfirmPressed())
+        {
+            PlaySfx("button", 0.62f);
+            ShowSelect();
+        }
+    }
+
+    private void ShowSelect()
+    {
+        ResetStage(Stage.Select);
+        PlayStageLoop("ambience", 0.34f);
+
+        AddLayer("select/select_frame", "选关紫色暗幕", Vector3.zero, MainCanvasWidth, -18, 0.025f);
+        AddLayer("select/select_line", "选关连接线", new Vector3(0f, -0.02f, -0.03f), WideStripWidth, -6, 0.92f);
+        AddLayer("select/select_edge", "选关两侧色块", new Vector3(0f, -0.02f, -0.04f), WideStripWidth, -5, 0.72f);
+
+        selectCards = new SpriteRenderer[levelCardPaths.Length];
+        selectNumbers = new SpriteRenderer[levelNumberPaths.Length];
+        for (int i = 0; i < levelCardPaths.Length; i++)
+        {
+            GameObject card = AddLayer(levelCardPaths[i], "选关卡片_" + levelNames[i], new Vector3(0f, -0.02f, -0.08f - i * 0.01f), WideStripWidth, 2 + i);
+            selectCards[i] = card.GetComponent<SpriteRenderer>();
+
+            GameObject symbol = AddLayer(levelSymbolPaths[i], "选关纹样_" + levelNames[i], new Vector3(0f, -0.02f, -0.13f - i * 0.01f), WideStripWidth, 8 + i, 0.92f);
+            RegisterMotion(symbol, MotionKind.FloatY, 0.018f, 1.6f, i * 1.3f);
+
+            GameObject number = AddIcon(levelNumberPaths[i], "关卡数字_" + (i + 1), selectNumberPositions[i], 0.18f, 18);
+            selectNumbers[i] = number.GetComponent<SpriteRenderer>();
+        }
+
+        AddLayer("select/bird_left_symbol", "左侧鸟纹装饰", new Vector3(0f, -0.02f, -0.16f), WideStripWidth, 13, 0.78f);
+        AddLayer("select/frog_right_symbol", "右侧蛙纹装饰", new Vector3(0f, -0.02f, -0.17f), WideStripWidth, 13, 0.78f);
+        AddLayer("select/bird_left_card", "左侧鸟纹白底卡", new Vector3(0f, -0.02f, -0.18f), WideStripWidth, 14, 0.82f);
+        AddLayer("select/frog_right_card", "右侧蛙纹白底卡", new Vector3(0f, -0.02f, -0.19f), WideStripWidth, 14, 0.82f);
+        AddLayer("select/select_border", "选关外框", new Vector3(0f, -0.02f, -0.2f), WideStripWidth, 20, 0.92f);
+        AddIcon("ui/settings", "左上设置入口", new Vector3(-2.42f, 1.05f, -0.25f), 0.24f, 30, 0.88f);
+
+        UpdateSelectedCardVisual();
+    }
+
+    private void UpdateSelect()
+    {
+        for (int i = 0; i < selectNumberPositions.Length; i++)
+        {
+            Rect cardBounds = new Rect(selectNumberPositions[i].x - 0.58f, -0.82f, 1.16f, 1.48f);
+            if (!TryGetControllerHover(cardBounds, out bool pointerPressed))
+            {
+                continue;
+            }
+
+            if (selectedLevel != i)
+            {
+                selectedLevel = i;
+                UpdateSelectedCardVisual();
+            }
+
+            if (pointerPressed)
+            {
+                PlaySfx("button", 0.62f);
+                ShowIntro();
+                return;
+            }
+        }
+
+        int direction = ReadHorizontalStep();
+        if (direction != 0 && selectMoveCooldown <= 0f)
+        {
+            selectedLevel = Mathf.Clamp(selectedLevel + direction, 0, levelNames.Length - 1);
+            selectMoveCooldown = 0.25f;
+            PlaySfx("swipe", 0.34f);
+            UpdateSelectedCardVisual();
+        }
+
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.digit1Key.wasPressedThisFrame)
+            {
+                selectedLevel = 0;
+                UpdateSelectedCardVisual();
+            }
+            else if (Keyboard.current.digit2Key.wasPressedThisFrame)
+            {
+                selectedLevel = 1;
+                UpdateSelectedCardVisual();
+            }
+            else if (Keyboard.current.digit3Key.wasPressedThisFrame)
+            {
+                selectedLevel = 2;
+                UpdateSelectedCardVisual();
+            }
+        }
+
+        if (NonPointerConfirmPressed())
+        {
+            PlaySfx("button", 0.62f);
+            ShowIntro();
+        }
+    }
+
+    private void UpdateSelectedCardVisual()
+    {
+        if (selectCards == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < selectCards.Length; i++)
+        {
+            bool selected = i == selectedLevel;
+            selectCards[i].color = selected ? Color.white : new Color(1f, 1f, 1f, 0.52f);
+
+            if (selectNumbers != null && i < selectNumbers.Length && selectNumbers[i] != null)
+            {
+                selectNumbers[i].color = selected ? Color.white : new Color(1f, 1f, 1f, 0.35f);
+                selectNumbers[i].transform.localScale = Vector3.one * (selected ? 0.23f : 0.18f);
+            }
+        }
+
+        _ = selectedLevel;
+    }
+
+    private void ShowIntro()
+    {
+        ResetStage(Stage.Intro);
+        PlayStageLoop("water", 0.3f);
+        PlayAuxiliaryLoop("footsteps", 0.25f);
+        BuildIntroWalkStage();
+    }
+
+    private void UpdateIntro()
+    {
+        if (!introPreLevelStarted)
+        {
+            // 手动往前走:推摇杆(或 W/↑)才推进过场,松开停住;后拉可略微倒退(不低于 0)。
+            if (introManualWalk)
+            {
+                float forward = LijiangEchoStageKit.ReadForwardAxis();
+                introWalkTimer = Mathf.Clamp(
+                    introWalkTimer + forward * IntroWalkSpeed * Time.deltaTime,
+                    0f, IntroWalkDuration);
+            }
+            else
+            {
+                introWalkTimer = stageTimer;   // 旧行为:自动按时间推进
+            }
+
+            UpdateIntroWalkStage();
+            if (introWalkTimer >= IntroWalkDuration)
+            {
+                StartIntroPreLevelVideo();
+            }
+
+            return;
+        }
+
+        UpdateIntroPreLevelStage();
+
+        float videoElapsed = stageTimer - introVideoStartTime;               // 进入视频段的时长(以视频真正开始时刻为基准)
+        bool videoPlaying = introVideoPlayer != null && introVideoPlayer.isPlaying;
+
+        if (introPreLevelFinished)
+        {
+            ShowTrace();                                                     // 视频正常播完 → 进关(完整播放,不砍断)
+        }
+        else if (!videoPlaying && videoElapsed > PreLevelNoVideoSkip)
+        {
+            ShowTrace();                                                     // 视频没能开始播(坏/无资源)→ 短暂黑屏后跳过,不再长时间黑屏
+        }
+        else if (videoElapsed > PreLevelSafetyCap)
+        {
+            ShowTrace();                                                     // 极端兜底
+        }
+    }
+
+    private void BuildIntroWalkStage()
+    {
+        GameObject scrollRootObject = new GameObject("过场漂浮素材");
+        introScrollRoot = scrollRootObject.transform;
+        introScrollRoot.SetParent(stageRoot, false);
+        introScrollRoot.localPosition = Vector3.zero;
+        introScrollRoot.localRotation = Quaternion.identity;
+        introScrollRoot.localScale = Vector3.one;
+        spawnedObjects.Add(scrollRootObject);
+
+        // 远方地平线一排小远山:每座缩到约原来 1/5,底面落在地平线上,横向排成一排(静止,不随
+        // 漂浮素材横移)。参数:horizonY=地平线高度、mtnHeight=山高、xs=各山横坐标。可自行增删调整。
+        const float horizonY = 0.42f;    // 地平线再往上抬(0.30→0.42:静止远山这排再稍微往上一点)
+        const float mtnHeight = 0.025f;  // 再缩到上一版的 1/4,很小
+        float mtnCenterY = horizonY + mtnHeight * 0.5f; // 让山底贴地平线
+        const float horizonRowZ = 3.0f;  // 静止远山这一排的深度(越大越远,约放到 4 米开外)。想更远/更近改这个(原 0.44)
+        string[] horizonMtnArt =
+        {
+            "start/back_mountain_1", "start/back_mountain_2", "start/back_mountain_3",
+            "start/front_mountain_left", "start/front_mountain_right"
+        };
+        // 山更小 → 用更密的间距把整条地平线排满(从左到右铺满一排)。
+        const float horizonHalfSpan = 2.1f;   // 排布横向半宽
+        const float horizonStep = 0.14f;      // 相邻两山间距(越小越密)
+        int horizonCount = Mathf.CeilToInt((horizonHalfSpan * 2f) / horizonStep) + 1;
+        for (int m = 0; m < horizonCount; m++)
+        {
+            float hx = -horizonHalfSpan + m * horizonStep;
+            AddIcon(
+                horizonMtnArt[m % horizonMtnArt.Length],
+                "地平线小远山_" + m,
+                new Vector3(hx, mtnCenterY, horizonRowZ),
+                mtnHeight,
+                -50 + (m % 5),
+                0.85f);
+        }
+        AddLayer("ui/mountain_background", "地平线天幕", new Vector3(0f, horizonY - 0.04f, horizonRowZ + 0.2f), WideStripWidth, -52, 0.45f);
+
+        AddIntroFlyItem("transition/mountain_1", "近景山一", new RectInt(127, 197, 490, 260), new Vector3(-3.25f, -0.18f, -0.16f), new Vector3(3.15f, -0.05f, -0.16f), 0.42f, 0.78f, 0.0f, 5.8f, 12, 0.88f);
+        AddIntroFlyItem("transition/mountain_4", "近景山二", new RectInt(1390, 219, 373, 197), new Vector3(3.20f, -0.34f, -0.18f), new Vector3(-3.10f, -0.20f, -0.18f), 0.38f, 0.74f, 0.3f, 6.1f, 13, 0.84f);
+        AddIntroFlyItem("transition/terrace", "漂浮梯田", new RectInt(507, 314, 451, 139), new Vector3(-3.0f, -0.60f, -0.22f), new Vector3(3.1f, -0.46f, -0.22f), 0.24f, 0.46f, 0.8f, 6.9f, 16, 0.92f);
+        AddIntroFlyItem("transition/house_1", "漂浮房屋一", new RectInt(749, 289, 217, 162), new Vector3(3.05f, 0.20f, -0.24f), new Vector3(-3.05f, 0.02f, -0.24f), 0.28f, 0.56f, 1.1f, 7.0f, 20, 0.94f);
+        AddIntroFlyItem("transition/house_3", "漂浮房屋二", new RectInt(1416, 274, 217, 162), new Vector3(-3.15f, 0.34f, -0.25f), new Vector3(3.0f, 0.18f, -0.25f), 0.25f, 0.52f, 1.7f, 7.5f, 21, 0.92f);
+        AddIntroFlyItem("transition/moon", "漂浮月亮", new RectInt(796, 177, 73, 59), new Vector3(-2.8f, 0.74f, -0.27f), new Vector3(2.9f, 0.57f, -0.27f), 0.16f, 0.32f, 1.8f, 7.8f, 22, 0.95f);
+        AddIntroFlyItem("transition/animal_1", "漂浮动物一", new RectInt(600, 344, 198, 110), new Vector3(3.15f, -0.10f, -0.30f), new Vector3(-3.0f, 0.12f, -0.30f), 0.25f, 0.48f, 2.2f, 8.1f, 28, 0.95f);
+        AddIntroFlyItem("transition/animal_3", "漂浮动物二", new RectInt(1101, 375, 213, 71), new Vector3(-3.1f, 0.08f, -0.31f), new Vector3(3.15f, -0.02f, -0.31f), 0.18f, 0.37f, 2.8f, 8.5f, 29, 0.96f);
+        AddIntroFlyItem("transition/animal_4", "漂浮动物三", new RectInt(1420, 346, 164, 90), new Vector3(3.2f, 0.42f, -0.32f), new Vector3(-3.05f, 0.24f, -0.32f), 0.20f, 0.40f, 3.4f, 8.7f, 30, 0.94f);
+        AddIntroFlyItem("transition/person_1", "漂浮人物一", new RectInt(941, 321, 61, 111), new Vector3(-2.9f, -0.20f, -0.33f), new Vector3(3.05f, -0.05f, -0.33f), 0.21f, 0.43f, 3.6f, 8.9f, 31, 0.92f);
+
+        AddIntroFlyItem("transition/water", "漂浮水纹", new RectInt(1696, 375, 1333, 74), new Vector3(-3.5f, -0.58f, -0.20f), new Vector3(3.4f, -0.43f, -0.20f), 0.14f, 0.30f, 13.2f, 18.7f, 15, 0.78f);
+        AddIntroFlyItem("transition/house_2", "漂浮房屋三", new RectInt(1281, 310, 135, 125), new Vector3(3.0f, 0.16f, -0.25f), new Vector3(-3.05f, 0.30f, -0.25f), 0.24f, 0.50f, 13.4f, 18.9f, 23, 0.93f);
+        AddIntroFlyItem("transition/house_4", "漂浮房屋四", new RectInt(1948, 295, 135, 125), new Vector3(-3.05f, 0.38f, -0.26f), new Vector3(3.0f, 0.17f, -0.26f), 0.23f, 0.48f, 13.7f, 19.2f, 24, 0.92f);
+        AddIntroFlyItem("transition/animal_2", "漂浮动物四", new RectInt(912, 388, 127, 62), new Vector3(3.1f, -0.08f, -0.31f), new Vector3(-3.05f, 0.04f, -0.31f), 0.18f, 0.37f, 14.0f, 19.0f, 30, 0.94f);
+        AddIntroFlyItem("transition/animal_5", "漂浮动物五", new RectInt(1718, 328, 164, 98), new Vector3(-3.1f, 0.32f, -0.32f), new Vector3(3.0f, 0.14f, -0.32f), 0.21f, 0.44f, 14.4f, 19.4f, 31, 0.95f);
+        AddIntroFlyItem("transition/person_2", "漂浮人物二", new RectInt(1009, 338, 72, 95), new Vector3(3.0f, -0.18f, -0.33f), new Vector3(-3.0f, -0.02f, -0.33f), 0.21f, 0.43f, 14.8f, 19.6f, 32, 0.92f);
+        AddIntroFlyItem("transition/person_3", "漂浮人物三", new RectInt(1580, 332, 83, 98), new Vector3(-3.0f, 0.10f, -0.34f), new Vector3(3.0f, -0.05f, -0.34f), 0.20f, 0.42f, 15.2f, 19.8f, 33, 0.93f);
+
+        AddIntroFlyItem("transition/mountain_2", "远山一", new RectInt(444, 234, 387, 202), new Vector3(-3.15f, -0.12f, -0.16f), new Vector3(3.05f, -0.26f, -0.16f), 0.35f, 0.72f, 23.4f, 30.2f, 12, 0.86f);
+        AddIntroFlyItem("transition/mountain_3", "远山二", new RectInt(906, 195, 460, 248), new Vector3(3.2f, -0.30f, -0.18f), new Vector3(-3.05f, -0.10f, -0.18f), 0.42f, 0.82f, 23.8f, 30.7f, 13, 0.88f);
+        AddIntroFlyItem("transition/mountain_5", "远山三", new RectInt(1890, 213, 428, 208), new Vector3(-3.25f, 0.02f, -0.20f), new Vector3(3.1f, -0.20f, -0.20f), 0.36f, 0.72f, 24.5f, 31.4f, 14, 0.84f);
+        AddIntroFlyItem("transition/mountain_6", "远山四", new RectInt(2297, 296, 394, 130), new Vector3(3.15f, 0.28f, -0.22f), new Vector3(-3.1f, 0.08f, -0.22f), 0.24f, 0.49f, 25.2f, 32.0f, 15, 0.86f);
+        AddIntroFlyItem("transition/mountain_7", "远山五", new RectInt(2676, 206, 348, 219), new Vector3(-3.1f, -0.34f, -0.24f), new Vector3(3.1f, -0.12f, -0.24f), 0.38f, 0.78f, 26.0f, 32.8f, 16, 0.90f);
+        AddIntroFlyItem("transition/animal_6", "漂浮鱼群", new RectInt(2210, 367, 220, 38), new Vector3(3.2f, 0.48f, -0.31f), new Vector3(-3.1f, 0.20f, -0.31f), 0.13f, 0.27f, 26.4f, 33.1f, 30, 0.95f);
+        AddIntroFlyItem("transition/person_4", "漂浮人物四", new RectInt(1935, 355, 54, 69), new Vector3(-3.0f, -0.18f, -0.32f), new Vector3(3.0f, 0.04f, -0.32f), 0.17f, 0.35f, 27.0f, 33.4f, 31, 0.92f);
+        AddIntroFlyItem("transition/beast", "迎面兽纹", new RectInt(2642, 45, 475, 391), new Vector3(3.25f, 0.08f, -0.36f), new Vector3(-3.1f, -0.02f, -0.36f), 0.42f, 1.05f, 27.3f, 34.0f, 40, 0.98f);
+
+        GameObject hollowFrame = AddLayer("transition/hollow_frame", "过场镂空边框", Vector3.zero, MainCanvasWidth, 90, 0.76f, introScrollRoot);
+        AddIntroFadeItem(hollowFrame.GetComponent<SpriteRenderer>(), 0.76f, true);
+        GameObject purpleFrame = AddLayer("transition/purple_frame", "过场紫色边框", new Vector3(0f, 0f, -0.46f), MainCanvasWidth, 91, 0.34f, introScrollRoot);
+        AddIntroFadeItem(purpleFrame.GetComponent<SpriteRenderer>(), 0.34f, true);
+
+        UpdateIntroWalkStage();
+    }
+
+    private void AddIntroFlyItem(
+        string resourcePath,
+        string objectName,
+        RectInt topLeftCrop,
+        Vector3 startCenter,
+        Vector3 endCenter,
+        float startHeight,
+        float endHeight,
+        float startTime,
+        float endTime,
+        int order,
+        float alpha)
+    {
+        int spatialIndex = introFlyItems.Count;
+        float startDepth = 5.6f + (spatialIndex % 4) * 0.85f;
+        float endDepth = -4.1f - (spatialIndex % 3) * 0.55f;
+        Vector3 spatialStart = new Vector3(startCenter.x * 0.12f, startCenter.y * 0.42f, startDepth);
+        Vector3 spatialEnd = new Vector3(endCenter.x * 0.74f, endCenter.y * 1.08f, endDepth);
+        float direction = Mathf.Sign(endCenter.x - startCenter.x);
+        if (Mathf.Approximately(direction, 0f))
+        {
+            direction = spatialIndex % 2 == 0 ? 1f : -1f;
+        }
+
+        GameObject itemObject = AddCroppedSprite(
+            resourcePath,
+            objectName,
+            topLeftCrop,
+            spatialStart,
+            startHeight,
+            order,
+            0f,
+            false,
+            introScrollRoot);
+        introFlyItems.Add(new IntroFlyItem
+        {
+            Renderer = itemObject.GetComponent<SpriteRenderer>(),
+            StartCenter = spatialStart,
+            EndCenter = spatialEnd,
+            StartHeight = startHeight,
+            EndHeight = endHeight,
+            StartTime = startTime,
+            EndTime = endTime,
+            TargetAlpha = alpha,
+            FloatPhase = spatialIndex * 0.73f,
+            StartRotation = new Vector3(0f, -direction * 3f, -direction * 2f),
+            EndRotation = new Vector3(0f, direction * 18f, direction * (10f + spatialIndex % 3 * 4f))
+        });
+    }
+
+    private void AddIntroFocusItem(
+        string resourcePath,
+        string objectName,
+        RectInt topLeftCrop,
+        float startTime,
+        float endTime,
+        float targetHeight)
+    {
+        GameObject panelObject = AddSolidRect(
+            objectName + "底板",
+            new Vector3(0f, 0f, -0.37f),
+            4.45f,
+            1.34f,
+            new Color(0.12f, 0.035f, 0.17f, 0f),
+            68);
+        panelObject.transform.SetParent(introScrollRoot, false);
+        panelObject.transform.localPosition = new Vector3(0f, 0f, -0.37f);
+
+        TextMesh caption = AddText("绘制纹样", new Vector3(-1.25f, 0f, -0.41f), 0.032f, new Color(1f, 0.95f, 1f, 0f), 76);
+        caption.transform.SetParent(introScrollRoot, false);
+        caption.transform.localPosition = new Vector3(-1.25f, 0f, -0.41f);
+
+        AddIntroFlyItem(
+            resourcePath,
+            objectName,
+            topLeftCrop,
+            new Vector3(0.62f, 0f, -0.43f),
+            new Vector3(0.68f, 0.02f, -0.43f),
+            targetHeight * 0.84f,
+            targetHeight,
+            startTime,
+            endTime,
+            78,
+            0.98f);
+
+        introFocusItems.Add(new IntroFocusItem
+        {
+            PanelRenderer = panelObject.GetComponent<SpriteRenderer>(),
+            Caption = caption,
+            StartTime = startTime,
+            EndTime = endTime
+        });
+    }
+
+    private void AddIntroFadeItem(SpriteRenderer renderer, float targetAlpha, bool walkItem)
+    {
+        if (renderer == null)
+        {
+            return;
+        }
+
+        IntroFadeItem item = new IntroFadeItem
+        {
+            Renderer = renderer,
+            TargetAlpha = targetAlpha
+        };
+
+        if (walkItem)
+        {
+            introWalkItems.Add(item);
+        }
+        else
+        {
+            introPreLevelItems.Add(item);
+        }
+    }
+
+    private void UpdateIntroWalkStage()
+    {
+        foreach (IntroFlyItem item in introFlyItems)
+        {
+            if (item.Renderer == null)
+            {
+                continue;
+            }
+
+            float progress = Mathf.Clamp01(Mathf.InverseLerp(item.StartTime, item.EndTime, introWalkTimer));
+            float eased = Mathf.SmoothStep(0f, 1f, progress);
+            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.StartTime - 0.18f, item.StartTime + 0.48f, introWalkTimer));
+            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(item.EndTime - 0.55f, item.EndTime + 0.18f, introWalkTimer));
+            float alpha = item.TargetAlpha * Mathf.Min(fadeIn, fadeOut);
+
+            Vector3 center = Vector3.Lerp(item.StartCenter, item.EndCenter, eased);
+            center.y += Mathf.Sin(Time.time * 1.55f + item.FloatPhase) * 0.035f;
+            float height = Mathf.Lerp(item.StartHeight, item.EndHeight, eased);
+            SetCroppedSpritePose(item.Renderer, center, height, alpha, false);
+            item.Renderer.transform.localRotation = Quaternion.Euler(
+                Vector3.Lerp(item.StartRotation, item.EndRotation, eased));
+        }
+
+        foreach (IntroFocusItem focus in introFocusItems)
+        {
+            float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.StartTime - 0.2f, focus.StartTime + 0.45f, introWalkTimer));
+            float fadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(focus.EndTime - 0.45f, focus.EndTime + 0.15f, introWalkTimer));
+            float alpha = Mathf.Min(fadeIn, fadeOut);
+            if (focus.PanelRenderer != null)
+            {
+                focus.PanelRenderer.color = new Color(0.12f, 0.035f, 0.17f, alpha * 0.88f);
+            }
+
+            if (focus.Caption != null)
+            {
+                focus.Caption.color = new Color(1f, 0.95f, 1f, alpha * 0.96f);
+            }
+        }
+    }
+
+    private void StartIntroPreLevelVideo()
+    {
+        introPreLevelStarted = true;
+        introPreLevelFinished = false;
+        introVideoStartTime = stageTimer;
+        StopAuxiliaryLoop();
+
+        if (introScrollRoot != null)
+        {
+            introScrollRoot.gameObject.SetActive(false);
+        }
+
+        introPreLevelRoot = new GameObject("关卡前播放动画").transform;
+        introPreLevelRoot.SetParent(stageRoot, false);
+        introPreLevelRoot.localPosition = Vector3.zero;
+        introPreLevelRoot.localRotation = Quaternion.identity;
+        introPreLevelRoot.localScale = Vector3.one;
+        spawnedObjects.Add(introPreLevelRoot.gameObject);
+
+        GameObject blackBackdrop = AddSolidRect(
+            "关卡前动画黑底",
+            new Vector3(0f, 0f, -0.68f),
+            MainCanvasWidth,
+            1.55f,
+            Color.black,
+            98);
+        blackBackdrop.transform.SetParent(introPreLevelRoot, false);
+        blackBackdrop.transform.localPosition = new Vector3(0f, 0f, -0.68f);
+        AddVideoLayer("关卡前播放动画视频", IntroPreLevelVideoPath, new Vector3(0f, 0f, -0.72f), 3.82f, 100, introPreLevelRoot);
+    }
+
+    private void UpdateIntroPreLevelStage()
+    {
+        if (introScrollRoot != null && introScrollRoot.gameObject.activeSelf)
+        {
+            introScrollRoot.gameObject.SetActive(false);
+        }
+    }
+
+    private void ShowTrace()
+    {
+        ResetStage(Stage.Trace);
+        PlayStageLoop("ambience", 0.26f);
+
+        AddLayer("transition/purple_frame", "描绘阶段淡紫边框", Vector3.zero, MainCanvasWidth, -20, 0.14f);
+        AddLayer("pattern/drawing_card", "纹样描绘台", new Vector3(0f, 0f, -0.22f), 4.25f, -4, 0.72f);
+
+        RectInt[] traceCrops =
+        {
+            new RectInt(273, 2314, 1951, 2547),
+            new RectInt(1822, 2125, 2973, 2185),
+            new RectInt(995, 836, 1335, 1359)
+        };
+        // 双手拆分:开镜像时,右手描【右半】纹样、左手描【左半】纹样,各自进度、各自判定,两半都描完才成功。
+        // 关镜像时单手描整条。tracePoints=右半(单手时=整条),traceLeftPoints=左半(=右半的水平镜像)。
+        bool splitHands = ExternalTraceMirror ?? true;
+        traceTwoHands = splitHands;
+        tracePoints = BuildTracePath(selectedLevel, splitHands);
+
+        GameObject sourcePattern = AddCroppedSprite(
+            tracePaths[selectedLevel],
+            "描绘参考纹样",
+            traceCrops[selectedLevel],
+            new Vector3(0f, 0.02f, -0.48f),
+            0.88f,
+            18,
+            0.74f,
+            false);
+        RegisterMotion(sourcePattern, MotionKind.Pulse, 0.01f, 1.7f, 0f);
+
+        // P1 / 描绘增强：全程「淡淡指引线」——沿纹样形状铺满整条路径，给玩家指引方向。
+        // 线本身即对齐纹样基本形状；如需虚线观感，可给此 LineRenderer 换一张虚线纹理材质。
+        LineRenderer traceGuideRenderer = AddLineRenderer(
+            "纹样描绘指引",
+            0.03f,
+            new Color(1f, 0.9f, 0.55f, 0.16f),
+            30);
+        traceGuideRenderer.positionCount = tracePoints.Length;
+        for (int gi = 0; gi < tracePoints.Length; gi++)
+        {
+            traceGuideRenderer.SetPosition(gi, tracePoints[gi] + new Vector3(0f, 0f, -0.018f));
+        }
+
+        traceDrawRenderer = AddLineRenderer(
+            "已描绘轨迹",
+            0.072f,
+            new Color(1f, 0.86f, 0.28f, 0.98f),
+            34);
+
+        // 描绘增强：已描绘的线沿绘制方向从暗金渐变到亮发光（头→尾逐渐点亮），
+        // 相当于纹样随绘制顺序逐渐亮起。colorGradient 按线长归一化，线增长时描绘头始终最亮。
+        Gradient traceGlowGradient = new Gradient();
+        traceGlowGradient.SetKeys(
+            new GradientColorKey[]
+            {
+                new GradientColorKey(new Color(0.85f, 0.6f, 0.2f), 0f),
+                new GradientColorKey(new Color(1f, 0.95f, 0.6f), 1f)
+            },
+            new GradientAlphaKey[]
+            {
+                new GradientAlphaKey(0.55f, 0f),
+                new GradientAlphaKey(1f, 1f)
+            });
+        traceDrawRenderer.colorGradient = traceGlowGradient;
+
+        GameObject pointerObject = AddIcon(
+            "battle/hit_ring_center",
+            "手柄描绘光标",
+            new Vector3(0f, 0f, TracePlaneZ - 0.04f),
+            0.105f,
+            42,
+            0.92f);
+        tracePointer = pointerObject.transform;
+        tracePointer.gameObject.SetActive(false);
+
+        // 双手独立描绘:左半轨迹 = 右半的水平镜像;左手用自己的指引线/已描绘线/光标,独立描、独立判定。
+        if (splitHands)
+        {
+            traceLeftPoints = new Vector3[tracePoints.Length];
+            for (int gi = 0; gi < tracePoints.Length; gi++)
+            {
+                Vector3 gp = tracePoints[gi];
+                traceLeftPoints[gi] = new Vector3(-gp.x, gp.y, gp.z);
+            }
+
+            LineRenderer mirrorGuide = AddLineRenderer("纹样描绘指引(左手)", 0.03f, new Color(1f, 0.9f, 0.55f, 0.16f), 30);
+            mirrorGuide.positionCount = traceLeftPoints.Length;
+            for (int gi = 0; gi < traceLeftPoints.Length; gi++)
+            {
+                mirrorGuide.SetPosition(gi, traceLeftPoints[gi] + new Vector3(0f, 0f, -0.018f));
+            }
+
+            traceMirrorDrawRenderer = AddLineRenderer("已描绘轨迹(左手)", 0.072f, new Color(1f, 0.86f, 0.28f, 0.98f), 34);
+            traceMirrorDrawRenderer.colorGradient = traceGlowGradient;
+
+            GameObject mirrorPointerObject = AddIcon("battle/hit_ring_center", "手柄描绘光标(左手)", new Vector3(0f, 0f, TracePlaneZ - 0.04f), 0.105f, 42, 0.92f);
+            traceMirrorPointer = mirrorPointerObject.transform;
+            traceMirrorPointer.gameObject.SetActive(false);
+        }
+        else
+        {
+            traceLeftPoints = null;
+            traceMirrorDrawRenderer = null;
+            traceMirrorPointer = null;
+        }
+
+        traceFeedbackText = AddText(
+            "绘制纹样",
+            new Vector3(0f, 0.78f, -0.56f),
+            0.027f,
+            new Color(1f, 0.93f, 0.72f, 0.94f),
+            44);
+    }
+
+    private void UpdateTrace()
+    {
+        if (traceCompleted)
+        {
+            traceCompleteTimer += Time.deltaTime;
+            if (traceCompleteTimer >= 1.05f)
+            {
+                ShowBattle();
+            }
+
+            return;
+        }
+
+        if (traceTwoHands)
+        {
+            UpdateTraceTwoHands();
+        }
+        else
+        {
+            UpdateTraceSingle();
+        }
+    }
+
+    // 单手:一只手(哪只压扳机用哪只)从头描到尾,描完整只算完成。
+    private void UpdateTraceSingle()
+    {
+        if (!TryGetTracePointer(out Vector3 localPoint, out bool drawing))
+        {
+            if (tracePointer != null)
+            {
+                tracePointer.gameObject.SetActive(false);
+            }
+
+            hasPreviousTracePointer = false;
+            return;
+        }
+
+        if (tracePointer != null)
+        {
+            tracePointer.gameObject.SetActive(true);
+            tracePointer.localPosition = new Vector3(localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
+        }
+
+        if (!drawing || tracePoints == null || tracePointIndex >= tracePoints.Length)
+        {
+            hasPreviousTracePointer = false;
+            if (traceFeedbackText != null)
+            {
+                traceFeedbackText.text = tracePointIndex == 0
+                    ? "按住扳机，从亮起的起点沿纹样描画"
+                    : $"描画进度 {Mathf.RoundToInt(tracePointIndex * 100f / tracePoints.Length)}%";
+            }
+            return;
+        }
+
+        Vector3 pointerOnPlane = new Vector3(localPoint.x, localPoint.y, TracePlaneZ);
+        tracePointIndex = AdvanceTraceHand(tracePoints, tracePointIndex, pointerOnPlane, ref previousTracePointer, ref hasPreviousTracePointer);
+        UpdateTraceLine();
+        if (traceFeedbackText != null && tracePointIndex < tracePoints.Length)
+        {
+            traceFeedbackText.text = $"描画进度 {Mathf.RoundToInt(tracePointIndex * 100f / tracePoints.Length)}%";
+        }
+
+        if (tracePointIndex >= tracePoints.Length)
+        {
+            CompleteTrace();
+        }
+    }
+
+    // 真·双手独立:右手描右半(tracePoints)、左手描左半(traceLeftPoints),各自指针/进度/判定,两半都完成才成功。
+    private void UpdateTraceTwoHands()
+    {
+        CacheControllerAnchors();
+
+        // 编辑器鼠标兜底:一支鼠标默认画右手;【按住 Shift 时改画左手】,这样单鼠标也能把左右两半都描完。
+        bool mouseHas = TryGetMousePointer(out Vector3 mousePoint, out bool mouseDraw);
+        bool mouseToLeft = Keyboard.current != null &&
+                           (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
+
+        // —— 右手 → 右半 ——
+        bool rightHas = TryGetHandPointer(true, out Vector3 rPoint, out bool rDraw);
+        if (!rightHas && mouseHas && !mouseToLeft)
+        {
+            rightHas = true;
+            rPoint = mousePoint;
+            rDraw = mouseDraw;
+        }
+
+        UpdateTraceCursor(tracePointer, rightHas, rPoint);
+        if (rightHas && rDraw && tracePoints != null && tracePointIndex < tracePoints.Length)
+        {
+            tracePointIndex = AdvanceTraceHand(tracePoints, tracePointIndex, new Vector3(rPoint.x, rPoint.y, TracePlaneZ), ref previousTracePointer, ref hasPreviousTracePointer);
+        }
+        else
+        {
+            hasPreviousTracePointer = false;
+        }
+
+        // —— 左手 → 左半(编辑器按住 Shift 时鼠标画这半)——
+        bool leftHas = TryGetHandPointer(false, out Vector3 lPoint, out bool lDraw);
+        if (!leftHas && mouseHas && mouseToLeft)
+        {
+            leftHas = true;
+            lPoint = mousePoint;
+            lDraw = mouseDraw;
+        }
+        UpdateTraceCursor(traceMirrorPointer, leftHas, lPoint);
+        if (leftHas && lDraw && traceLeftPoints != null && traceLeftIndex < traceLeftPoints.Length)
+        {
+            traceLeftIndex = AdvanceTraceHand(traceLeftPoints, traceLeftIndex, new Vector3(lPoint.x, lPoint.y, TracePlaneZ), ref previousTraceLeftPointer, ref hasPreviousTraceLeftPointer);
+        }
+        else
+        {
+            hasPreviousTraceLeftPointer = false;
+        }
+
+        DrawTraceHalf(traceDrawRenderer, tracePoints, tracePointIndex);
+        DrawTraceHalf(traceMirrorDrawRenderer, traceLeftPoints, traceLeftIndex);
+
+        bool rightDone = tracePoints != null && tracePointIndex >= tracePoints.Length;
+        bool leftDone = traceLeftPoints != null && traceLeftIndex >= traceLeftPoints.Length;
+
+        if (traceFeedbackText != null)
+        {
+            if (tracePointIndex == 0 && traceLeftIndex == 0)
+            {
+                traceFeedbackText.text = "双手各按住扳机，左右手分别沿两侧描画";
+            }
+            else
+            {
+                int rp = tracePoints != null && tracePoints.Length > 0 ? Mathf.RoundToInt(tracePointIndex * 100f / tracePoints.Length) : 0;
+                int lp = traceLeftPoints != null && traceLeftPoints.Length > 0 ? Mathf.RoundToInt(traceLeftIndex * 100f / traceLeftPoints.Length) : 0;
+                traceFeedbackText.text = $"左手 {lp}%　·　右手 {rp}%";
+            }
+        }
+
+        if (rightDone && leftDone)
+        {
+            CompleteTrace();
+        }
+    }
+
+    // 某只手的射线落点 + 该手扳机是否按下(仅该手,互不干扰)。
+    private bool TryGetHandPointer(bool right, out Vector3 localPoint, out bool drawing)
+    {
+        Transform controller = right ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = right ? rightControllerTracked : leftControllerTracked;
+        float trigger = right ? rightTriggerValue : leftTriggerValue;
+        drawing = trigger > 0.35f;
+
+        if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
+        {
+            return true;
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
+    // 编辑器鼠标落点 + 左键是否按下(供无手柄时兜底描绘)。
+    private bool TryGetMousePointer(out Vector3 localPoint, out bool drawing)
+    {
+        if (Mouse.current != null && cameraAnchor != null)
+        {
+            Camera cam = cameraAnchor.GetComponent<Camera>();
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Mouse.current.position.ReadValue());
+                if (TryProjectRay(ray, out localPoint))
+                {
+                    drawing = Mouse.current.leftButton.isPressed;
+                    return true;
+                }
+            }
+        }
+
+        localPoint = Vector3.zero;
+        drawing = false;
+        return false;
+    }
+
+    // 沿路径推进"已描到"的下标:当前笔迹(上一帧→本帧)离下一个待描点足够近就吃掉它。返回新的下标。
+    private int AdvanceTraceHand(Vector3[] points, int index, Vector3 pointerOnPlane, ref Vector3 previousPointer, ref bool hasPrevious)
+    {
+        int advanced = 0;
+        while (points != null && index < points.Length && advanced < 10)
+        {
+            float distance = hasPrevious
+                ? DistanceToSegment(points[index], previousPointer, pointerOnPlane)
+                : Vector3.Distance(points[index], pointerOnPlane);
+            if (distance > TracePointTolerance)
+            {
+                break;
+            }
+
+            index++;
+            advanced++;
+        }
+
+        previousPointer = pointerOnPlane;
+        hasPrevious = true;
+        return index;
+    }
+
+    private void UpdateTraceCursor(Transform cursor, bool visible, Vector3 localPoint)
+    {
+        if (cursor == null)
+        {
+            return;
+        }
+
+        cursor.gameObject.SetActive(visible);
+        if (visible)
+        {
+            cursor.localPosition = new Vector3(localPoint.x, localPoint.y, TracePlaneZ - 0.04f);
+        }
+    }
+
+    private void DrawTraceHalf(LineRenderer renderer, Vector3[] points, int index)
+    {
+        if (renderer == null || points == null)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(index, 0, points.Length);
+        renderer.positionCount = count;
+        for (int i = 0; i < count; i++)
+        {
+            renderer.SetPosition(i, points[i] + new Vector3(0f, 0f, -0.025f));
+        }
+    }
+
+    private void CompleteTrace()
+    {
+        traceCompleted = true;
+        traceCompleteTimer = 0f;
+        if (traceFeedbackText != null)
+        {
+            traceFeedbackText.text = "绘制成功";
+            traceFeedbackText.color = new Color(1f, 0.88f, 0.3f, 1f);
+        }
+
+        RectInt[] doneCrops = { SnakeDoneCrop, BirdDoneCrop, CoinDoneCrop };
+        GameObject completedPattern = AddCroppedSprite(
+            donePaths[selectedLevel],
+            "完成纹样光效",
+            doneCrops[selectedLevel],
+            new Vector3(0f, 0.02f, -0.68f),
+            0.92f,
+            48,
+            0.94f,
+            false);
+        RegisterMotion(completedPattern, MotionKind.Pulse, 0.035f, 3.2f, 0f);
+        string[] completionSounds = { "snake", "swipe", "coin" };
+        PlaySfx(completionSounds[selectedLevel], 0.68f);
+        OVRInput.SetControllerVibration(0.45f, 0.65f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
+        Invoke(nameof(StopControllerVibration), 0.16f);
+    }
+
+    /// <summary>
+    /// 每关纹样的「关键点」(而非细分后的全部路径点),供编辑器"自动摆放打击点"工具定位使用:
+    /// 在这些点上各摆一个打击点,连起来就是该关纹样的大致形状。0=蛙纹 1=鸟纹 2=铜钱纹(圆)。
+    /// </summary>
+    public static Vector2[] GetPatternControlPoints(int level)
+    {
+        if (level == 2)
+        {
+            const int ringPoints = 12;
+            Vector2[] ring = new Vector2[ringPoints];
+            for (int i = 0; i < ringPoints; i++)
+            {
+                float angle = Mathf.PI * 0.5f - i / (float)ringPoints * Mathf.PI * 2f;
+                ring[i] = new Vector2(Mathf.Cos(angle) * 0.43f, Mathf.Sin(angle) * 0.43f + 0.02f);
+            }
+
+            return ring;
+        }
+
+        return level == 0
+            ? new[]
+            {
+                new Vector2(-0.20f, 0.44f), new Vector2(-0.38f, 0.28f),
+                new Vector2(-0.17f, 0.13f), new Vector2(-0.34f, -0.03f),
+                new Vector2(-0.10f, -0.14f), new Vector2(-0.18f, -0.34f),
+                new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                new Vector2(0.20f, 0.44f)
+            }
+            : new[]
+            {
+                new Vector2(-0.52f, 0.02f), new Vector2(-0.34f, 0.30f),
+                new Vector2(-0.10f, 0.14f), new Vector2(0f, 0.38f),
+                new Vector2(0.10f, 0.14f), new Vector2(0.34f, 0.30f),
+                new Vector2(0.52f, 0.02f), new Vector2(0.25f, -0.06f),
+                new Vector2(0f, -0.45f), new Vector2(-0.25f, -0.06f),
+                new Vector2(-0.52f, 0.02f)
+            };
+    }
+
+    private Vector3[] BuildTracePath(int level, bool rightHalfOnly)
+    {
+        List<Vector3> points = new List<Vector3>();
+        if (level == 2)
+        {
+            if (rightHalfOnly)
+            {
+                // 右半圆:顶(π/2)→右(0)→底(-π/2);镜像手补出左半圆,合起来是整圈铜钱纹。
+                const int halfPoints = 36;
+                for (int i = 0; i < halfPoints; i++)
+                {
+                    float angle = Mathf.PI * 0.5f - i / (float)(halfPoints - 1) * Mathf.PI;
+                    points.Add(new Vector3(Mathf.Cos(angle) * 0.43f, Mathf.Sin(angle) * 0.43f + 0.02f, TracePlaneZ));
+                }
+
+                return points.ToArray();
+            }
+
+            const int circlePoints = 72;
+            for (int i = 0; i < circlePoints; i++)
+            {
+                float angle = Mathf.PI * 0.5f - i / (float)(circlePoints - 1) * Mathf.PI * 2f;
+                points.Add(new Vector3(Mathf.Cos(angle) * 0.43f, Mathf.Sin(angle) * 0.43f + 0.02f, TracePlaneZ));
+            }
+
+            return points.ToArray();
+        }
+
+        Vector2[] controls;
+        if (rightHalfOnly)
+        {
+            // 纹样关于 x=0 对称:主手只描右半(x≥0)控制点,镜像手把它 -x 翻出左半,两半拼成整只纹样。
+            controls = level == 0
+                ? new[]
+                {
+                    new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                    new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                    new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                    new Vector2(0.20f, 0.44f)
+                }
+                : new[]
+                {
+                    new Vector2(0f, 0.38f), new Vector2(0.10f, 0.14f),
+                    new Vector2(0.34f, 0.30f), new Vector2(0.52f, 0.02f),
+                    new Vector2(0.25f, -0.06f), new Vector2(0f, -0.45f)
+                };
+        }
+        else
+        {
+            controls = level == 0
+                ? new[]
+                {
+                    new Vector2(-0.20f, 0.44f), new Vector2(-0.38f, 0.28f),
+                    new Vector2(-0.17f, 0.13f), new Vector2(-0.34f, -0.03f),
+                    new Vector2(-0.10f, -0.14f), new Vector2(-0.18f, -0.34f),
+                    new Vector2(0f, -0.47f), new Vector2(0.18f, -0.34f),
+                    new Vector2(0.10f, -0.14f), new Vector2(0.34f, -0.03f),
+                    new Vector2(0.17f, 0.13f), new Vector2(0.38f, 0.28f),
+                    new Vector2(0.20f, 0.44f)
+                }
+                : new[]
+                {
+                    new Vector2(-0.52f, 0.02f), new Vector2(-0.34f, 0.30f),
+                    new Vector2(-0.10f, 0.14f), new Vector2(0f, 0.38f),
+                    new Vector2(0.10f, 0.14f), new Vector2(0.34f, 0.30f),
+                    new Vector2(0.52f, 0.02f), new Vector2(0.25f, -0.06f),
+                    new Vector2(0f, -0.45f), new Vector2(-0.25f, -0.06f),
+                    new Vector2(-0.52f, 0.02f)
+                };
+        }
+
+        const int subdivisions = 6;
+        for (int segment = 0; segment < controls.Length - 1; segment++)
+        {
+            for (int step = 0; step < subdivisions; step++)
+            {
+                Vector2 point = Vector2.Lerp(controls[segment], controls[segment + 1], step / (float)subdivisions);
+                points.Add(new Vector3(point.x, point.y + 0.02f, TracePlaneZ));
+            }
+        }
+
+        Vector2 last = controls[^1];
+        points.Add(new Vector3(last.x, last.y + 0.02f, TracePlaneZ));
+        return points.ToArray();
+    }
+
+    private void UpdateTraceLine()
+    {
+        if (traceDrawRenderer == null || tracePoints == null)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(tracePointIndex, 0, tracePoints.Length);
+        traceDrawRenderer.positionCount = count;
+        for (int i = 0; i < count; i++)
+        {
+            traceDrawRenderer.SetPosition(i, tracePoints[i] + new Vector3(0f, 0f, -0.025f));
+        }
+
+        // 双手镜像:把已描绘线镜像到对侧
+        if (traceMirrorDrawRenderer != null)
+        {
+            traceMirrorDrawRenderer.positionCount = count;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 mp = tracePoints[i] + new Vector3(0f, 0f, -0.025f);
+                traceMirrorDrawRenderer.SetPosition(i, new Vector3(-mp.x, mp.y, mp.z));
+            }
+        }
+    }
+
+    private bool TryGetTracePointer(out Vector3 localPoint, out bool drawing)
+    {
+        CacheControllerAnchors();
+        bool useRight = rightTriggerValue > leftTriggerValue + 0.04f ||
+                        (!leftControllerTracked && rightControllerTracked);
+        Transform controller = useRight ? rightControllerAnchor : leftControllerAnchor;
+        bool tracked = useRight ? rightControllerTracked : leftControllerTracked;
+        drawing = Mathf.Max(leftTriggerValue, rightTriggerValue) > 0.35f;
+
+        // 同 GetMenuPointer:必须先判 tracked,否则 PC 上会拿没在跟踪的手柄锚点发射线,
+        // 鼠标兜底永远走不到。
+        if (tracked && controller != null && TryProjectControllerRay(controller, out localPoint))
+        {
+            return true;
+        }
+
+        if (Mouse.current != null)
+        {
+            Camera cameraComponent = cameraAnchor != null ? cameraAnchor.GetComponent<Camera>() : null;
+            if (cameraComponent == null)
+            {
+                cameraComponent = LijiangEchoStageKit.FindGameplayCamera();
+            }
+
+            if (cameraComponent != null)
+            {
+                Ray mouseRay = cameraComponent.ScreenPointToRay(Mouse.current.position.ReadValue());
+                drawing = Mouse.current.leftButton.isPressed;
+                return TryProjectRay(mouseRay, out localPoint);
+            }
+        }
+
+        localPoint = Vector3.zero;
+        return false;
+    }
+
+    private bool TryProjectControllerRay(Transform controller, out Vector3 localPoint)
+    {
+        return TryProjectRay(new Ray(controller.position, GetControllerRayDirection(controller)), out localPoint);
+    }
+
+    private bool TryProjectRay(Ray ray, out Vector3 localPoint)
+    {
+        Vector3 planePoint = stageRoot.TransformPoint(new Vector3(0f, 0f, TracePlaneZ));
+        Plane plane = new Plane(stageRoot.forward, planePoint);
+        if (plane.Raycast(ray, out float distance) && distance > 0f && distance < 8f)
+        {
+            localPoint = stageRoot.InverseTransformPoint(ray.GetPoint(distance));
+            return Mathf.Abs(localPoint.x) <= 2.25f && Mathf.Abs(localPoint.y) <= 1.2f;
+        }
+
+        localPoint = Vector3.zero;
+        return false;
+    }
+
+    private static float DistanceToSegment(Vector3 point, Vector3 start, Vector3 end)
+    {
+        Vector3 segment = end - start;
+        if (segment.sqrMagnitude < 0.000001f)
+        {
+            return Vector3.Distance(point, start);
+        }
+
+        float t = Mathf.Clamp01(Vector3.Dot(point - start, segment) / segment.sqrMagnitude);
+        return Vector3.Distance(point, start + segment * t);
+    }
+
+    private void StopControllerVibration()
+    {
+        OVRInput.SetControllerVibration(0f, 0f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);
+    }
+
+    /// <summary>
+    /// 战斗开始时读谱面表格驱动音符:优先 chart_generated(从音乐生成),否则 chart_liusanjie
+    /// (需求表),都没有则保留代码里的默认谱面。文件每行"时间(秒),类型";类型 single/double/hold;
+    /// # 开头为注释、空行忽略;会按时间升序排序。
+    /// </summary>
+    private void LoadChartIfAvailable()
+    {
+        // 谱面按优先级挑选:先本关卡专属谱(编辑器"应用到该战斗场景"写出的 chart_level{N}),
+        // 再全局生成谱 chart_generated,最后需求谱 chart_liusanjie。三关(蛙/鸟/鱼)可各配一张谱。
+        string[] candidates =
+        {
+            "LijiangEchoCharts/chart_level" + selectedLevel,
+            "LijiangEchoCharts/chart_generated",
+            "LijiangEchoCharts/chart_liusanjie"
+        };
+        TextAsset chart = null;
+        string chartName = null;
+        foreach (string path in candidates)
+        {
+            chart = Resources.Load<TextAsset>(path);
+            if (chart != null && !string.IsNullOrEmpty(chart.text))
+            {
+                chartName = path;
+                break;
+            }
+        }
+
+        if (chart == null || string.IsNullOrEmpty(chart.text))
+        {
+            return;
+        }
+
+        bool explicitTypes = false;
+        List<KeyValuePair<float, string>> rows = new List<KeyValuePair<float, string>>();
+        foreach (string rawLine in chart.text.Split('\n'))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith("#"))
+            {
+                // 编辑器保存的谱面带此头 → 只认显式类型,不再取模自动生成 swipe。
+                if (line.Replace(" ", string.Empty).ToLowerInvariant().Contains("types:explicit"))
+                {
+                    explicitTypes = true;
+                }
+
+                continue;
+            }
+
+            string[] parts = line.Split(',');
+            if (parts.Length < 1 || !float.TryParse(parts[0].Trim(), out float t))
+            {
+                continue;
+            }
+
+            string type = parts.Length >= 2 ? parts[1].Trim().ToLowerInvariant() : "single";
+            rows.Add(new KeyValuePair<float, string>(t, type));
+        }
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        rows.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+        float[] times = new float[rows.Count];
+        HashSet<int> holds = new HashSet<int>();
+        HashSet<int> doubles = new HashSet<int>();
+        HashSet<int> swipes = new HashSet<int>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            times[i] = rows[i].Key;
+            if (rows[i].Value == "hold")
+            {
+                holds.Add(i);
+            }
+            else if (rows[i].Value == "double")
+            {
+                doubles.Add(i);
+            }
+            else if (rows[i].Value == "swipe")
+            {
+                swipes.Add(i);
+            }
+        }
+
+        noteTimes = times;
+        holdNoteIndices = holds;
+        doubleNoteIndices = doubles;
+        swipeNoteIndices = swipes;
+        chartTypesExplicit = explicitTypes;
+        Debug.Log($"[漓江回声] 关卡 {selectedLevel} 采用谱面 {chartName}:{noteTimes.Length} 个音符(长按 {holds.Count}、双击 {doubles.Count}、挥划 {swipes.Count}、显式类型 {explicitTypes})。");
+    }
+
+    // ===== 左右手击打(对应 VR 手柄左/右手) =====
+    private const float HandStrikeDuration = 0.36f; // 击打持续时间:加长,手停留更久更看得清
+    private const float HandRestAngle = 45f;     // 平时:手臂朝各自外下方甩出(藏在画面下侧,靠透明隐藏)
+    private const float HandStrikeAngle = 8f;    // 击打终点:接近竖直略向内,手落到中心圆环上(不越过)
+    private const float HandArmLength = 1.0f;     // 臂长:缩短,配合抬高的轴心让击打终点仍落在圆环
+    private const float HandPivotSide = 0.45f;    // 左右轴心离中线的横向距离
+    private const float HandPivotY = -0.85f;      // 轴心高度:抬进画面中下部(之前 -1.3 太低,Game 画面里出框/被前景挡)
+    private const float HandPivotZ = -0.88f;      // 轴心深度:放到玩法平面(≈圆环/音符),不再"非常前面"被近裁剪切掉
+    private const float HandVisualHeight = 3.3f;  // 手的显示高度(再放大些,击打时更醒目)
+    // 临时诊断:true = 左右手一直可见(不再只有击打瞬间显形),方便截图确认它们停在哪、大小对不对。
+    // 定好位置后改回 false 恢复"平时隐藏、击打才现"。
+    private const bool HandDebugAlwaysVisible = false;
+
+    // 双击(鸟纹)飞入样式:
+    //   false = 沿用单侧飞入(默认,和其它音符一致:整只鸟从左或右一侧飞到圆心)
+    //   true  = 「双翼汇合」:右翼从右飞入、左翼从左飞入,在圆心叠合拼成整只鸟(仍一次判定)
+    // 审核组员【不用改代码】:在 Resources/LijiangEchoBattleSettings 资源上勾选即可(见 LijiangEchoBattleSettings)。
+    // 找不到该资源时用这里的默认值兜底。
+    private const bool DoubleNoteMirrorConvergeDefault = false;
+    private bool doubleNoteMirrorConverge = DoubleNoteMirrorConvergeDefault;
+
+    // 音符按飞入方向自动镜像(由战斗选项资源覆盖):从左侧飞入的音符水平镜像,使朝左的纹样朝向飞行方向。
+    private bool autoMirrorNotesByDirection = true;
+    private bool mirrorStrike = true;   // 鱼纹(单击)
+    private bool mirrorHold = false;    // 蛇纹(长按)
+    private bool mirrorSwipe = false;   // 蛙纹(滑动)
+    private bool mirrorDouble = false;  // 鸟纹(双击)
+    private float hitWindowSeconds = 0.5f; // 命中窗口(秒),战斗选项可调;完美窗口=×0.4
+
+    // 蛙纹(挥划)专用的放宽参数,全部来自战斗选项资源(用户反馈蛙纹太难打)。
+    private float swipeWindowScale = 1.6f;   // 命中窗口的倍数,只对蛙纹生效
+    private float swipeMinimumSpeed = 0.34f; // 需要的最小挥动速度
+    private float swipeUpwardSpeed = 0.30f;  // 「上挑」向上分量的门槛
+
+    /// <summary>该类型音符的命中窗口。蛙纹按 swipeWindowScale 放宽,其它类型用原窗口。</summary>
+    private float HitWindowFor(NoteKind kind)
+    {
+        return kind == NoteKind.Swipe ? hitWindowSeconds * swipeWindowScale : hitWindowSeconds;
+    }
+
+    // ——— 9.1 需求第 7 条:左右手判定(战斗选项可调)———
+    // 左侧飞入的音符只响应左手、右侧只响应右手;双手音符(鸟纹)要左右手在容差内都到齐。
+    [System.Flags]
+    private enum HitHand { None = 0, Left = 1, Right = 2, Both = Left | Right }
+
+    private bool handSideJudge = true;             // 关掉 = 旧行为:任意手打所有音符
+    private bool doubleNoteNeedsBothHands = true;  // 关掉 = 旧行为:双击一次命中即可
+    private float twoHandSyncWindow = 0.35f;       // 左右手先后按下算「同时」的容差(秒),宽松
+
+    private HitHand battleStrikeHandsDown;         // 本帧手柄上哪几只手触发了「按下」
+    private HitHand lastStrikeHands;               // 本次打击输入来自哪几只手(含鼠标/键盘兜底)
+    private HitHand doublePendingHand;             // 双手音符:已经到了的那只手
+    private float doublePendingTime;               // 那只手到达的时刻
+    private int doublePendingNoteIndex = -1;       // 它属于哪个音符(换音符就作废)
+
+    /// <summary>创建左右手:轴心在画面偏下两侧,手臂朝下藏起;打击时向上旋转击中心圆环。</summary>
+    private void BuildBattleHands()
+    {
+        leftHandPivot = CreateBattleHand("battle/7左手", "左手", -1f, out leftHandRenderer);
+        rightHandPivot = CreateBattleHand("battle/7右手", "右手", 1f, out rightHandRenderer);
+        leftHandStrikeTimer = 0f;
+        rightHandStrikeTimer = 0f;
+    }
+
+    private Transform CreateBattleHand(string art, string handName, float sideSign, out SpriteRenderer handRenderer)
+    {
+        GameObject pivotObject = new GameObject(handName + "轴");
+        pivotObject.transform.SetParent(stageRoot, false);
+        pivotObject.transform.localPosition = new Vector3(sideSign * HandPivotSide, HandPivotY, HandPivotZ); // 偏下两侧的轴心(玩法平面深度)
+        pivotObject.transform.localRotation = Quaternion.Euler(0f, 0f, -sideSign * HandRestAngle); // 平时朝各自外下方甩出
+        spawnedObjects.Add(pivotObject);
+
+        // 优先用可编辑手部 Prefab:Resources/LijiangEchoNotes/Hand_Left / Hand_Right。
+        // 手的位置/大小/离镜头深度全由你在 Prefab 里摆(轴心只负责旋转甩击);运行时只驱动旋转+淡入。
+        string handPrefabName = sideSign < 0f ? "Hand_Left" : "Hand_Right";
+        GameObject handPrefab = Resources.Load<GameObject>("LijiangEchoNotes/" + handPrefabName);
+        if (handPrefab != null)
+        {
+            GameObject inst = Instantiate(handPrefab, pivotObject.transform, false);
+            inst.transform.localPosition = Vector3.zero;
+            inst.transform.localRotation = Quaternion.identity;
+            handRenderer = inst.GetComponentInChildren<SpriteRenderer>();
+            if (handRenderer != null)
+            {
+                Color c0 = handRenderer.color;
+                handRenderer.color = new Color(c0.r, c0.g, c0.b, 0f); // 初始透明,击打时淡入
+            }
+
+            return pivotObject.transform;
+        }
+
+        GameObject hand = AddIcon(art, handName, Vector3.zero, HandVisualHeight, 240, 0f); // 初始全透明,放大
+        hand.transform.SetParent(pivotObject.transform, false);
+        hand.transform.localRotation = Quaternion.identity;
+        handRenderer = hand.GetComponent<SpriteRenderer>();
+        // 关键:把手的"可见部分中心"放到手臂末端。手图不透明内容常偏在一角,
+        // 直接把 pivot 摆到臂端会让可见的手甩到画面外(之前"太偏下看不到"的原因)。
+        Vector3 handVisible = GetSpriteVisibleCenter(handRenderer.sprite);
+        Vector3 scaledVisible = Vector3.Scale(handVisible, hand.transform.localScale);
+        hand.transform.localPosition = new Vector3(0f, HandArmLength, 0f) - scaledVisible;
+        return pivotObject.transform;
+    }
+
+    private void UpdateBattleHands()
+    {
+        // 长按期间,对应一侧的手要"停留在击打顶点"直到松手/时长到 —— 由当前 holdActive + 该音符所在侧
+        // 派生(松手/完成后 holdActive 变 false,手自然落回),无需在各处手动清标志。
+        bool holdingLeft = holdActive && heldNote != null && heldNote.Side <= 0f;
+        bool holdingRight = holdActive && heldNote != null && heldNote.Side > 0f;
+        UpdateBattleHand(leftHandPivot, leftHandRenderer, ref leftHandStrikeTimer, holdingLeft, -1f);
+        UpdateBattleHand(rightHandPivot, rightHandRenderer, ref rightHandStrikeTimer, holdingRight, 1f);
+    }
+
+    private void UpdateBattleHand(Transform pivot, SpriteRenderer hand, ref float timer, bool holding, float sideSign)
+    {
+        if (pivot == null)
+        {
+            return;
+        }
+
+        float rest = -sideSign * HandRestAngle;     // 各自外下方甩出、藏起
+        float strike = sideSign * HandStrikeAngle;  // 向上旋转、手落到中心圆环
+        float angle = rest;
+        float alpha = 0f; // 平时全透明(VR 里镜头外也看得见,靠透明来隐藏)
+        if (timer > 0f)
+        {
+            // 普通击打:progress 0→1,swing = sin(progress·π) = 0→1→0(升起→落回)。
+            // 长按:升到顶点(progress=0.5,swing=1)后把 timer 冻结在半程,让手停在圆环上;
+            //       松手/时长到 → holding=false → timer 继续走完后半程 → 手落回并淡出。
+            float progress = 1f - Mathf.Clamp01(timer / HandStrikeDuration);
+            if (holding && progress >= 0.5f)
+            {
+                timer = HandStrikeDuration * 0.5f; // 钉在顶点保持
+                progress = 0.5f;
+            }
+            else
+            {
+                timer -= Time.deltaTime;
+            }
+
+            float swing = Mathf.Sin(progress * Mathf.PI);
+            angle = Mathf.Lerp(rest, strike, swing);
+            alpha = Mathf.Clamp01(swing * 2.2f); // 挥起时更早显现、看得更清,落回时淡出
+        }
+
+        if (HandDebugAlwaysVisible)
+        {
+            alpha = Mathf.Max(alpha, 0.7f); // 诊断:一直可见,方便看清手停在哪、多大
+        }
+
+        pivot.localRotation = Quaternion.Euler(0f, 0f, angle);
+        if (hand != null)
+        {
+            Color c = hand.color;
+            hand.color = new Color(c.r, c.g, c.b, alpha);
+        }
+    }
+
+    /// <summary>触发击打挥手:side&lt;0 左手,side&gt;0 右手,side==0 双手(双击)。</summary>
+    private void TriggerHandStrike(float side)
+    {
+        if (side <= 0f)
+        {
+            leftHandStrikeTimer = HandStrikeDuration;
+        }
+
+        if (side >= 0f)
+        {
+            rightHandStrikeTimer = HandStrikeDuration;
+        }
+    }
 
     private void ShowBattle()
     {
@@ -3298,7 +4771,7 @@ public class LijiangEchoGameController : MonoBehaviour
         PlaySfx("button", 0.6f);
         CloseMenu();
 
-        // 同 MenuActionSkip:旧主场景不在时不许重建自己的阶段(那会在新场景之上叠一个旧选关)。
+        // 同 MenuActionSkip:旧主场景不在时不许重建自己的阶段。
         if (!LegacySceneLoaded)
         {
             return;
@@ -3323,7 +4796,10 @@ public class LijiangEchoGameController : MonoBehaviour
         switch (stage) // 跳过=跳过当前阶段到下一个
         {
             case Stage.Battle: ShowResult(); break;
-            default: break; // 旧主场景只剩战斗/卡面/结算,其它阶段仅关菜单
+            default: break;
+            // 旧主场景只该负责战斗/卡面/结算。过场与描绘已经拆成 Stage_Intro,
+            // 那边的跳过由 IntroStageController.SkipStage 处理 —— 这里绝不能再调 ShowTrace(),
+            // 否则会在新场景之上重建旧描绘,然后一路跑完旧流程。
         }
     }
 
