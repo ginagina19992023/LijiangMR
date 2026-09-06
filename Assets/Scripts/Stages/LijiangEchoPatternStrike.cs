@@ -230,28 +230,11 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             return;
         }
 
-        Renderer[] renderers = note.GetComponentsInChildren<Renderer>(true);
-        bool any = false;
-        Bounds world = new Bounds();
-        foreach (Renderer r in renderers)
-        {
-            if (r == null)
-            {
-                continue;
-            }
-
-            if (!any)
-            {
-                world = r.bounds;
-                any = true;
-            }
-            else
-            {
-                world.Encapsulate(r.bounds);
-            }
-        }
-
-        if (!any)
+        // ⚠️ 只量【纹样本身】那一层。四个 Prefab 都是 Visual(纹样)+ Glow(光晕)两层,
+        // 而光晕比纹样大一圈 —— 之前量的是两层合起来的包围盒,等于把光晕也算进了目标高度,
+        // 纹样自然就被压得很小。所以优先量名字里带 Visual 的那层,退而求其次也要排除 Glow。
+        float currentHeight = MeasureVisualHeight(note);
+        if (currentHeight < 0.0001f)
         {
             return;
         }
@@ -263,7 +246,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             return;
         }
 
-        float currentHeight = world.size.y / stageScale;
+        currentHeight /= stageScale;
         float targetHeight = ringSize * noteSizeRatio;
         if (currentHeight < 0.0001f || targetHeight <= 0f)
         {
@@ -274,6 +257,82 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         Vector3 scale = note.localScale;
         float k = targetHeight / currentHeight;
         note.localScale = new Vector3(scale.x * k, scale.y * k, scale.z * k);
+    }
+
+    /// <summary>量出「纹样本身」在世界空间里有多高。
+    ///
+    /// 用 sprite.bounds × lossyScale 直接算,不走 Renderer.bounds —— 后者对刚
+    /// Instantiate 出来的物体不一定已经更新。生成时没有旋转,所以这么算是精确的。</summary>
+    private static float MeasureVisualHeight(Transform note)
+    {
+        Transform visual = FindDescendant(note, "Visual");
+        SpriteRenderer[] renderers = (visual != null ? visual : note)
+            .GetComponentsInChildren<SpriteRenderer>(true);
+
+        float tallest = 0f;
+        foreach (SpriteRenderer sr in renderers)
+        {
+            if (sr == null || sr.sprite == null)
+            {
+                continue;
+            }
+
+            // 没找到 Visual 时的兜底:至少别把光晕算进来
+            if (visual == null &&
+                sr.gameObject.name.IndexOf("Glow", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                continue;
+            }
+
+            float h = VisibleSpriteHeight(sr.sprite) * Mathf.Abs(sr.transform.lossyScale.y);
+            tallest = Mathf.Max(tallest, h);
+        }
+
+        return tallest;
+    }
+
+    /// <summary>精灵里【图案本身】有多高,而不是整张贴图有多高。
+    ///
+    /// 这才是"打击的纹样看起来很小"的主因:sprite.bounds 量的是整个贴图矩形,
+    /// 而这些纹样只占其中一小块 —— 鱼纹的图案只有 272px / 整图 630px,
+    /// 按整图去拟合的话,鱼实际只有目标高度的 43%,自然显得小一大截。
+    ///
+    /// 用导入时烘好的 Tight 网格顶点来量真实高度(不需要贴图开 Read/Write,
+    /// 和入场动画里算可见中心是同一条路子)。</summary>
+    private static float VisibleSpriteHeight(Sprite sprite)
+    {
+        Vector2[] vertices = sprite.vertices;
+        if (vertices != null && vertices.Length > 0)
+        {
+            float min = vertices[0].y;
+            float max = vertices[0].y;
+            for (int i = 1; i < vertices.Length; i++)
+            {
+                min = Mathf.Min(min, vertices[i].y);
+                max = Mathf.Max(max, vertices[i].y);
+            }
+
+            float tight = max - min;
+            if (tight > 0.0001f)
+            {
+                return tight;
+            }
+        }
+
+        return sprite.bounds.size.y;   // 拿不到网格就退回整图
+    }
+
+    private static Transform FindDescendant(Transform parent, string name)
+    {
+        foreach (Transform child in parent.GetComponentsInChildren<Transform>(true))
+        {
+            if (child != parent && child.name == name)
+            {
+                return child;
+            }
+        }
+
+        return null;
     }
 
     private static SpriteRenderer[] CacheRenderers(Transform target, out float[] baseAlpha)
