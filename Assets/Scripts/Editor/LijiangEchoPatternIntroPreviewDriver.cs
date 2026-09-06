@@ -24,6 +24,23 @@ public static class LijiangEchoPatternIntroPreviewDriver
     {
         EditorApplication.update -= Tick;
         EditorApplication.update += Tick;
+        EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+        EditorApplication.playModeStateChanged += OnPlayModeChanged;
+    }
+
+    /// <summary>退出 Play 之后场景会重新加载,预览生成的那些物件没了,
+    /// 而组件里记着"我已经建过了"的字段也被清空 —— 结果就是黄圈不见了、
+    /// 也没人重建。这里在回到编辑模式时主动让它们重建一次。</summary>
+    private static void OnPlayModeChanged(PlayModeStateChange state)
+    {
+        if (state != PlayModeStateChange.EnteredEditMode)
+        {
+            return;
+        }
+
+        LijiangEchoPatternIntro.RebuildAllEditorPreviews();
+        EditorApplication.QueuePlayerLoopUpdate();
+        SceneView.RepaintAll();
     }
 
     private static void Tick()

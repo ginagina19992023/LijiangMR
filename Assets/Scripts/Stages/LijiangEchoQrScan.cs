@@ -167,6 +167,12 @@ public class LijiangEchoQrScan : MonoBehaviour
             SetStatus("把二维码放进视野");
         }
 
+        if (selfCheckAt > 0f && Time.time >= selfCheckAt)
+        {
+            selfCheckAt = -1f;
+            RunSelfCheck();
+        }
+
         FaceStatusTextToPlayer();
     }
 
@@ -345,6 +351,7 @@ public class LijiangEchoQrScan : MonoBehaviour
         intro.Begin(pattern, anchorRoot, () => OnIntroFinished(pattern));
         Debug.Log($"[漓江回声] 扫到 {PatternName(pattern)},二维码边长 {codeSize:F3} m,演出缩放 {scale:F3}。");
         LogStageDiagnostics();
+        selfCheckAt = Time.time + 1f;
     }
 
     // ————————————————————————————— ③ 打击(占位) —————————————————————————————
@@ -492,6 +499,94 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         // 模拟的码按 10cm 算,和我们打印的那批一致
         BeginAt(simulatedCode.transform, 0.1f, pattern);
+    }
+
+    // 自检:开演一秒后跑一次(那时生物已经淡入了,零时刻本来就是全透明,查不出东西)
+    private float selfCheckAt = -1f;
+
+    /// <summary>逐个图层自检并给出结论。
+    ///
+    /// 「扫到了但什么都看不见」有太多可能:没生成、摆到视野外、全透明、被相机剔除、
+    /// 图层被禁用……光靠猜要试很多轮。这里一次把每个图层的位置/透明度/层/排序/
+    /// 在不在视锥里全打出来,并直接说结论。</summary>
+    private void RunSelfCheck()
+    {
+        if (anchorRoot == null)
+        {
+            Debug.LogError("[漓江回声] 自检:舞台根已经没了,动画被提前收掉了。");
+            return;
+        }
+
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            Debug.LogError("[漓江回声] 自检:没有主相机。");
+            return;
+        }
+
+        SpriteRenderer[] sprites = anchorRoot.GetComponentsInChildren<SpriteRenderer>(true);
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.AppendLine($"[漓江回声] 图层自检(共 {sprites.Length} 个)");
+        sb.AppendLine($"相机 {cam.name}:cullingMask={cam.cullingMask},near={cam.nearClipPlane:F2},far={cam.farClipPlane:F0}");
+
+        Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(cam);
+
+        int invisibleAlpha = 0;
+        int outsideView = 0;
+        int culledLayer = 0;
+        int disabled = 0;
+        int fine = 0;
+
+        foreach (SpriteRenderer sr in sprites)
+        {
+            if (sr == null)
+            {
+                continue;
+            }
+
+            bool layerOk = (cam.cullingMask & (1 << sr.gameObject.layer)) != 0;
+            bool onOk = sr.enabled && sr.gameObject.activeInHierarchy;
+            bool alphaOk = sr.color.a > 0.02f;
+            bool inView = GeometryUtility.TestPlanesAABB(frustum, sr.bounds);
+
+            if (!layerOk) { culledLayer++; }
+            else if (!onOk) { disabled++; }
+            else if (!alphaOk) { invisibleAlpha++; }
+            else if (!inView) { outsideView++; }
+            else { fine++; }
+
+            sb.AppendLine(
+                $"  {sr.name,-22} α={sr.color.a:F2} 层={LayerMask.LayerToName(sr.gameObject.layer)} "
+                + $"序={sr.sortingOrder} 开={onOk} 视锥内={inView} "
+                + $"世界位置={sr.bounds.center} 尺寸={sr.bounds.size}");
+        }
+
+        sb.AppendLine($"小结:正常 {fine},全透明 {invisibleAlpha},在视野外 {outsideView},"
+            + $"被相机层剔除 {culledLayer},被禁用 {disabled}");
+
+        if (fine > 0)
+        {
+            sb.AppendLine("→ 有图层是可见的。看不到的话检查 Game 视图用的是不是这台相机、"
+                + "以及有没有别的东西挡在前面。");
+            Debug.Log(sb.ToString());
+            return;
+        }
+
+        if (outsideView > 0)
+        {
+            sb.AppendLine("→ 全部落在视野外:位置/缩放算错了。对照上面每个图层的世界位置排查。");
+        }
+        else if (invisibleAlpha > 0)
+        {
+            sb.AppendLine("→ 全部是全透明:透明度没被写上去(SetAlpha 没找到渲染器,"
+                + "或者被 LijiangEchoSpriteLayer 重刷回 0)。");
+        }
+        else if (culledLayer > 0)
+        {
+            sb.AppendLine("→ 全部被相机的 cullingMask 剔除了:物件的 Layer 不在相机渲染范围内。");
+        }
+
+        Debug.LogError(sb.ToString());
     }
 
     /// <summary>把这一轮实际生成了什么、摆在哪儿打出来。

@@ -390,6 +390,26 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     public bool EditorPreviewActive => previewInEditor;
 
+    /// <summary>让所有开着预览的实例重建一次。退出 Play 之后场景重载,
+    /// 预览物件没了但组件里的引用也清空了,不主动推一把就没人重建。</summary>
+    public static void RebuildAllEditorPreviews()
+    {
+        for (int i = LiveInstances.Count - 1; i >= 0; i--)
+        {
+            if (LiveInstances[i] == null)
+            {
+                LiveInstances.RemoveAt(i);
+                continue;
+            }
+
+            if (LiveInstances[i].previewInEditor)
+            {
+                LiveInstances[i].previewDirty = true;
+                LiveInstances[i].lastEditorTime = 0f;
+            }
+        }
+    }
+
     public static bool AnyEditorPreviewActive()
     {
         for (int i = LiveInstances.Count - 1; i >= 0; i--)
@@ -1187,7 +1207,19 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
         // 换算到运行时这张图缩放后的实际尺寸,再反向挪过去
         Vector3 localSize = Vector3.Scale(renderer.sprite.bounds.size, icon.localScale);
-        icon.localPosition = new Vector3(-fraction.x * localSize.x, -fraction.y * localSize.y, 0f);
+        Vector3 offset = new Vector3(-fraction.x * localSize.x, -fraction.y * localSize.y, 0f);
+
+        // 兜底:偏移不可能超过整张图本身的大小。真超了说明上面的换算前提不成立
+        // (比如导入的 sprite 和运行时现造的那张单位对不上),这时候宁可不挪 ——
+        // 挪错的话生物会被甩出视野,变成"什么都看不见",比没居中难查得多。
+        if (Mathf.Abs(offset.x) > localSize.x || Mathf.Abs(offset.y) > localSize.y)
+        {
+            Debug.LogWarning($"[漓江回声] {art} 的可见中心换算异常(偏移 {offset},整图 {localSize}),"
+                + "这次不做居中。请检查该贴图的导入设置。");
+            return;
+        }
+
+        icon.localPosition = offset;
     }
 
     /// <summary>同上,但只取贴图的一块(蛇切关节用)。同样套支点,旋转绕自己发生。</summary>
