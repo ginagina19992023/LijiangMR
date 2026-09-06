@@ -130,6 +130,37 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         Debug.Log("[漓江回声] 扫码模块已启动。"
             + $"设备支持扫码={(MRUK.Instance != null && MRUK.Instance.QRCodeTrackingSupported)}");
+
+        LogMarkerExtensions();
+    }
+
+    /// <summary>把标记追踪相关的 OpenXR 扩展【实际有没有被启用】打出来。
+    ///
+    /// 为什么需要:真机上 QRCodeTrackingSupported 报 True,配置却一直失败
+    /// (ErrorUnknown,连试 9 次都一样)。"支持"和"这次会话真的启用了"是两回事 ——
+    /// 系统只是列出它认识这个扩展,不代表授予了本应用。
+    ///
+    /// 尤其 XR_METAX1_spatial_entity_marker 是 Meta 的【实验性】扩展(METAX1 前缀),
+    /// 这类扩展要求 manifest 里带 com.oculus.experimental.enabled 才会放行。
+    /// 打出来就能一眼定论,不用再靠猜。</summary>
+    private static void LogMarkerExtensions()
+    {
+        string[] wanted =
+        {
+            "XR_METAX1_spatial_entity_marker",
+            "XR_EXT_spatial_marker_tracking",
+            "XR_EXT_spatial_entity",
+            "XR_META_spatial_entity_discovery"
+        };
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder("[漓江回声] 标记追踪相关扩展实际启用情况:");
+        foreach (string name in wanted)
+        {
+            bool on = UnityEngine.XR.OpenXR.OpenXRRuntime.IsExtensionEnabled(name);
+            sb.Append($"\n  {name} = {(on ? "已启用" : "【没启用】")}");
+        }
+
+        Debug.Log(sb.ToString());
     }
 
     /// <summary>运行时申请场景权限。
