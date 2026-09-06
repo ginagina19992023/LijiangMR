@@ -74,6 +74,10 @@ public class LijiangEchoQrScan : MonoBehaviour
         + "追踪器和房间锚点走同一套空间服务,房间没加载过的话那套服务可能没建立上下文。")]
     [SerializeField] private bool loadSceneBeforeTracking = true;
 
+    [Tooltip("房间数据加载失败时,自动拉起系统的空间设置流程。"
+        + "会打断一次玩家,但没有房间数据的话整个空间服务(含二维码追踪)都用不了。")]
+    [SerializeField] private bool requestSceneCaptureIfMissing = true;
+
     [Header("电脑上跑测(没有头显时)")]
     [Tooltip("在编辑器里按 1/2/3/4 直接触发鱼/蛇/蛙/鸟,跳过真实扫码。真机上不影响。")]
     [SerializeField] private bool simulateWithKeyboard = true;
@@ -392,8 +396,40 @@ public class LijiangEchoQrScan : MonoBehaviour
 
         try
         {
+            // 先安静地试一次:设备上已经有房间数据的话,这一次就成了,不打扰玩家
             MRUK.LoadDeviceResult result = await mruk.LoadSceneFromDevice(false);
             Debug.Log($"[漓江回声] 房间数据加载结果:{result}");
+
+            if (result == MRUK.LoadDeviceResult.Success)
+            {
+                return;
+            }
+
+            // 没成:很可能这台头显根本没做过空间设置。
+            // ⚠️ 这一步会把玩家送进系统的房间扫描流程 —— 打扰,但它是【一次性】的,
+            // 而且没有房间数据的话整个空间服务(连带二维码追踪)都用不了。
+            // 与其让人对着二维码干瞪眼、还查不出原因,不如让系统把该做的事引导完。
+            if (!requestSceneCaptureIfMissing)
+            {
+                Debug.LogWarning("[漓江回声] 房间数据加载失败,且已关闭自动引导空间设置。"
+                    + "请在头显里手动完成:设置 → 实体空间 → 空间设置。");
+                return;
+            }
+
+            SetStatus("需要先设置房间\n请按系统提示完成一次空间设置");
+            Debug.Log("[漓江回声] 房间数据加载失败,拉起系统的空间设置流程。");
+
+            MRUK.LoadDeviceResult second = await mruk.LoadSceneFromDevice(true);
+            Debug.Log($"[漓江回声] 空间设置之后再次加载:{second}");
+
+            if (second == MRUK.LoadDeviceResult.Success)
+            {
+                // 空间服务这下应该通了,让追踪器重头再配一次
+                trackerAttempts = 0;
+                trackerToggledOff = false;
+                nextTrackerRetryAt = 0f;
+                SetStatus("把二维码放进视野");
+            }
         }
         catch (System.Exception e)
         {
