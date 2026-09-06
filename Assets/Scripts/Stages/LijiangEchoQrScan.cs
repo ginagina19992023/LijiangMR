@@ -60,6 +60,10 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("演完之后隔多久才接受下一次扫码,免得站着不动被反复触发。")]
     [SerializeField] private float rescanCooldown = 2f;
 
+    [Tooltip("启动后隔多久才第一次请求二维码追踪(秒)。"
+        + "真机日志显示:启动后 0.2 秒去配必失败(空间子系统还没就绪),所以别急着配。")]
+    [SerializeField] private float firstRequestDelay = 3f;
+
     [Tooltip("二维码追踪没配起来时,隔多久重试一次(秒)。")]
     [SerializeField] private float trackerRetryInterval = 2f;
 
@@ -122,7 +126,7 @@ public class LijiangEchoQrScan : MonoBehaviour
         EnsurePassthrough();
         ApplyBackdrop();
         BuildStatusText();
-        RequestQrTracking();
+        SetStatus("正在启动扫码…");
 
         Debug.Log("[漓江回声] 扫码模块已启动。"
             + $"设备支持扫码={(MRUK.Instance != null && MRUK.Instance.QRCodeTrackingSupported)}");
@@ -237,8 +241,9 @@ public class LijiangEchoQrScan : MonoBehaviour
 
     private void Update()
     {
-        // MRUK 可能比本组件晚一步就绪,所以没成功就每帧再试
-        if (!trackingRequested)
+        // MRUK 可能比本组件晚一步就绪,所以没成功就每帧再试;
+        // 但别在启动那零点几秒就去配 —— 那时候空间子系统还没起来,必失败。
+        if (!trackingRequested && Time.timeSinceLevelLoad >= firstRequestDelay)
         {
             RequestQrTracking();
         }
@@ -322,6 +327,7 @@ public class LijiangEchoQrScan : MonoBehaviour
     // 追踪器重试
     private int trackerAttempts;
     private float nextTrackerRetryAt;
+    private bool trackerToggledOff;
 
     /// <summary>盯着追踪器有没有【真的】开起来,没开就重来。
     ///
@@ -360,20 +366,35 @@ public class LijiangEchoQrScan : MonoBehaviour
             return;
         }
 
-        trackerAttempts++;
         nextTrackerRetryAt = Time.time + trackerRetryInterval;
 
-        // 关掉再打开 = 让 MRUK 觉得"要的配置变了",它才肯再配一次
-        OVRAnchor.TrackerConfiguration off = mruk.SceneSettings.TrackerConfiguration;
-        off.QRCodeTrackingEnabled = false;
-        mruk.SceneSettings.TrackerConfiguration = off;
+        // 【怎么才能真的让 MRUK 重配】—— 试错两次才找对:
+        //
+        // ✗ 同一帧里把 QRCodeTrackingEnabled 关掉再打开:MRUK 在它自己的 Update 里
+        //   采样时值已经变回"开"了,和它记的 _lastRequestedConfiguration 一样,没察觉。
+        // ✗ 拆成两拍分帧关/开:也不行。MRUK 第一道闸是
+        //       if (TrackerConfiguration == desiredConfig) return;
+        //   配置从没成功过,所以实际状态 TrackerConfiguration 一直是 default(QR=false),
+        //   而我写的"关"也是 QR=false —— 两者相等,它直接 return,压根没记下这次"关"。
+        // ✓ 用它自己的 OnDisable:那里面把 _lastRequestedConfiguration、
+        //   TrackerConfiguration、_configureTrackersTask 全清成初始值,正是一次干净重置。
+        //   而且 MRUK 没有 OnEnable,重新启用不会有别的副作用。
+        if (trackerToggledOff)
+        {
+            trackerToggledOff = false;
+            trackerAttempts++;
 
-        OVRAnchor.TrackerConfiguration on = off;
-        on.QRCodeTrackingEnabled = true;
-        mruk.SceneSettings.TrackerConfiguration = on;
+            mruk.enabled = true;   // 重新启用 → 下一帧它会拿着 QR=true 重新配一次
 
-        SetStatus($"正在开启扫码…({trackerAttempts})");
-        Debug.Log($"[漓江回声] 二维码追踪还没生效,重试第 {trackerAttempts} 次。");
+            SetStatus($"正在开启扫码…({trackerAttempts})");
+            Debug.Log($"[漓江回声] 重新请求二维码追踪(第 {trackerAttempts} 次)。");
+        }
+        else
+        {
+            trackerToggledOff = true;
+            mruk.enabled = false;   // 触发 OnDisable,把追踪器状态清干净
+            return;                 // 这一拍只负责重置,别急着判失败
+        }
 
         if (trackerAttempts >= trackerMaxAttempts)
         {
