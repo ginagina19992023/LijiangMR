@@ -90,7 +90,8 @@ public class LijiangEchoPatternStrike : MonoBehaviour
     private readonly List<Note> notes = new List<Note>();
     private Transform ring;
     private SpriteRenderer ringRenderer;
-    private TextMesh hint;
+    private TextMesh judgeText;   // 上方:打法提示 → 命中/漏了/按住进度
+    private TextMesh nameText;    // 下方:纹样名,固定不变
     private Transform revealed;          // 命中后浮现在圆心的纹样
 
     private LijiangEchoPatternIntro.Pattern pattern;
@@ -271,7 +272,8 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         holdNote = null;
         ring = null;
         ringRenderer = null;
-        hint = null;
+        judgeText = null;
+        nameText = null;
         revealed = null;
         revealedRenderers = null;
         revealedBaseAlpha = null;
@@ -319,10 +321,19 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         }
     }
 
+    /// <summary>两行字分工明确:
+    ///   上方 = 会变的那行 —— 一开始是打法提示,打完换成命中/漏了/按住进度
+    ///   下方 = 不变的那行 —— 就是纹样名,让人一眼知道现在在打哪个
+    /// 之前两样都挤在下面一行,判定一出来提示就被顶掉了。</summary>
     private void BuildHint()
     {
-        hint = LijiangEchoStageKit.AddText(
-            root, spawned, HintFor(pattern), new Vector3(0f, -ringSize * 1.15f, 0f),
+        judgeText = LijiangEchoStageKit.AddText(
+            root, spawned, HintFor(pattern), new Vector3(0f, ringSize * 1.15f, 0f),
+            hintTextSize, Color.white, 40);
+
+        nameText = LijiangEchoStageKit.AddText(
+            root, spawned, LijiangEchoQrScan.PatternName(pattern),
+            new Vector3(0f, -ringSize * 1.15f, 0f),
             hintTextSize, Color.white, 40);
     }
 
@@ -499,7 +510,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
                 note.Resolved = true;
                 note.Hit = false;
                 misses++;
-                ShowHint(HintFor(pattern) + "\n漏了");
+                ShowJudge("漏了");
                 continue;
             }
 
@@ -628,8 +639,8 @@ public class LijiangEchoPatternStrike : MonoBehaviour
             }
         }
 
-        ShowHint(holdProgress >= 1f
-            ? "蛇纹 · 满了"
+        ShowJudge(holdProgress >= 1f
+            ? "满了"
             : $"按住不放  {Mathf.RoundToInt(holdProgress * 100f)}%");
 
         if (holdProgress >= 1f)
@@ -671,7 +682,7 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         }
 
         revealCountdown = 0.9f;
-        ShowHint(LijiangEchoQrScan.PatternName(pattern) + " · 命中");
+        ShowJudge("命中");
     }
 
     private float revealCountdown;
@@ -703,11 +714,12 @@ public class LijiangEchoPatternStrike : MonoBehaviour
         callback?.Invoke(hits, total);
     }
 
-    private void ShowHint(string text)
+    /// <summary>写上方那行(判定/提示)。下方的纹样名建好之后就不动了。</summary>
+    private void ShowJudge(string text)
     {
-        if (hint != null && hint.text != text)
+        if (judgeText != null && judgeText.text != text)
         {
-            hint.text = text;
+            judgeText.text = text;
         }
     }
 

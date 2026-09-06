@@ -380,9 +380,9 @@ public class LijiangEchoQrScan : MonoBehaviour
         strikeStartedAt = Time.time;
         phase = Phase.Strike;
 
-        // 打法提示由打击模块画在光圈下方,这里只留纹样名 —— 两处都写就是重复,
-        // 而且视野里字越多越挡画面。
-        SetStatus(PatternName(pattern));
+        // 打击自己会在光圈上方写判定、下方写纹样名,头顶这行就清空 ——
+        // 三处都写字只会互相挡,视野里越干净越好。
+        SetStatus(string.Empty);
 
         if (intro != null)
         {
