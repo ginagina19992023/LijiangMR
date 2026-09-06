@@ -25,6 +25,12 @@ public class LijiangEchoGameFlow : MonoBehaviour
     private AudioSource ambienceSource;
     private AudioSource sfxSource;
 
+    // 所有阶段画面的整体摆位校正(米):x 正=往右, y 正=往上, z 正=往远。
+    // 用户反馈"开头之后整个画面在 VR 里靠左",往右挪就把 x 调正(例如 0.15)。
+    // 改一处影响所有阶段;只想动开始界面的高度请用 StartStageController 的 Start Screen Raise。
+    // 注意:阶段进入时才摆位,Play 中改完要重进那个阶段才看得到。
+    [SerializeField] private Vector3 stageAnchorOffset = Vector3.zero;
+
     private bool transitioning;    // 正在切场景:期间来的请求排队,不并发(见 RequestStage)
     private string pendingStage;   // 切换中收到的最后一次请求
 
@@ -38,6 +44,7 @@ public class LijiangEchoGameFlow : MonoBehaviour
 
         Instance = this;
         DontDestroyOnLoad(gameObject);
+        LijiangEchoStageKit.StageAnchorOffset = stageAnchorOffset;
 
         // 全局暂停菜单:它是盖在所有阶段之上的覆盖层,不属于任何一个阶段,所以挂在常驻的 Bootstrap 上。
         // 运行时自动补挂 —— Unity 那边不用拖任何东西。旧主场景在跑时它会自动让位(见 LegacyOwnsPauseMenu)。
@@ -108,6 +115,13 @@ public class LijiangEchoGameFlow : MonoBehaviour
         {
             HidePrototypeRecursive(item.GetChild(i));
         }
+    }
+
+    private void Update()
+    {
+        // Play 中改 Inspector 的 Stage Anchor Offset 也能生效:下次进入某个阶段时按新值摆位,
+        // 不用停掉 Play 再重来。已经摆好的当前阶段不会跳动。
+        LijiangEchoStageKit.StageAnchorOffset = stageAnchorOffset;
     }
 
     /// <summary>卸载当前阶段场景并加载下一个阶段场景（新拆分出的场景之间跳转）。</summary>

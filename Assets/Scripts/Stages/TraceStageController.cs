@@ -553,9 +553,14 @@ public class TraceStageController : MonoBehaviour
             traceFeedbackText.color = new Color(1f, 0.88f, 0.3f, 1f);
         }
 
+        // 用户反馈:绘制成功后要显示【全纹样】,不是半纹样。
+        // doneCrops 是 traceCrops 的右半(蛇 1258~2206 之于 273~2224、鸟 3289~4777 之于 1822~4795、
+        // 铜钱 1629~2330 之于 995~2330),双手模式各描一半时才用得着。
+        // 这里改用 traceCrops 的完整框去裁 *_done 贴图 —— 两张图是同一套版面,取全框即全纹样。
+        // 想回到半纹样:把下面的 traceCrops 换回 doneCrops。
         GameObject completedPattern = LijiangEchoStageKit.AddCroppedSprite(
             stageRoot, spawnedObjects, donePaths[patternIndex], "完成纹样光效",
-            doneCrops[patternIndex], new Vector3(0f, 0.02f, -0.68f), 0.92f, 48, 0.94f, false);
+            traceCrops[patternIndex], new Vector3(0f, 0.02f, -0.68f), 0.92f, 48, 0.94f, false);
         LijiangEchoStageKit.RegisterMotion(motions, completedPattern, LijiangEchoStageKit.MotionKind.Pulse, 0.035f, 3.2f, 0f);
         LijiangEchoStageKit.PlaySfx(completionSounds[patternIndex], 0.68f);
         OVRInput.SetControllerVibration(0.45f, 0.65f, OVRInput.Controller.LTouch | OVRInput.Controller.RTouch);

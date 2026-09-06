@@ -178,8 +178,15 @@ public static class LijiangEchoStageKit
     /// 把一个已存在的舞台根节点摆到相机前方。场景化后的阶段，其根节点预先放在场景里
     /// （这样美术内容作为子物体在 Scene 视图中可见可拖），运行时只需要重新定位。
     /// </summary>
-    /// <param name="verticalOffset">额外的抬高量(米)。默认 0 = 原位置。
-    /// 9.1 需求第 1 条要把开始界面抬到平视中心,由 StartStageController 传 0.20。</param>
+    /// <summary>所有阶段舞台的【全局摆位偏移】(米),按舞台自身的左右/上下/前后计:
+    /// x 正 = 往右, y 正 = 往上, z 正 = 往远。
+    /// 用来整体校正"画面在 VR 里偏左/偏低"这类问题。
+    /// 由 LijiangEchoGameFlow 上的 Stage Anchor Offset 字段写入,改一处影响所有阶段。</summary>
+    public static Vector3 StageAnchorOffset;
+
+    /// <param name="verticalOffset">额外的抬高量(米),只作用于调用方自己那个阶段。默认 0 = 原位置。
+    /// 9.1 需求第 1 条要把开始界面抬到平视中心,由 StartStageController 传 0.20。
+    /// 想整体挪所有阶段请用 <see cref="StageAnchorOffset"/>。</param>
     public static void AnchorStageRoot(Transform stageRoot, float verticalOffset = 0f)
     {
         if (stageRoot == null)
@@ -197,10 +204,14 @@ public static class LijiangEchoStageKit
 
         forward.Normalize();
         stageRoot.SetParent(null, true);
+
+        // 全局偏移按舞台自身的朝向算,所以 x 永远是"画面的左右",与玩家当前朝哪无关。
+        Quaternion stageRotation = Quaternion.LookRotation(forward, Vector3.up);
         stageRoot.position = camera.transform.position + forward * StageDistance
                              + Vector3.down * 0.02f
-                             + Vector3.up * verticalOffset;
-        stageRoot.rotation = Quaternion.LookRotation(forward, Vector3.up);
+                             + Vector3.up * verticalOffset
+                             + stageRotation * StageAnchorOffset;
+        stageRoot.rotation = stageRotation;
         stageRoot.localScale = Vector3.one * StageWorldScale;
 
         CacheControllerAnchors();

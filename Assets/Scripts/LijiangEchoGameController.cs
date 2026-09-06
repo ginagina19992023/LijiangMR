@@ -580,6 +580,9 @@ public class LijiangEchoGameController : MonoBehaviour
             handSideJudge = settings.handSideJudge;
             doubleNoteNeedsBothHands = settings.doubleNoteNeedsBothHands;
             twoHandSyncWindow = Mathf.Clamp(settings.twoHandSyncWindow, 0.05f, 0.8f);
+            swipeWindowScale = Mathf.Clamp(settings.swipeWindowScale, 1f, 3f);
+            swipeMinimumSpeed = Mathf.Clamp(settings.swipeMinimumSpeed, 0.15f, 1.2f);
+            swipeUpwardSpeed = Mathf.Clamp(settings.swipeUpwardSpeed, 0.1f, 1.2f);
         }
     }
 
@@ -2215,6 +2218,17 @@ public class LijiangEchoGameController : MonoBehaviour
     private bool mirrorDouble = false;  // 鸟纹(双击)
     private float hitWindowSeconds = 0.5f; // 命中窗口(秒),战斗选项可调;完美窗口=×0.4
 
+    // 蛙纹(挥划)专用的放宽参数,全部来自战斗选项资源(用户反馈蛙纹太难打)。
+    private float swipeWindowScale = 1.6f;   // 命中窗口的倍数,只对蛙纹生效
+    private float swipeMinimumSpeed = 0.34f; // 需要的最小挥动速度
+    private float swipeUpwardSpeed = 0.30f;  // 「上挑」向上分量的门槛
+
+    /// <summary>该类型音符的命中窗口。蛙纹按 swipeWindowScale 放宽,其它类型用原窗口。</summary>
+    private float HitWindowFor(NoteKind kind)
+    {
+        return kind == NoteKind.Swipe ? hitWindowSeconds * swipeWindowScale : hitWindowSeconds;
+    }
+
     // ——— 9.1 需求第 7 条:左右手判定(战斗选项可调)———
     // 左侧飞入的音符只响应左手、右侧只响应右手;双手音符(鸟纹)要左右手在容差内都到齐。
     [System.Flags]
@@ -2714,7 +2728,9 @@ public class LijiangEchoGameController : MonoBehaviour
 
         ProcessHoldNote(beatTime);
 
-        while (!holdActive && nextNoteIndex < noteTimes.Length && beatTime - noteTimes[nextNoteIndex] > hitWindowSeconds)
+        // 「错过」也要按该音符自己的窗口算,否则蛙纹窗口放宽了却还是照旧窗口被判错过。
+        while (!holdActive && nextNoteIndex < noteTimes.Length &&
+               beatTime - noteTimes[nextNoteIndex] > HitWindowFor(GetNoteKind(nextNoteIndex)))
         {
             combo = 0;
             MarkPassedNote(nextNoteIndex);
@@ -2747,13 +2763,14 @@ public class LijiangEchoGameController : MonoBehaviour
 
                 if (performed)
                 {
-                    if (diff <= hitWindowSeconds * 0.4f)
+                    float window = HitWindowFor(kind);   // 蛙纹按 swipeWindowScale 放宽
+                    if (diff <= window * 0.4f)
                     {
                         score += kind == NoteKind.Swipe ? 150 : 120;
                         combo++;
                         HitCurrentNote(kind == NoteKind.Swipe ? "挥划完美" : "完美", new Color(1f, 0.96f, 0.45f));
                     }
-                    else if (diff <= hitWindowSeconds)
+                    else if (diff <= window)
                     {
                         score += kind == NoteKind.Swipe ? 95 : 70;
                         combo++;
@@ -4002,7 +4019,8 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private bool IsDeliberateBattleSwing(Vector3 worldVelocity, float noteSide, bool strictSwipe)
     {
-        float minimumSpeed = strictSwipe ? 0.55f : 0.42f;
+        // 蛙纹这两个门槛来自战斗选项资源,可不改代码放宽(用户反馈蛙纹太难打)。
+        float minimumSpeed = strictSwipe ? swipeMinimumSpeed : 0.42f;
         if (stageRoot == null || worldVelocity.magnitude < minimumSpeed)
         {
             return false;
@@ -4014,7 +4032,7 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             // 蛙纹(挥划)标准动作 = 上挑(向上挥),对应「青蛙上跳」意象:只认明显向上的挥动,
             // 不再吃向下/向内/前后,让动作唯一、直观。(整体速度已由上面的 minimumSpeed 把关。)
-            return localVelocity.y >= 0.50f;
+            return localVelocity.y >= swipeUpwardSpeed;
         }
 
         return inwardVelocity >= 0.12f ||

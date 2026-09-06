@@ -40,6 +40,19 @@ public class LijiangEchoBattleSettings : ScriptableObject
     [Range(0.15f, 0.9f)]
     public float hitWindowSeconds = 0.5f;
 
+    [Header("蛙纹(挥划)判定宽松度")]
+    [Tooltip("蛙纹命中窗口的倍数:乘在上面的命中窗口上,只对蛙纹生效。\n觉得蛙纹难打就调大,1.6 = 时间上比其它音符宽 60%。")]
+    [Range(1f, 3f)]
+    public float swipeWindowScale = 1.6f;
+
+    [Tooltip("蛙纹需要的最小挥动速度(米/秒)。越小越容易触发;轻轻一挥也算。原值 0.55。")]
+    [Range(0.15f, 1.2f)]
+    public float swipeMinimumSpeed = 0.34f;
+
+    [Tooltip("蛙纹标准动作是【上挑】,这里是向上分量的门槛(米/秒)。越小越容易认成上挑。原值 0.50。")]
+    [Range(0.1f, 1.2f)]
+    public float swipeUpwardSpeed = 0.30f;
+
     [Header("左右手判定(9.1 需求第 7 条)")]
     [Tooltip("勾上 = 从左侧飞入的音符只响应左手、右侧只响应右手,用错手不算命中(连击归零,但窗口内还能用对的手补救)。\n不勾 = 旧行为:任意一只手都能打所有音符,忽略方向。\nPC 调试:鼠标左键=右手,Shift+左键=左手(和描绘的左右手映射一致)。")]
     public bool handSideJudge = true;
