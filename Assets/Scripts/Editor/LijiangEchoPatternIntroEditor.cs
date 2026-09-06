@@ -179,7 +179,6 @@ public class LijiangEchoPatternIntroEditor : Editor
             case LijiangEchoPatternIntro.Pattern.Frog:
                 DrawPointHandle("frogEnterFrom", "蛙 · 从这里进场", new Color(0.6f, 0.8f, 1f));
                 DrawPointHandle("frogPadLeftPos", "小荷叶", new Color(0.5f, 1f, 0.7f));
-                DrawPointHandle("frogOnPadLeft", "蹲在小荷叶上", new Color(0.5f, 1f, 0.7f));
                 DrawPointHandle("frogPadNextPos", "下一片荷叶", new Color(0.5f, 1f, 0.7f));
                 DrawPointHandle("frogExitTo", "蛙 · 从这里跳走", new Color(1f, 0.8f, 0.5f));
                 break;

@@ -21,6 +21,7 @@ public static class LijiangEchoScanSceneSetup
         EnsureCameraRig();
         EnsureMruk();
         GameObject scanner = EnsureScanner();
+        ApplyBackdropToCameras();
 
         Selection.activeGameObject = scanner;
         EditorUtility.SetDirty(scanner);
@@ -29,6 +30,28 @@ public static class LijiangEchoScanSceneSetup
             + "· 直接点 Play:电脑上按 1/2/3/4 = 鱼/蛇/蛙/鸟,演出出现在相机正前方\n"
             + "· 打包上头显:把打印的二维码放进视野即可,内容是 lijiang:fish / snake / frog / bird\n"
             + "· 入场动画演完后按 空格 / 鼠标左键 / 手柄 A 完成打击占位");
+    }
+
+    /// <summary>给场景里的相机铺上黑底(纯色清屏 + Alpha 0)。
+    ///
+    /// 电脑上看得见 —— 纹样在黑底上才看得清;头显上看不见 —— Passthrough 按 Alpha
+    /// 合成,0 就是"这里全给真实世界"。和其他场景、和 LijiangEchoMrValidation 的
+    /// 要求都是同一套设置。存进场景,Play 之前在 Game 视图里就已经是黑的。</summary>
+    private static void ApplyBackdropToCameras()
+    {
+        Camera[] cameras = Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
+        foreach (Camera cam in cameras)
+        {
+            if (cam == null)
+            {
+                continue;
+            }
+
+            Undo.RecordObject(cam, "设置黑色底");
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.04f, 0.03f, 0.055f, 0f);
+            EditorUtility.SetDirty(cam);
+        }
     }
 
     /// <summary>MRUK 的 Awake 里会硬性检查 OVRCameraRig,没有就直接报错。</summary>

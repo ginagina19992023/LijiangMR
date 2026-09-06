@@ -63,6 +63,15 @@ public class LijiangEchoQrScan : MonoBehaviour
     [SerializeField] private bool showStatusText = true;
     [SerializeField] private float statusTextSize = 0.022f;
 
+    [Header("画面底色")]
+    [Tooltip("给相机铺一层黑底,和其他场景一致。\n"
+        + "电脑上能看见(纹样在黑底上才看得清),头显上看不见 —— 因为 Alpha 是 0,"
+        + "Passthrough 会把真实世界合成进来,黑底不会挡住。")]
+    [SerializeField] private bool useBlackBackdrop = true;
+
+    [Tooltip("底色。Alpha 必须留 0,否则真机上会把 Passthrough 整个遮死。")]
+    [SerializeField] private Color backdropColor = new Color(0.04f, 0.03f, 0.055f, 0f);
+
     // ——— 运行时 ———
     private Phase phase = Phase.WaitingForCode;
     private LijiangEchoPatternIntro intro;
@@ -87,8 +96,38 @@ public class LijiangEchoQrScan : MonoBehaviour
             intro = gameObject.AddComponent<LijiangEchoPatternIntro>();
         }
 
+        ApplyBackdrop();
         BuildStatusText();
         RequestQrTracking();
+    }
+
+    /// <summary>黑底:电脑上看得见、头显上看不见。
+    ///
+    /// 靠的是 Alpha —— 相机用纯色清屏,RGB 是那个近黑的紫灰(和 LijiangEchoStageKit
+    /// 的预览相机同一个色),但 Alpha 设成 0。桌面渲染不理会这个 Alpha,所以你在
+    /// Game 视图里看到的是黑底;真机上 Passthrough 按 Alpha 做合成,0 就等于
+    /// "这里全给真实世界",黑底一点都挡不住。
+    ///
+    /// 这也正是 LijiangEchoMrValidation 要求的设置(SolidColor + Alpha < 0.01),
+    /// 所以顺手也把这个场景校验过了。</summary>
+    private void ApplyBackdrop()
+    {
+        if (!useBlackBackdrop)
+        {
+            return;
+        }
+
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            return;
+        }
+
+        cam.clearFlags = CameraClearFlags.SolidColor;
+
+        Color color = backdropColor;
+        color.a = 0f;   // 保险:Alpha 不为 0 的话真机上就是一块黑布糊住整个世界
+        cam.backgroundColor = color;
     }
 
     private void OnDestroy()

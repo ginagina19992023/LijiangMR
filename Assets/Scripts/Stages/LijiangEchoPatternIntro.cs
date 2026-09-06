@@ -82,10 +82,18 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     [Header("蛙:轨迹控制点(Scene 视图里可拖)")]
     [SerializeField] private Vector3 frogPadLeftPos = new Vector3(-0.95f, -0.22f, 0.10f);   // 小荷叶
-    [SerializeField] private Vector3 frogOnPadLeft = new Vector3(-0.95f, -0.05f, 0.10f);    // 蹲在小荷叶上
-    [SerializeField] private Vector3 frogPadNextPos = new Vector3(0.98f, -0.05f, -0.06f);   // 下一片荷叶
+    [SerializeField] private Vector3 frogPadNextPos = new Vector3(0.98f, -0.22f, -0.06f);   // 下一片荷叶
     [SerializeField] private Vector3 frogEnterFrom = new Vector3(-1.20f, -1.17f, 0.10f);    // 从画面外哪里进来
     [SerializeField] private Vector3 frogExitTo = new Vector3(2.20f, 0.55f, -0.35f);        // 往画面外哪里跳走
+
+    // 蛙的支点是它的【可见中心】(不是脚),所以"站在荷叶上"= 中心要在荷叶上方半个身子高。
+    // 这些偏移原本是按放大前的尺寸(0.28)配的,生物统一放大 4~5 倍之后就完全对不上了 ——
+    // 「跳跃的位置跟轨迹对不上」就是这么来的。现在按身体大小算,改 frogSize 会自动跟着走。
+    [Tooltip("蛙站在荷叶上时,身体中心比荷叶高多少 —— 按身体大小的倍数算。")]
+    [SerializeField] private float frogSitHeightRatio = 0.34f;
+
+    [Tooltip("荷叶画多大 —— 按蛙身体大小的倍数算,免得蛙比荷叶还大。")]
+    [SerializeField] private float frogPadScale = 1.15f;
 
     [Header("蛇:轨迹控制点(Scene 视图里可拖)")]
     [Tooltip("蛇从哪儿开始游过来。终点固定在光圈底部 —— 那里的顺时针切线正好是朝左,接得上。")]
@@ -225,8 +233,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         EnsureFishPoints();
 
         frogPadLeftPos = new Vector3(-0.95f, -0.22f, 0.10f);
-        frogOnPadLeft = new Vector3(-0.95f, -0.05f, 0.10f);
-        frogPadNextPos = new Vector3(0.98f, -0.05f, -0.06f);
+        frogPadNextPos = new Vector3(0.98f, -0.22f, -0.06f);
         frogEnterFrom = new Vector3(-1.20f, -1.17f, 0.10f);
         frogExitTo = new Vector3(2.20f, 0.55f, -0.35f);
 
@@ -986,14 +993,16 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     private void BuildFrog()
     {
         // 小荷叶(圈外)与下一片荷叶(前方,先不显示)。都是同一张光圈贴图,只是更小。
-        frogPadLeft = AddCreature(RingArt, "入场蛙_小荷叶", ringSize * 0.42f, 18);
-        frogPadLeft.localPosition = new Vector3(-0.95f, -0.22f, 0.10f);
+        // 大小按蛙的身体算 —— 写死的话生物一放大,蛙就比荷叶还大了。
+        float padSize = frogSize * frogPadScale;
+        frogPadLeft = AddCreature(RingArt, "入场蛙_小荷叶", padSize, 18);
+        frogPadLeft.localPosition = frogPadLeftPos;
 
-        frogPadNext = AddCreature(RingArt, "入场蛙_下一片荷叶", ringSize * 0.55f, 18);
-        frogPadNext.localPosition = new Vector3(0.98f, -0.05f, -0.06f);
+        frogPadNext = AddCreature(RingArt, "入场蛙_下一片荷叶", padSize, 18);
+        frogPadNext.localPosition = frogPadNextPos;
 
         frog = AddCreature(FrogArt, "入场蛙", frogSize, 32);
-        frog.localPosition = new Vector3(-0.95f, -0.05f, 0.10f);
+        frog.localPosition = frogPadLeftPos + Vector3.up * (frogSize * frogSitHeightRatio);
 
         frogBaseScale = 1f;   // 支点的 1 就是已经拟合好的大小
         lastFrogCallAt = -1f;
@@ -1010,10 +1019,15 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     {
         // 全部来自可拖动的控制点(Scene 视图里的箭头 / Inspector 里的数值)
         Vector3 padLeftPos = frogPadLeftPos;
-        Vector3 onPadLeft = frogOnPadLeft;
-        Vector3 center = Vector3.zero;
         Vector3 padNextPos = frogPadNextPos;
         Vector3 offScreen = frogExitTo;
+
+        // 落点 = 荷叶位置 + 半个身子高。三片荷叶用同一套算法,不再一片手写一个数值 ——
+        // 之前第一片是 +0.17、第三片直接落在荷叶中心,才会看着"位置跟轨迹对不上"。
+        Vector3 sit = Vector3.up * (frogSize * frogSitHeightRatio);
+        Vector3 onPadLeft = padLeftPos + sit;
+        Vector3 center = Vector3.zero;          // 中间那片"荷叶"就是光圈,蛙落在圈心
+        Vector3 onPadNext = padNextPos + sit;
 
         // 荷叶本身也跟着控制点走,不然拖了点、荷叶还留在原地
         if (frogPadLeft != null) { frogPadLeft.localPosition = padLeftPos; }
@@ -1057,23 +1071,27 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
         else if (t < 0.75f)
         {
-            // 在光圈上左右转动几下张望:只改朝向,不倾斜
+            // 在光圈上左右转动几下张望:只改朝向,不倾斜。
+            // 用 cos 而不是 sin:cos 在这一段结束时正好回到 +1(朝右),和下一跳的方向一致。
+            // 原来用 sin,张望结束时停在"朝左",一进第三跳又要翻回朝右 —— 那就是
+            //「第三条会突然往左边闪一下」的来源(负 scale.x 硬翻面)。
             pos = center + new Vector3(0f, Mathf.Sin(Time.time * 3f) * 0.015f, 0f);
-            heading = Mathf.Sin((t - 0.55f) * 26f) >= 0f ? Vector3.right : Vector3.left;
+            float look = (t - 0.55f) / 0.20f;
+            heading = Mathf.Cos(look * Mathf.PI * 4f) >= 0f ? Vector3.right : Vector3.left;
         }
         else if (t < 0.88f)
         {
             // 跳到前方渐显的下一片荷叶
             float p = Mathf.Clamp01((t - 0.75f) / 0.13f);
-            pos = LeapPoint(center, padNextPos, p, 0.38f);
-            heading = LeapTangent(center, padNextPos, p, 0.38f);
+            pos = LeapPoint(center, onPadNext, p, 0.38f);
+            heading = LeapTangent(center, onPadNext, p, 0.38f);
         }
         else
         {
             // 再跳出画面外
             float p = Mathf.Clamp01((t - 0.88f) / 0.12f);
-            pos = LeapPoint(padNextPos, offScreen, p, 0.30f);
-            heading = LeapTangent(padNextPos, offScreen, p, 0.30f);
+            pos = LeapPoint(onPadNext, offScreen, p, 0.30f);
+            heading = LeapTangent(onPadNext, offScreen, p, 0.30f);
         }
 
         frog.localPosition = pos;
