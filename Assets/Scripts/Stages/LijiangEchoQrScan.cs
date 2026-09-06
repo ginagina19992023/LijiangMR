@@ -94,6 +94,7 @@ public class LijiangEchoQrScan : MonoBehaviour
     private GameObject simulatedCode;   // 电脑上跑测时假装的那张码
     private float finishedAt = -999f;
     private bool trackingRequested;
+    private float lastWaitingLogAt = -99f;
     private string lastStatus;
 
     private readonly List<MRUKTrackable> scratch = new List<MRUKTrackable>();
@@ -111,10 +112,44 @@ public class LijiangEchoQrScan : MonoBehaviour
             intro = gameObject.AddComponent<LijiangEchoPatternIntro>();
         }
 
+        RequestScenePermission();
         EnsurePassthrough();
         ApplyBackdrop();
         BuildStatusText();
         RequestQrTracking();
+
+        Debug.Log("[漓江回声] 扫码模块已启动。"
+            + $"设备支持扫码={(MRUK.Instance != null && MRUK.Instance.QRCodeTrackingSupported)}");
+    }
+
+    /// <summary>运行时申请场景权限。
+    ///
+    /// ⚠️ 踩过的坑:manifest 里声明了 com.oculus.permission.USE_SCENE 并【不等于】拿到了它。
+    /// 这是 Android 的危险权限,必须运行时申请;真机上查 dumpsys 看到的是 granted=false,
+    /// 于是 MRUK 配不了追踪器 —— 二维码放到眼前也毫无反应,而且不报错、不打日志,
+    /// 表现就是"界面正常、就是不认码",极难查。
+    ///
+    /// 两个名字都申请:老的 com.oculus.* 和 Horizon OS 的 horizonos.*,不同系统版本认的不一样。</summary>
+    private void RequestScenePermission()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        string[] needed =
+        {
+            "com.oculus.permission.USE_SCENE",
+            "horizonos.permission.USE_SCENE"
+        };
+
+        foreach (string permission in needed)
+        {
+            if (UnityEngine.Android.Permission.HasUserAuthorizedPermission(permission))
+            {
+                continue;
+            }
+
+            Debug.Log("[漓江回声] 申请权限:" + permission);
+            UnityEngine.Android.Permission.RequestUserPermission(permission);
+        }
+#endif
     }
 
     /// <summary>确保场景里有透视层,没有就补一个。
@@ -235,6 +270,18 @@ public class LijiangEchoQrScan : MonoBehaviour
         if (mruk == null || mruk.SceneSettings == null)
         {
             SetStatus("等待 MRUK 初始化…");
+
+            // 这一支原来一声不吭地 return,真机上排查时等于全瞎 —— 什么日志都没有,
+            // 看不出是卡在这儿还是压根没跑到。隔几秒报一次(别每帧刷屏)。
+            if (Time.time - lastWaitingLogAt > 3f)
+            {
+                lastWaitingLogAt = Time.time;
+                Debug.LogWarning("[漓江回声] MRUK 还没就绪"
+                    + $"(Instance={(mruk == null ? "空" : "有")},"
+                    + $"SceneSettings={(mruk != null && mruk.SceneSettings != null ? "有" : "空")}),"
+                    + "二维码追踪起不来。检查场景里有没有 MRUK 物体。");
+            }
+
             return;
         }
 
