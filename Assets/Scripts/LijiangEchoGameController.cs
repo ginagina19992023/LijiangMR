@@ -165,12 +165,26 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private static LijiangEchoGameController instance;
 
+    /// <summary>旧主场景是否还加载着。这是本控制器"该不该干活"的唯一硬判据。
+    ///
+    /// 本控制器是 DontDestroyOnLoad:跑过一次之后 experienceReady 和 stageRoot 就永远为真,
+    /// 哪怕玩家早已切到 Stage_Intro 等新场景。只靠那两个判断会让它在新场景里继续接管按键 ——
+    /// 曾经导致「在悬浮过场里点跳过，掉进旧的绘制画面，然后一路跑完整条旧流程」。</summary>
+    private static bool LegacySceneLoaded
+    {
+        get
+        {
+            Scene scene = SceneManager.GetSceneByName(LijiangEchoGameFlow.LegacyMainScene);
+            return scene.IsValid() && scene.isLoaded;
+        }
+    }
+
     /// <summary>旧主场景控制器是否正在驱动某个阶段(它自带一套暂停菜单)。
     /// 全局暂停菜单 <see cref="LijiangEchoPauseMenu"/> 据此让位,避免同一个按键弹出两套菜单。
-    /// 注意这个控制器是 DontDestroyOnLoad 的,离开旧主场景后实例仍在,
-    /// 所以判据是「有没有在跑阶段」(experienceReady + stageRoot),不是「实例存不存在」。</summary>
+    /// 必须同时满足「旧主场景还在」——否则新场景里的按键会被这个常驻控制器抢走。</summary>
     public static bool LegacyOwnsPauseMenu =>
-        instance != null && instance.isActiveAndEnabled && instance.experienceReady && instance.stageRoot != null;
+        instance != null && instance.isActiveAndEnabled && instance.experienceReady
+        && instance.stageRoot != null && LegacySceneLoaded;
 
     /// <summary>
     /// 由 LijiangEchoGameFlow 在桥接进入本场景前设置：跳过开始/选关（已迁移到独立场景），
@@ -528,10 +542,23 @@ public class LijiangEchoGameController : MonoBehaviour
 
     private static void HandleSceneLoadedForController(Scene scene, LoadSceneMode mode)
     {
-        if (scene.name == "LijiangEchoMR_Main")
+        if (scene.name != LijiangEchoGameFlow.LegacyMainScene)
         {
-            TryCreateRuntimeController();
+            return;
         }
+
+        // 已经有常驻实例(本控制器 DontDestroyOnLoad)→ 不会再走 Start 协程,
+        // 必须显式让它按 ExternalStartStage 重新进阶段;否则第二次进旧主场景会停在上次的阶段。
+        if (instance != null)
+        {
+            // 先停掉上一轮遗留的协程,再起新的。注意 StopAllCoroutines 必须在这里调 ——
+            // 放进 RestartForSceneReload 内部会把它自己也停掉。
+            instance.StopAllCoroutines();
+            instance.StartCoroutine(instance.RestartForSceneReload());
+            return;
+        }
+
+        TryCreateRuntimeController();
     }
 
     private static void TryCreateRuntimeController()
@@ -610,6 +637,29 @@ public class LijiangEchoGameController : MonoBehaviour
 
         PrepareStageRoot(true);
         yield return PreloadBattleSceneIfConfigured();
+        EnterRequestedStage();
+        experienceReady = true;
+    }
+
+    /// <summary>
+    /// 旧主场景被【重新】加载时(例如从 Stage_Intro 点跳过进战斗),重新按 ExternalStartStage 决定进哪个阶段。
+    ///
+    /// 必须有这个入口:本控制器是 DontDestroyOnLoad,TryCreateRuntimeController 里
+    /// 「已存在实例就 return」意味着 Start 协程一辈子只跑一次 —— 第二次进旧主场景时
+    /// 没有任何人再去读 ExternalStartStage,控制器会停在上次离开时的阶段。
+    /// </summary>
+    private IEnumerator RestartForSceneReload()
+    {
+        experienceReady = false;
+        PrepareStageRoot(true);
+        yield return PreloadBattleSceneIfConfigured();
+        EnterRequestedStage();
+        experienceReady = true;
+    }
+
+    /// <summary>按调试标记 / ExternalStartStage / ExternalSelectedLevel 决定进入哪个阶段。</summary>
+    private void EnterRequestedStage()
+    {
         int debugStage = ReadDebugStartStage();
         if (debugStage >= 0)
         {
@@ -637,14 +687,25 @@ public class LijiangEchoGameController : MonoBehaviour
         {
             ShowStart();
         }
-
-        experienceReady = true;
     }
 
     private void Update()
     {
         if (!experienceReady)
         {
+            return;
+        }
+
+        // 旧主场景已经卸载(玩家在 Stage_Start/Select/Intro 等新场景里)→ 本控制器一律停手。
+        // 它是 DontDestroyOnLoad 的,不这样拦就会在新场景里继续吃按键、继续推自己那套阶段机,
+        // 于是出现「悬浮过场里点跳过 → 掉进旧绘制画面 → 一路跑完旧流程」。
+        if (!LegacySceneLoaded)
+        {
+            if (menuObjects.Count > 0)
+            {
+                CloseMenu();   // 顺手收掉可能残留的旧菜单
+            }
+
             return;
         }
 
@@ -4655,6 +4716,13 @@ public class LijiangEchoGameController : MonoBehaviour
     {
         PlaySfx("button", 0.6f);
         CloseMenu();
+
+        // 同 MenuActionSkip:旧主场景不在时不许重建自己的阶段(那会在新场景之上叠一个旧选关)。
+        if (!LegacySceneLoaded)
+        {
+            return;
+        }
+
         ShowSelect(); // 主页=回选关
     }
 
@@ -4663,6 +4731,14 @@ public class LijiangEchoGameController : MonoBehaviour
         PlaySfx("button", 0.6f);
         Stage stage = currentStage;
         CloseMenu();
+
+        // 兜底:旧主场景不在时绝不推自己的阶段机。currentStage 在离开旧场景后是过期值,
+        // 照它跳会在新场景之上重建旧阶段(旧绘制/旧过场),正是要杜绝的那个 bug。
+        if (!LegacySceneLoaded)
+        {
+            return;
+        }
+
         switch (stage) // 跳过=跳过当前阶段到下一个
         {
             case Stage.Intro: ShowTrace(); break;

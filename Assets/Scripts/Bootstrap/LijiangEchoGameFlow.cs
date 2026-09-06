@@ -9,7 +9,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public class LijiangEchoGameFlow : MonoBehaviour
 {
-    private const string LegacyMainScene = "LijiangEchoMR_Main";
+    /// <summary>尚未拆分的旧主场景名。公开出去,好让旧控制器判断"自己那个场景到底还在不在"。</summary>
+    public const string LegacyMainScene = "LijiangEchoMR_Main";
 
     public static LijiangEchoGameFlow Instance { get; private set; }
 
