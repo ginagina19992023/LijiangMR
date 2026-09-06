@@ -70,6 +70,10 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Tooltip("最多重试几次。系统在会话刚起来那零点几秒是配不上的,要给它时间。")]
     [SerializeField] private int trackerMaxAttempts = 8;
 
+    [Tooltip("请求扫码前先把房间数据加载一次。"
+        + "追踪器和房间锚点走同一套空间服务,房间没加载过的话那套服务可能没建立上下文。")]
+    [SerializeField] private bool loadSceneBeforeTracking = true;
+
     [Header("电脑上跑测(没有头显时)")]
     [Tooltip("在编辑器里按 1/2/3/4 直接触发鱼/蛇/蛙/鸟,跳过真实扫码。真机上不影响。")]
     [SerializeField] private bool simulateWithKeyboard = true;
@@ -353,6 +357,48 @@ public class LijiangEchoQrScan : MonoBehaviour
         trackingRequested = true;
         SetStatus("把二维码放进视野");
         Debug.Log("[漓江回声] 已向系统请求二维码追踪,等待生效。");
+
+        LoadSceneOnce();
+    }
+
+    private bool sceneLoadStarted;
+
+    /// <summary>先让 MRUK 把房间数据load 上来,再谈追踪二维码。
+    ///
+    /// 一开始我把 LoadSceneOnStartup 关了 —— 想着"只要扫码,不需要房间网格"。
+    /// 但真机日志里 ConfigureTrackers 失败之后紧跟着的就是
+    ///   SP:AF:AnchorFramework: coroDiscoverSpaces ...
+    ///   MRUK Shared: queryCompleteEvent->result returned error code: -2   (XR_ERROR_RUNTIME_FAILURE)
+    /// 也就是【空间发现】这一步在报错。追踪器和房间锚点走的是同一套空间服务,
+    /// 房间从没加载过的话,这套服务的上下文可能压根没建立起来。
+    ///
+    /// 所以这里主动加载一次;设备上没有房间数据时不弹系统的房间扫描
+    /// (requestSceneCaptureIfNoDataFound: false)—— 那会把玩家踢出应用,
+    /// 现场体验太差,宁可只记一条日志。</summary>
+    private async void LoadSceneOnce()
+    {
+        if (sceneLoadStarted || !loadSceneBeforeTracking)
+        {
+            return;
+        }
+
+        sceneLoadStarted = true;
+
+        MRUK mruk = MRUK.Instance;
+        if (mruk == null)
+        {
+            return;
+        }
+
+        try
+        {
+            MRUK.LoadDeviceResult result = await mruk.LoadSceneFromDevice(false);
+            Debug.Log($"[漓江回声] 房间数据加载结果:{result}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning("[漓江回声] 加载房间数据出错:" + e.Message);
+        }
     }
 
     // 追踪器重试
