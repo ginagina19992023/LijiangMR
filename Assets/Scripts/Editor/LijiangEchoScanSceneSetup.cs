@@ -184,13 +184,34 @@ public static class LijiangEchoScanSceneSetup
         LijiangEchoQrScan existing = Object.FindFirstObjectByType<LijiangEchoQrScan>();
         if (existing != null)
         {
+            EnsureTunableModules(existing.gameObject);   // 已经搭过的场景也补上,好在 Inspector 里调
             return existing.gameObject;
         }
 
         GameObject host = new GameObject("漓江回声_扫码");
-        host.AddComponent<LijiangEchoQrScan>();       // 它自己会补上 LijiangEchoPatternIntro
+        host.AddComponent<LijiangEchoQrScan>();
         Undo.RegisterCreatedObjectUndo(host, "添加漓江回声扫码");
+        EnsureTunableModules(host);
         return host;
+    }
+
+    /// <summary>把入场动画和打击这两个组件也【提前挂到场景里】。
+    ///
+    /// 它们本来是运行时 AddComponent 出来的,能跑,但有个坏处:Play 之前 Inspector 里
+    /// 根本看不到它们的参数,音符大小、飞入距离、扭动幅度这些就没法调 —— 只能改代码。
+    /// 现在搭场景时就挂上,所有参数都能在 Inspector 里直接拖,运行时那两句
+    /// AddComponent 会因为 GetComponent 拿得到而自动跳过。</summary>
+    private static void EnsureTunableModules(GameObject host)
+    {
+        if (host.GetComponent<LijiangEchoPatternIntro>() == null)
+        {
+            Undo.AddComponent<LijiangEchoPatternIntro>(host);
+        }
+
+        if (host.GetComponent<LijiangEchoPatternStrike>() == null)
+        {
+            Undo.AddComponent<LijiangEchoPatternStrike>(host);
+        }
     }
 
     /// <summary>新建场景自带的那台 Main Camera 会和 OVRCameraRig 打架(两个 AudioListener、两台相机)。</summary>

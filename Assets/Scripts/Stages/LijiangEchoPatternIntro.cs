@@ -155,8 +155,10 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [Range(-180f, 180f)] [SerializeField] private float frogFacingDegrees = 180f;
     [Range(-180f, 180f)] [SerializeField] private float birdFacingDegrees = 180f;
 
-    [Header("往左走时是否左右翻面(让肚子始终朝下)")]
-    [Tooltip("侧视的贴图(鱼、鸟)勾上;正面/俯视看不出左右的贴图(蛙)取消,免得来回闪。")]
+    [Header("允许水平镜像(让肚子始终朝下、不上下颠倒)")]
+    [Tooltip("勾上 = 允许用水平镜像来改朝向。代码会在「直接转」和「镜像后再转」里挑转得少的那个,"
+        + "所以生物不会头下脚上。"
+        + "侧视的贴图(鱼、鸟)勾上;正面/俯视看不出左右的贴图(蛙)可以取消,免得来回闪。")]
     [SerializeField] private bool fishMirrorWhenLeft = true;
     [SerializeField] private bool frogMirrorWhenLeft = true;
     [SerializeField] private bool birdMirrorWhenLeft = true;
@@ -1335,22 +1337,38 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             return;
         }
 
+        float heading = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+
         if (!mirrorWhenLeft)
         {
-            float heading = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+            // 不许镜像:只能直接转过去,方向对但可能会侧躺/倒立 —— 这是这个开关的代价
             target.localRotation = Quaternion.Euler(0f, 0f, heading - artFacingDegrees);
             target.localScale = Vector3.one * scale;
             return;
         }
 
-        // 负的 scale.x 会先把贴图整个镜像掉,贴图自带的朝向角也跟着翻,所以镜像那一支
-        // 的角度是 (贴图朝向 - 俯仰) 而不是 (俯仰)。老代码漏了这个翻转,结果往左跳的时候
-        // 头的俯仰是反的 —— 起跳该朝上却朝下。
-        bool goingLeft = delta.x < 0f;
-        float pitch = Mathf.Atan2(delta.y, Mathf.Abs(delta.x)) * Mathf.Rad2Deg;
-        target.localRotation = Quaternion.Euler(0f, 0f,
-            goingLeft ? artFacingDegrees - pitch : pitch - artFacingDegrees);
-        target.localScale = new Vector3(goingLeft ? -scale : scale, scale, scale);
+        // 让头朝向 heading 有两种摆法:
+        //   不镜像:转 (heading - 贴图朝向)
+        //   镜像  :先水平镜像(贴图自带的朝向角也跟着翻成 180 - 贴图朝向),
+        //           再转 (heading - 180 + 贴图朝向)
+        // 取【转得少】的那种 —— 转得少就意味着更接近正立,不会头下脚上。
+        //
+        // 老代码是按"往左走就镜像"死判的。这几张贴图画的本来就朝左(贴图朝向 = 180),
+        // 于是往左飞时既镜像又转 180° —— 镜像 + 转 180° 正好等于上下翻转,
+        // 鸟绕圈飞到左半边就整只倒过来了。
+        float plain = Mathf.DeltaAngle(0f, heading - artFacingDegrees);
+        float mirrored = Mathf.DeltaAngle(0f, heading - 180f + artFacingDegrees);
+
+        if (Mathf.Abs(plain) <= Mathf.Abs(mirrored))
+        {
+            target.localRotation = Quaternion.Euler(0f, 0f, plain);
+            target.localScale = Vector3.one * scale;
+        }
+        else
+        {
+            target.localRotation = Quaternion.Euler(0f, 0f, mirrored);
+            target.localScale = new Vector3(-scale, scale, scale);
+        }
     }
 
     /// <summary>最后 15% 时间整体淡出,好让③的打击环节接上去不突兀。</summary>
