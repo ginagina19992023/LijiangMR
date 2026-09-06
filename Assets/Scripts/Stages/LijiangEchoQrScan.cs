@@ -111,9 +111,48 @@ public class LijiangEchoQrScan : MonoBehaviour
             intro = gameObject.AddComponent<LijiangEchoPatternIntro>();
         }
 
+        EnsurePassthrough();
         ApplyBackdrop();
         BuildStatusText();
         RequestQrTracking();
+    }
+
+    /// <summary>确保场景里有透视层,没有就补一个。
+    ///
+    /// 踩过的坑:真机上进去【整个是黑的】,只有提示字浮着。原因不是黑底没去掉 ——
+    /// 是这个场景压根没有 OVRPassthroughLayer,合成的时候没有真实世界可贴,
+    /// 看到的就是相机那层近黑的清屏色。
+    ///
+    /// ForceEnablePassthrough 会打开 OVRManager.isInsightPassthroughEnabled,但它只
+    /// 【配置已有的】层、不会创建。正式场景那层藏在 OVRCameraRig 的 prefab 实例里,
+    /// 所以场景文件里看不见,而搭扫码场景时用的是包里那个干净的 OVRCameraRig,没带层。
+    ///
+    /// Underlay = 透视垫在所有渲染内容【下面】,配合相机 Alpha=0 的清屏,
+    /// 没画东西的地方就露出真实世界。</summary>
+    private void EnsurePassthrough()
+    {
+        OVRManager manager = OVRManager.instance != null
+            ? OVRManager.instance
+            : FindFirstObjectByType<OVRManager>(FindObjectsInactive.Include);
+        if (manager != null)
+        {
+            manager.isInsightPassthroughEnabled = true;
+        }
+
+        OVRPassthroughLayer layer = FindFirstObjectByType<OVRPassthroughLayer>(FindObjectsInactive.Include);
+        if (layer == null)
+        {
+            // 挂在相机机位上;没有机位就单起一个物体,免得场景里什么都没有时直接崩
+            GameObject host = manager != null ? manager.gameObject : new GameObject("漓江回声_透视层");
+            layer = host.AddComponent<OVRPassthroughLayer>();
+            Debug.Log("[漓江回声] 场景里没有 OVRPassthroughLayer,已自动补一个(否则真机上是全黑的)。");
+        }
+
+#pragma warning disable CS0618
+        layer.overlayType = OVROverlay.OverlayType.Underlay;
+#pragma warning restore CS0618
+        layer.hidden = false;
+        layer.enabled = true;
     }
 
     /// <summary>黑底:电脑上看得见、头显上看不见。

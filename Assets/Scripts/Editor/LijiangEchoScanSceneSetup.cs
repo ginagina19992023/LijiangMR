@@ -25,6 +25,7 @@ public static class LijiangEchoScanSceneSetup
         GameObject scanner = EnsureScanner();
         int cameras = ApplyBackdropToCameras();
         int rings = NormalizeRingSizes();
+        bool passthrough = EnsurePassthroughLayer();
 
         Selection.activeGameObject = scanner;
         EditorUtility.SetDirty(scanner);
@@ -41,6 +42,7 @@ public static class LijiangEchoScanSceneSetup
             + $"· 扫码脚本:{scanner.name}\n"
             + $"· 黑底:已设到 {cameras} 台相机(纯色清屏,Alpha=0)\n"
             + $"· 光圈大小:刷了 {rings} 个存着旧值的组件 → {LijiangEchoPatternIntro.DefaultRingSize}\n"
+            + $"· 透视层:{(passthrough ? "已添加(没有它真机进去是全黑的)" : "已存在")}\n"
             + $"· 场景:{(saved ? "已保存" : "未保存 —— 记得 Ctrl+S")}";
 
         Debug.Log("[漓江回声] 扫码场景已就绪。\n" + report
@@ -75,6 +77,37 @@ public static class LijiangEchoScanSceneSetup
         }
 
         return touched;
+    }
+
+    /// <summary>补上透视层。没有它的话真机进去【整个是黑的】——
+    /// 合成时没有真实世界可贴,看到的就是相机那层近黑的清屏色。
+    /// 正式场景那层藏在 OVRCameraRig 的 prefab 实例里(所以场景文件里 grep 不到),
+    /// 而这里用的是包里那个干净的 OVRCameraRig,不带层。</summary>
+    private static bool EnsurePassthroughLayer()
+    {
+        if (Object.FindFirstObjectByType<OVRPassthroughLayer>(FindObjectsInactive.Include) != null)
+        {
+            return false;
+        }
+
+        OVRManager manager = Object.FindFirstObjectByType<OVRManager>(FindObjectsInactive.Include);
+        GameObject host = manager != null ? manager.gameObject : new GameObject("漓江回声_透视层");
+        OVRPassthroughLayer layer = Undo.AddComponent<OVRPassthroughLayer>(host);
+
+#pragma warning disable CS0618
+        layer.overlayType = OVROverlay.OverlayType.Underlay;   // 垫在所有内容下面
+#pragma warning restore CS0618
+        layer.hidden = false;
+
+        if (manager != null)
+        {
+            Undo.RecordObject(manager, "打开透视");
+            manager.isInsightPassthroughEnabled = true;
+            EditorUtility.SetDirty(manager);
+        }
+
+        EditorUtility.SetDirty(host);
+        return true;
     }
 
     /// <summary>把场景里已经【存过】的入场/打击组件的光圈大小刷成当前默认值。
