@@ -12,7 +12,7 @@ using UnityEngine;
 ///   鸟:几只鸟扇翅膀飞出,围光圈盘旋,忽远忽近
 ///   鱼:从光圈外跃起跳进圈里;另有鱼在圈旁探头,头旁泛起涟漪(更小的白圈),停一会儿也跃入
 ///   蛇:先响「嘶嘶」→ 扭动身子从旁边过来 → 缠上光圈 → 顺时针转一圈 → 消失
-///   蛙:待设计(暂用简单蹦跳占位)
+///   蛙:把光圈当作一片荷叶,在荷叶间跳跃,最后跳出画面
 ///
 /// 不依赖摄像头/二维码,可以单独拉起来跑测;接上扫码后把 anchor 传成二维码的空间位置即可。
 /// </summary>
@@ -1151,13 +1151,21 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     /// 支点的 localScale 是 1 = 已经拟合好的目标大小,所以 Actor.BaseScale 一律填 1。</summary>
     private Transform AddCreature(string art, string objectName, float targetHeight, int order)
     {
+        return AddCenteredSprite(root, spawned, art, objectName, targetHeight, order);
+    }
+
+    /// <summary>公开出来给③打击环节复用 —— 那边同样要"图案落在支点上",
+    /// 不然一转向就甩出去,和这边踩过的坑一模一样。</summary>
+    public static Transform AddCenteredSprite(Transform parent, List<GameObject> spawned,
+        string art, string objectName, float targetHeight, int order)
+    {
         GameObject pivot = new GameObject(objectName);
-        pivot.transform.SetParent(root, false);
+        pivot.transform.SetParent(parent, false);
         pivot.transform.localPosition = Vector3.zero;
         spawned.Add(pivot);
 
         GameObject icon = LijiangEchoStageKit.AddIcon(
-            root, spawned, art, objectName + "_图", Vector3.zero, targetHeight, order, 0f);
+            parent, spawned, art, objectName + "_图", Vector3.zero, targetHeight, order, 0f);
         if (icon != null)
         {
             icon.transform.SetParent(pivot.transform, false);
@@ -1320,7 +1328,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.85f, 1f, t));
     }
 
-    private static void SetAlpha(Transform target, float alpha)
+    public static void SetAlpha(Transform target, float alpha)
     {
         if (target == null)
         {

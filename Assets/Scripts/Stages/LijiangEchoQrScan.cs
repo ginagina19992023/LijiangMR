@@ -8,7 +8,7 @@ using UnityEngine;
 /// 三段:
 ///   ① 扫到二维码 → 在【二维码所在的真实位置】浮现光圈       ← 本组件
 ///   ② 入场动画 3~5 秒                                      ← LijiangEchoPatternIntro
-///   ③ 打击环节                                             ← 目前是占位,见文件末尾
+///   ③ 打击环节                                             ← LijiangEchoPatternStrike
 ///
 /// 【为什么不用摄像头取帧 + ZXing】
 /// 文档里原本估的做法是自己取摄像头帧、引入 ZXing 解码、再反算二维码的空间位置。
@@ -65,6 +65,12 @@ public class LijiangEchoQrScan : MonoBehaviour
     [Header("提示文字")]
     [SerializeField] private bool showStatusText = true;
     [SerializeField] private float statusTextSize = 0.022f;
+
+    [Tooltip("提示文字在视野里往下压多少(米)。反馈:原来挡着画面了,所以调大。")]
+    [SerializeField] private float statusTextDrop = 0.55f;
+
+    [Tooltip("提示文字离玩家多远(米)。放远一点也会显得更靠边。")]
+    [SerializeField] private float statusTextDistance = 1.35f;
 
     [Header("画面底色")]
     [Tooltip("给相机铺一层黑底,和其他场景一致。\n"
@@ -354,39 +360,56 @@ public class LijiangEchoQrScan : MonoBehaviour
         selfCheckAt = Time.time + 1f;
     }
 
-    // ————————————————————————————— ③ 打击(占位) —————————————————————————————
+    // ————————————————————————————— ③ 打击 —————————————————————————————
 
     private LijiangEchoPatternIntro.Pattern strikePattern;
     private float strikeStartedAt;
+    private LijiangEchoPatternStrike strike;
 
+    /// <summary>入场动画演完 → 接真打击。四种纹样各按自己的打法判定,
+    /// 具体实现见 LijiangEchoPatternStrike。</summary>
     private void OnIntroFinished(LijiangEchoPatternIntro.Pattern pattern)
     {
-        // ⚠️ 这里本该接战斗那一套(音符飞入 + 判定 + 命中反馈)。
-        // 战斗逻辑现在还锁在 LijiangEchoGameController 那 5800 行里,拆出来是
-        // docs/REFACTOR-STEP2-BATTLE-SPLIT.md 的活;等那步做完再把这里换成真打击。
-        // 在那之前先给一个能跑通闭环的占位:提示打法 → 按下 → 出音效 → 结束。
         strikePattern = pattern;
         strikeStartedAt = Time.time;
         phase = Phase.Strike;
-        SetStatus(PatternName(pattern) + "\n" + StrikeHint(pattern));
+
+        // 打法提示由打击模块画在光圈下方,这里只留纹样名 —— 两处都写就是重复,
+        // 而且视野里字越多越挡画面。
+        SetStatus(PatternName(pattern));
+
+        if (intro != null)
+        {
+            intro.Teardown();   // 入场的生物收掉,把画面让给打击
+        }
+
+        if (strike == null)
+        {
+            strike = GetComponent<LijiangEchoPatternStrike>();
+            if (strike == null)
+            {
+                strike = gameObject.AddComponent<LijiangEchoPatternStrike>();
+            }
+        }
+
+        strike.Begin(pattern, anchorRoot, OnStrikeFinished);
+    }
+
+    private void OnStrikeFinished(int hits, int total)
+    {
+        SetStatus($"{PatternName(strikePattern)}\n命中 {hits} / {total}");
+        Debug.Log($"[漓江回声] {PatternName(strikePattern)} 打击结束:命中 {hits} / {total}");
+        FinishRound();
     }
 
     private void UpdateStrike()
     {
-        if (!LijiangEchoStageKit.NonPointerConfirmPressed())
+        // 打击本身由 LijiangEchoPatternStrike 自己跑;这里只兜一个总时限,
+        // 免得玩家走开之后这一轮永远挂着、下一张码也扫不了。
+        if (Time.time - strikeStartedAt > 30f)
         {
-            // 一直没打也别永远卡着
-            if (Time.time - strikeStartedAt > 15f)
-            {
-                FinishRound();
-            }
-
-            return;
+            OnStrikeFinished(0, 1);
         }
-
-        LijiangEchoStageKit.PlaySfx(StrikeSfx(strikePattern), 0.8f);
-        SetStatus(PatternName(strikePattern) + "\n命中");
-        FinishRound();
     }
 
     private void FinishRound()
@@ -397,6 +420,11 @@ public class LijiangEchoQrScan : MonoBehaviour
         if (intro != null)
         {
             intro.Teardown();
+        }
+
+        if (strike != null)
+        {
+            strike.Teardown();
         }
 
         if (anchorRoot != null)
@@ -660,7 +688,9 @@ public class LijiangEchoQrScan : MonoBehaviour
         }
 
         Transform head = cam.transform;
-        statusRoot.position = head.position + head.forward * 1.1f + head.up * -0.28f;
+        statusRoot.position = head.position
+            + head.forward * statusTextDistance
+            + head.up * -statusTextDrop;
         statusRoot.rotation = Quaternion.LookRotation(statusRoot.position - head.position, Vector3.up);
     }
 }
