@@ -308,6 +308,55 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!1 &276425238 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100002, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+  m_PrefabInstance: {fileID: 1012249250}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &276425240
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 276425238}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
 --- !u!1 &324690947
 GameObject:
   m_ObjectHideFlags: 0
@@ -338,7 +387,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoPatternIntro
   duration: 4
-  ringSize: 0.62
+  ringSize: 1.97
   birdSizeBig: 1.35
   birdSizeSmall: 1
   fishSize: 1.2
@@ -354,6 +403,7 @@ MonoBehaviour:
   fishLeapHeight: 0.55
   fishLeapDepth: 0.45
   fishNearScaleBoost: 1.35
+  fishRippleRatio: 0.11
   fishLeapStarts:
   - {x: -0.75, y: -0.45, z: 0}
   - {x: 0.93, y: -0.45, z: 0}
@@ -384,14 +434,14 @@ MonoBehaviour:
   fishFacingDegrees: 180
   snakeFacingDegrees: 180
   frogFacingDegrees: 180
-  birdFacingDegrees: 2
+  birdFacingDegrees: -180
   fishMirrorWhenLeft: 1
   frogMirrorWhenLeft: 1
   birdMirrorWhenLeft: 1
   previewInEditor: 1
-  previewPattern: 2
-  previewTime: 0.77933335
-  autoPlayInEditor: 1
+  previewPattern: 3
+  previewTime: 0.97234905
+  autoPlayInEditor: 0
   drawPathGizmos: 1
   pathGizmoSamples: 153
 --- !u!4 &324690949
@@ -471,6 +521,55 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1012249251}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &987403375 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+  m_PrefabInstance: {fileID: 1012249250}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &987403377
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 987403375}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
 --- !u!1001 &1012249250
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -590,7 +689,16 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 487254, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1880547740}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 100006, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1544051739}
+    - targetCorrespondingSourceObject: {fileID: 100002, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 276425240}
+    - targetCorrespondingSourceObject: {fileID: 100000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 987403377}
   m_SourcePrefab: {fileID: 100100000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
 --- !u!4 &1012249251 stripped
 Transform:
@@ -639,6 +747,55 @@ Transform:
   - {fileID: 131839479}
   m_Father: {fileID: 1012249253}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1544051737 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100006, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+  m_PrefabInstance: {fileID: 1012249250}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1544051739
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1544051737}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
 --- !u!1001 &1837700057
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -746,6 +903,8 @@ GameObject:
   m_Component:
   - component: {fileID: 2091088252}
   - component: {fileID: 2091088251}
+  - component: {fileID: 2091088254}
+  - component: {fileID: 2091088253}
   m_Layer: 0
   m_Name: "\u6F13\u6C5F\u56DE\u58F0_\u626B\u7801"
   m_TagString: Untagged
@@ -768,11 +927,15 @@ MonoBehaviour:
   sizeRelativeToCode: 6
   liftOffPaper: 0.04
   followCode: 1
+  sharedRingSize: 1.97
   allowRescan: 1
   rescanCooldown: 2
   simulateWithKeyboard: 1
+  simulateDistance: 1.2
   showStatusText: 1
   statusTextSize: 0.022
+  statusTextDrop: 0.55
+  statusTextDistance: 1.35
   useBlackBackdrop: 1
   backdropColor: {r: 0.04, g: 0.03, b: 0.055, a: 0}
 --- !u!4 &2091088252
@@ -790,6 +953,97 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2091088253
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2091088250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8420e52f21d8af46be6bb50e185b30e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoPatternStrike
+  noteCount: 3
+  approachSeconds: 1.6
+  noteInterval: 1.3
+  hitWindow: 0.5
+  swipeWindowScale: 1.6
+  holdSeconds: 1.8
+  holdDecay: 0.6
+  swipeMinimumSpeed: 0.34
+  swipeUpwardSpeed: 0.3
+  twoHandSyncWindow: 0.35
+  ringSize: 1.97
+  spawnDistanceRatio: 2
+  hintTextRatio: 0.08
+  noteSizeRatio: 0.55
+--- !u!114 &2091088254
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2091088250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8b9f28f8ed73d84ebe3cdb4b6e2a470, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LijiangEchoPatternIntro
+  duration: 4
+  ringSize: 1.97
+  birdSizeBig: 1.35
+  birdSizeSmall: 1
+  fishSize: 1.2
+  fishPeekSize: 1
+  snakeHeadSize: 1.35
+  frogSize: 1.25
+  birdCount: 4
+  birdOrbitRadius: 0.85
+  birdOrbitSpeed: 1.1
+  birdDepthSwing: 0.45
+  fishLeapCount: 3
+  fishPeekCount: 2
+  fishLeapHeight: 0.55
+  fishLeapDepth: 0.45
+  fishNearScaleBoost: 1.35
+  fishRippleRatio: 0.11
+  fishLeapStarts: []
+  fishPeekSpots: []
+  frogPadLeftPos: {x: -0.95, y: -0.22, z: 0.1}
+  frogPadNextPos: {x: 0.98, y: -0.22, z: -0.06}
+  frogEnterFrom: {x: -1.2, y: -1.17, z: 0.1}
+  frogExitTo: {x: 2.2, y: 0.55, z: -0.35}
+  frogSitHeightRatio: 0.34
+  frogPadScale: 1.15
+  snakeApproachFrom: {x: 1.55, y: -0.88, z: 0.1}
+  snakeApproachRatio: 0.35
+  snakeCoilRadius: 0.72
+  snakeSegments: 10
+  snakeSourceRect:
+    x: 1700
+    y: 190
+    width: 420
+    height: 300
+  snakeSegmentSpacing: 0.26
+  snakeWindRadius: 0.12
+  snakeWindTurns: 2.5
+  snakeWaveAmplitude: 0.07
+  snakeWaveSpeed: 5
+  fishFacingDegrees: 180
+  snakeFacingDegrees: 180
+  frogFacingDegrees: 180
+  birdFacingDegrees: 180
+  fishMirrorWhenLeft: 1
+  frogMirrorWhenLeft: 1
+  birdMirrorWhenLeft: 1
+  previewInEditor: 0
+  previewPattern: 0
+  previewTime: 0.45
+  autoPlayInEditor: 1
+  drawPathGizmos: 1
+  pathGizmoSamples: 90
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
