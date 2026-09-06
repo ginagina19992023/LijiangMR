@@ -16,6 +16,7 @@ using UnityEngine;
 ///
 /// 不依赖摄像头/二维码,可以单独拉起来跑测;接上扫码后把 anchor 传成二维码的空间位置即可。
 /// </summary>
+[ExecuteAlways]
 public class LijiangEchoPatternIntro : MonoBehaviour
 {
     /// <summary>纹样序号,与 LijiangEchoGameController 的音符类型一一对应。</summary>
@@ -83,6 +84,25 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     [SerializeField] private bool frogMirrorWhenLeft = true;
     [SerializeField] private bool birdMirrorWhenLeft = true;
 
+    // 这套动画是有纵深的(鸟忽远忽近、蛇一半绕到圈后面),Game 视图正对着看根本看不出来,
+    // Play 起来又只有 4 秒。所以做成【不用 Play 也能摆】:勾上预览,拖时间轴,
+    // 在 Scene 视图里转着看,深度一目了然。
+    [Header("编辑模式预览(不用 Play 就能调轨迹)")]
+    [Tooltip("勾上后直接在 Scene 视图里生成这套动画。预览物件带 DontSave,不会存进场景。")]
+    [SerializeField] private bool previewInEditor;
+
+    [Tooltip("预览哪一种纹样。")]
+    [SerializeField] private Pattern previewPattern = Pattern.Fish;
+
+    [Tooltip("时间轴:0=刚开始,1=结束。拖它就能逐帧看轨迹。")]
+    [Range(0f, 1f)] [SerializeField] private float previewTime;
+
+    [Tooltip("在 Scene 视图里把每个生物的整条轨迹画成线,深度看得最清楚。")]
+    [SerializeField] private bool drawPathGizmos = true;
+
+    [Tooltip("轨迹线的采样点数,越多越平滑。")]
+    [Range(8, 240)] [SerializeField] private int pathGizmoSamples = 90;
+
     // ——— 运行时 ———
     private Transform root;
     private readonly List<GameObject> spawned = new List<GameObject>();
@@ -136,6 +156,13 @@ public class LijiangEchoPatternIntro : MonoBehaviour
         }
 
         BuildRing();
+        BuildForPattern();
+
+        running = true;
+    }
+
+    private void BuildForPattern()
+    {
         switch (pattern)
         {
             case Pattern.Bird: BuildBird(); break;
@@ -143,8 +170,17 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             case Pattern.Snake: BuildSnake(); break;
             default: BuildFrog(); break;
         }
+    }
 
-        running = true;
+    /// <summary>音效:编辑模式预览和画 Gizmo 采样时都不该出声。</summary>
+    private void PlayIntroSfx(string clipName, float volume)
+    {
+        if (!Application.isPlaying || sampling)
+        {
+            return;
+        }
+
+        LijiangEchoStageKit.PlaySfx(clipName, volume);
     }
 
     /// <summary>收起。Begin 会先自动调一次,所以调用方只在中途取消时才需要显式调。</summary>
@@ -163,13 +199,37 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
         if (root != null)
         {
-            Destroy(root.gameObject);
+            DestroyNow(root.gameObject);
             root = null;
+        }
+    }
+
+    /// <summary>编辑模式下不能用 Destroy(它要等到帧末,而编辑器没有"帧末"),得用 DestroyImmediate。</summary>
+    private static void DestroyNow(GameObject target)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(target);
+        }
+        else
+        {
+            DestroyImmediate(target);
         }
     }
 
     private void Update()
     {
+        if (!Application.isPlaying)
+        {
+            EditorPreviewTick();
+            return;
+        }
+
         if (!running || root == null)
         {
             return;
@@ -177,6 +237,21 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
         timer += Time.deltaTime;
         float t = Mathf.Clamp01(timer / Mathf.Max(0.01f, duration));
+
+        ApplyPose(t);
+
+        if (timer >= duration)
+        {
+            Action callback = onComplete;
+            running = false;
+            callback?.Invoke();
+        }
+    }
+
+    /// <summary>把动画摆到归一化时间 t 上。抽出来是为了让编辑模式的时间轴也能复用。</summary>
+    private void ApplyPose(float t)
+    {
+        timer = t * Mathf.Max(0.01f, duration);
 
         UpdateRing(t);
         switch (pattern)
@@ -186,13 +261,163 @@ public class LijiangEchoPatternIntro : MonoBehaviour
             case Pattern.Snake: UpdateSnake(t); break;
             default: UpdateFrog(t); break;
         }
+    }
 
-        if (timer >= duration)
+    // ————————————————————————————— 编辑模式预览 —————————————————————————————
+
+    private bool sampling;        // 正在为画轨迹而反复摆姿势,期间别出声
+    private bool previewDirty;
+    private float lastPreviewTime;
+
+    private void OnValidate()
+    {
+        // 拖时间轴不该重建预览 —— 那会把物件全删了重来,拖动时一路闪。
+        // 只有改了大小/数量这类结构参数才重建。
+        if (!Mathf.Approximately(previewTime, lastPreviewTime))
         {
-            Action callback = onComplete;
-            running = false;
-            callback?.Invoke();
+            lastPreviewTime = previewTime;
+            return;
         }
+
+        previewDirty = true;
+    }
+
+    /// <summary>编辑模式的每一拍:按需重建预览,然后把动画摆到 previewTime 上。</summary>
+    private void EditorPreviewTick()
+    {
+        if (!previewInEditor)
+        {
+            if (root != null)
+            {
+                Teardown();
+            }
+
+            return;
+        }
+
+        if (root == null || pattern != previewPattern || previewDirty)
+        {
+            previewDirty = false;
+            BuildPreview();
+        }
+
+        if (root != null)
+        {
+            ApplyPose(Mathf.Clamp01(previewTime));
+        }
+    }
+
+    private void BuildPreview()
+    {
+        Teardown();
+
+        pattern = previewPattern;
+        onComplete = null;
+        timer = 0f;
+
+        // 预览挂在本物体下面,想整体挪位置直接拖这个 GameObject 就行
+        GameObject holder = new GameObject("漓江回声_扫码入场_编辑预览");
+        holder.transform.SetParent(transform, false);
+        root = holder.transform;
+        spawned.Add(holder);
+
+        BuildRing();
+        BuildForPattern();
+
+        // 预览出来的东西只是给眼睛看的,标上 DontSave,存场景时不会被写进去
+        for (int i = 0; i < spawned.Count; i++)
+        {
+            if (spawned[i] != null)
+            {
+                spawned[i].hideFlags = HideFlags.DontSave;
+            }
+        }
+
+        running = false;
+    }
+
+    /// <summary>把每个生物的整条轨迹画出来。
+    ///
+    /// 不另写一份路径公式 —— 那样迟早和动画本身对不上。这里直接把动画在 0~1 上采样若干次,
+    /// 记下每一帧的位置连成线,画完再摆回原来的时间点。所以线永远等于真实轨迹。</summary>
+    private void OnDrawGizmos()
+    {
+        if (!drawPathGizmos || root == null || sampling)
+        {
+            return;
+        }
+
+        List<Transform> movers = CollectMovers();
+        if (movers.Count == 0)
+        {
+            return;
+        }
+
+        int samples = Mathf.Max(8, pathGizmoSamples);
+        Vector3[,] track = new Vector3[movers.Count, samples];
+
+        sampling = true;
+        float restore = Mathf.Clamp01(Application.isPlaying ? timer / Mathf.Max(0.01f, duration) : previewTime);
+        float restoreFrogCall = lastFrogCallAt;   // 采样会把蛙叫的"已播过"游标推到底,得还回去
+        try
+        {
+            for (int s = 0; s < samples; s++)
+            {
+                ApplyPose(s / (float)(samples - 1));
+                for (int m = 0; m < movers.Count; m++)
+                {
+                    track[m, s] = movers[m] != null ? movers[m].position : Vector3.zero;
+                }
+            }
+
+            ApplyPose(restore);
+        }
+        finally
+        {
+            lastFrogCallAt = restoreFrogCall;
+            sampling = false;
+        }
+
+        for (int m = 0; m < movers.Count; m++)
+        {
+            for (int s = 1; s < samples; s++)
+            {
+                // 按时间从青渐变到品红,一眼看出走向;深度靠在 Scene 视图里转视角看
+                Gizmos.color = Color.Lerp(Color.cyan, Color.magenta, s / (float)(samples - 1));
+                Gizmos.DrawLine(track[m, s - 1], track[m, s]);
+            }
+
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(track[m, 0], 0.03f);          // 起点
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(track[m, samples - 1], 0.03f); // 终点
+        }
+    }
+
+    /// <summary>会动的那些 Transform(蛙和蛇不走 actors 列表,单独收一下)。</summary>
+    private List<Transform> CollectMovers()
+    {
+        List<Transform> movers = new List<Transform>();
+
+        for (int i = 0; i < actors.Count; i++)
+        {
+            if (actors[i] != null && actors[i].Tr != null)
+            {
+                movers.Add(actors[i].Tr);
+            }
+        }
+
+        if (frog != null)
+        {
+            movers.Add(frog);
+        }
+
+        if (snake != null)
+        {
+            movers.Add(snake);
+        }
+
+        return movers;
     }
 
     // ————————————————————————————— 光圈 —————————————————————————————
@@ -224,7 +449,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     private void BuildBird()
     {
-        LijiangEchoStageKit.PlaySfx("birds", 0.5f);
+        PlayIntroSfx("birds", 0.5f);
 
         for (int i = 0; i < birdCount; i++)
         {
@@ -283,7 +508,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     private void BuildFish()
     {
-        LijiangEchoStageKit.PlaySfx("water", 0.45f);
+        PlayIntroSfx("water", 0.45f);
 
         // 从光圈外面跃起、跳进圈里的
         for (int i = 0; i < fishLeapCount; i++)
@@ -407,7 +632,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
     private void BuildSnake()
     {
         // 需求:先响「嘶嘶」声,音效先于画面
-        LijiangEchoStageKit.PlaySfx("snake", 0.7f);
+        PlayIntroSfx("snake", 0.7f);
 
         // 反馈:「感觉你没有按照节来切而是给他切成千层了」。
         // 说得对 —— 之前这里根本没切,是把【整条蛇】复制了 7 份首尾排开,
@@ -574,7 +799,7 @@ public class LijiangEchoPatternIntro : MonoBehaviour
 
     private void PlayFrogCall()
     {
-        LijiangEchoStageKit.PlaySfx("swipe", 0.42f);   // 暂用挥划音;有蛙叫素材后换掉
+        PlayIntroSfx("swipe", 0.42f);   // 暂用挥划音;有蛙叫素材后换掉
     }
 
     /// <summary>到某个归一化时刻叫一声(只叫一次)。</summary>
