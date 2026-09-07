@@ -30,6 +30,9 @@ public class StartStageController : MonoBehaviour
     private SpriteRenderer startButtonRenderer;
     private bool ready;
     private bool confirmed;
+    private bool trackedAnchorReady;
+    private float trackingStableSince = -1f;
+    private Vector3 previousEyePosition;
 
     private IEnumerator Start()
     {
@@ -74,6 +77,8 @@ public class StartStageController : MonoBehaviour
             return;
         }
 
+        UpdateInitialTrackedAnchor();
+
         LijiangEchoStageKit.UpdateControllerInput(stageRoot);
         LijiangEchoStageKit.UpdateMotions(motionItems);
 
@@ -97,6 +102,37 @@ public class StartStageController : MonoBehaviour
             LijiangEchoStageKit.PlaySfx("button", 0.62f);
             LijiangEchoGameFlow.Instance.GoToStage("Stage_Select");
         }
+    }
+
+    private void UpdateInitialTrackedAnchor()
+    {
+        if (trackedAnchorReady)
+        {
+            return;
+        }
+
+        Camera eye = LijiangEchoStageKit.FindGameplayCamera();
+        if (eye == null || !eye.isActiveAndEnabled || !LijiangEchoStageKit.IsHeadPoseTracked())
+        {
+            trackingStableSince = -1f;
+            return;
+        }
+
+        Vector3 eyePosition = eye.transform.position;
+        // 等待追踪原点和眼高稳定，避免启动时的默认相机位置成为永久锚点。
+        if (trackingStableSince < 0f || Vector3.Distance(previousEyePosition, eyePosition) > 0.03f)
+        {
+            trackingStableSince = Time.unscaledTime;
+        }
+        previousEyePosition = eyePosition;
+        if (Time.unscaledTime - trackingStableSince < 0.35f)
+        {
+            return;
+        }
+
+        LijiangEchoStageKit.AnchorStageRoot(stageRoot, startScreenRaise);
+        trackedAnchorReady = true;
+        Debug.Log($"开始舞台追踪定位完成：眼高={eyePosition.y:F3}，舞台高度={stageRoot.position.y:F3}，额外抬高={startScreenRaise:F3}米。", this);
     }
 
     /// <summary>在当前激活场景里查找烘焙生成的「开始舞台」根节点；没有则返回 null。</summary>
